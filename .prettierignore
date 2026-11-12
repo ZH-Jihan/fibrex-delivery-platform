@@ -1,0 +1,7 @@
+pnpm-lock.yaml
+reference/
+docs/
+START-HERE.md
+CLAUDE.md
+coverage/
+dist/

@@ -1,0 +1,27 @@
+{
+  "name": "fibrex",
+  "private": true,
+  "type": "module",
+  "description": "Fibrex platform: manpower supply operations, payroll and finance (see docs/SPEC.md)",
+  "packageManager": "pnpm@11.28.9",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "^24.0.0",
+      "onFail": "download"
+    }
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "pnpm -r --parallel run typecheck",
+    "test": "pnpm -r run test"
+  },
+  "devDependencies": {
+    "@fibrex/eslint-config": "workspace:*",
+    "eslint": "10.14.0",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3"
+  }
+}
