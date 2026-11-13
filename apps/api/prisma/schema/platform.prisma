@@ -1,0 +1,317 @@
+// platform: tenancy, companies, branches, zones, settings, numbering, currencies.
+// Table definitions and comments: prisma/migrations/20261113000100_platform_iam.
+
+model Currency {
+  id         String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  code       String   @unique @db.Char(3)
+  name       String
+  minorUnits Int      @default(2) @map("minor_units") @db.SmallInt
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy  String?  @map("created_by") @db.Uuid
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy  String?  @map("updated_by") @db.Uuid
+  version    Int      @default(1)
+
+  companies Company[]
+
+  @@map("currency")
+  @@schema("platform")
+}
+
+model Tenant {
+  id                  String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  name                String
+  slug                String
+  status              String    @default("active")
+  dataResidencyRegion String?   @map("data_residency_region")
+  onboardedAt         DateTime? @map("onboarded_at") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy           String?   @map("created_by") @db.Uuid
+  updatedAt           DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy           String?   @map("updated_by") @db.Uuid
+  version             Int       @default(1)
+  deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy           String?   @map("deleted_by") @db.Uuid
+  deleteReason        String?   @map("delete_reason")
+
+  subscriptions TenantSubscription[]
+  usageCounters UsageCounter[]
+  companies     Company[]
+  settings      Setting[]
+  users         UserAccount[]
+  otpChallenges OtpChallenge[]
+  roles         Role[]
+  ipAllowlist   IpAllowlist[]
+  ssoProviders  SsoProvider[]
+
+  @@unique([slug], map: "tenant_slug_uq", where: { deletedAt: null })
+  @@map("tenant")
+  @@schema("platform")
+}
+
+model SubscriptionPlan {
+  id        String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  code      String   @unique
+  name      String
+  limits    Json     @default("{}")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy String?  @map("updated_by") @db.Uuid
+  version   Int      @default(1)
+
+  subscriptions TenantSubscription[]
+
+  @@map("subscription_plan")
+  @@schema("platform")
+}
+
+model TenantSubscription {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  planId       String    @map("plan_id") @db.Uuid
+  validFrom    DateTime  @map("valid_from") @db.Date
+  validTo      DateTime? @map("valid_to") @db.Date
+  status       String    @default("active")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  tenant Tenant           @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  plan   SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("tenant_subscription")
+  @@schema("platform")
+}
+
+model UsageCounter {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  metric       String
+  period       DateTime  @db.Date
+  value        BigInt    @default(0)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, metric, period], map: "usage_counter_uq", where: { deletedAt: null })
+  @@map("usage_counter")
+  @@schema("platform")
+}
+
+model Company {
+  id                   String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
+  legalName            String    @map("legal_name")
+  tradeName            String?   @map("trade_name")
+  countryCode          String    @map("country_code") @db.Char(2)
+  baseCurrency         String    @map("base_currency") @db.Char(3)
+  timeZone             String    @default("Asia/Qatar") @map("time_zone")
+  workingWeek          Json      @default("[\"sun\", \"mon\", \"tue\", \"wed\", \"thu\"]") @map("working_week")
+  fiscalYearStartMonth Int       @default(1) @map("fiscal_year_start_month") @db.SmallInt
+  logoFileId           String?   @map("logo_file_id") @db.Uuid
+  letterhead           Json      @default("{}")
+  status               String    @default("active")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy            String?   @map("created_by") @db.Uuid
+  updatedAt            DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy            String?   @map("updated_by") @db.Uuid
+  version              Int       @default(1)
+  deletedAt            DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy            String?   @map("deleted_by") @db.Uuid
+  deleteReason         String?   @map("delete_reason")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  currency Currency @relation(fields: [baseCurrency], references: [code], onDelete: NoAction, onUpdate: NoAction)
+
+  branches            Branch[]
+  orgUnits            OrgUnit[]
+  modules             CompanyModule[]
+  settings            Setting[]
+  numberSequences     NumberSequence[]
+  linksFrom           InterCompanyLink[]       @relation("InterCompanyFrom")
+  linksTo             InterCompanyLink[]       @relation("InterCompanyTo")
+  memberships         CompanyMembership[]
+  permissionOverrides UserPermissionOverride[]
+  dataScopes          DataScope[]
+  sessions            Session[]
+  apiClients          ApiClient[]
+  apiKeys             ApiKey[]
+
+  @@unique([tenantId, id], map: "company_tenant_id_uq")
+  @@map("company")
+  @@schema("platform")
+}
+
+model Branch {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  code         String
+  name         String
+  address      String?
+  isHeadOffice Boolean   @default(false) @map("is_head_office")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company  Company   @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "branch_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  orgUnits OrgUnit[]
+
+  @@unique([companyId, id], map: "branch_company_id_uq")
+  @@unique([companyId, code], map: "branch_code_uq", where: { deletedAt: null })
+  @@map("branch")
+  @@schema("platform")
+}
+
+model OrgUnit {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  branchId     String?   @map("branch_id") @db.Uuid
+  kind         String
+  code         String
+  name         String
+  parentId     String?   @map("parent_id") @db.Uuid
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company  Company   @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "org_unit_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  branch   Branch?   @relation(fields: [companyId, branchId], references: [companyId, id], map: "org_unit_branch_fk", onDelete: NoAction, onUpdate: NoAction)
+  parent   OrgUnit?  @relation("OrgUnitTree", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children OrgUnit[] @relation("OrgUnitTree")
+
+  @@unique([companyId, kind, code], map: "org_unit_code_uq", where: { deletedAt: null })
+  @@index([parentId], map: "org_unit_parent_idx")
+  @@map("org_unit")
+  @@schema("platform")
+}
+
+model CompanyModule {
+  id             String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  moduleKey      String    @map("module_key")
+  enabled        Boolean   @default(false)
+  rolloutPercent Int       @default(100) @map("rollout_percent") @db.SmallInt
+  enabledAt      DateTime? @map("enabled_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy      String?   @map("created_by") @db.Uuid
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  version        Int       @default(1)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy      String?   @map("deleted_by") @db.Uuid
+  deleteReason   String?   @map("delete_reason")
+
+  company Company @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "company_module_company_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([companyId, moduleKey], map: "company_module_uq", where: { deletedAt: null })
+  @@map("company_module")
+  @@schema("platform")
+}
+
+model Setting {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String?   @map("company_id") @db.Uuid
+  userId       String?   @map("user_id") @db.Uuid
+  scope        String
+  key          String
+  value        Json
+  validFrom    DateTime  @default(dbgenerated("CURRENT_DATE")) @map("valid_from") @db.Date
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  company Company? @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "setting_company_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, key, validFrom], map: "setting_tenant_uq", where: raw("scope = 'tenant'::text AND deleted_at IS NULL"))
+  @@unique([companyId, key, validFrom], map: "setting_company_uq", where: raw("scope = 'company'::text AND deleted_at IS NULL"))
+  @@unique([userId, key, validFrom], map: "setting_user_uq", where: raw("scope = 'user'::text AND deleted_at IS NULL"))
+  @@map("setting")
+  @@schema("platform")
+}
+
+model NumberSequence {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  key          String
+  prefix       String    @default("")
+  padding      Int       @default(4) @db.SmallInt
+  nextValue    BigInt    @default(1) @map("next_value")
+  resetPolicy  String    @default("never") @map("reset_policy")
+  format       String    @default("{prefix}{number}")
+  lastResetAt  DateTime? @map("last_reset_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company Company @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "number_sequence_company_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([companyId, key], map: "number_sequence_key_uq", where: { deletedAt: null })
+  @@map("number_sequence")
+  @@schema("platform")
+}
+
+model InterCompanyLink {
+  id                  String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId            String    @map("tenant_id") @db.Uuid
+  fromCompanyId       String    @map("from_company_id") @db.Uuid
+  toCompanyId         String    @map("to_company_id") @db.Uuid
+  receivableAccountId String?   @map("receivable_account_id") @db.Uuid
+  payableAccountId    String?   @map("payable_account_id") @db.Uuid
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy           String?   @map("created_by") @db.Uuid
+  updatedAt           DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy           String?   @map("updated_by") @db.Uuid
+  version             Int       @default(1)
+  deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy           String?   @map("deleted_by") @db.Uuid
+  deleteReason        String?   @map("delete_reason")
+
+  fromCompany Company @relation("InterCompanyFrom", fields: [tenantId, fromCompanyId], references: [tenantId, id], map: "inter_company_link_from_fk", onDelete: NoAction, onUpdate: NoAction)
+  toCompany   Company @relation("InterCompanyTo", fields: [tenantId, toCompanyId], references: [tenantId, id], map: "inter_company_link_to_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([fromCompanyId, toCompanyId], map: "inter_company_link_uq", where: { deletedAt: null })
+  @@map("inter_company_link")
+  @@schema("platform")
+}

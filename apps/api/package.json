@@ -1,0 +1,32 @@
+{
+  "name": "@fibrex/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fibrex API and background worker (Express, Prisma, BullMQ)",
+  "scripts": {
+    "typecheck": "prisma generate --no-hints && tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "db:status": "prisma migrate status"
+  },
+  "dependencies": {
+    "@fibrex/shared": "workspace:*",
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
+    "pg": "8.23.1"
+  },
+  "devDependencies": {
+    "@fibrex/tsconfig": "workspace:*",
+    "@testcontainers/postgresql": "12.2.1",
+    "@types/node": "24.19.2",
+    "@types/pg": "8.23.1",
+    "prisma": "7.10.1",
+    "testcontainers": "12.2.1",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0"
+  }
+}

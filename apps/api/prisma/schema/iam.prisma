@@ -1,0 +1,571 @@
+// iam: users, credentials, MFA, roles, permissions, sessions, API clients.
+// Table definitions and comments: prisma/migrations/20261113000100_platform_iam.
+
+model UserAccount {
+  id                 String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  partyId            String?   @map("party_id") @db.Uuid
+  username           String
+  email              String?
+  phone              String?
+  displayName        String    @map("display_name")
+  status             String    @default("active")
+  mustChangePassword Boolean   @default(true) @map("must_change_password")
+  failedAttempts     Int       @default(0) @map("failed_attempts")
+  lockedUntil        DateTime? @map("locked_until") @db.Timestamptz(6)
+  lastLoginAt        DateTime? @map("last_login_at") @db.Timestamptz(6)
+  preferredLanguage  String    @default("en") @map("preferred_language")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy          String?   @map("created_by") @db.Uuid
+  updatedAt          DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy          String?   @map("updated_by") @db.Uuid
+  version            Int       @default(1)
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy          String?   @map("deleted_by") @db.Uuid
+  deleteReason       String?   @map("delete_reason")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  credentials          Credential[]
+  mfaFactors           MfaFactor[]
+  recoveryCodes        MfaRecoveryCode[]
+  otpChallenges        OtpChallenge[]
+  memberships          CompanyMembership[]
+  permissionOverrides  UserPermissionOverride[]
+  impersonationsActor  Impersonation[]          @relation("ImpersonationActor")
+  impersonationsTarget Impersonation[]          @relation("ImpersonationTarget")
+  sessions             Session[]
+  passwordResetTokens  PasswordResetToken[]
+
+  @@unique([tenantId, id], map: "user_account_tenant_id_uq")
+  @@unique([tenantId, username], map: "user_account_username_uq", where: { deletedAt: null })
+  @@unique([tenantId, email], map: "user_account_email_uq", where: raw("deleted_at IS NULL AND email IS NOT NULL"))
+  @@unique([tenantId, phone], map: "user_account_phone_uq", where: raw("deleted_at IS NULL AND phone IS NOT NULL"))
+  @@index([partyId], map: "user_account_party_idx")
+  @@map("user_account")
+  @@schema("iam")
+}
+
+model Credential {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  kind         String    @default("password")
+  hash         String
+  isCurrent    Boolean   @default(true) @map("is_current")
+  setAt        DateTime  @default(now()) @map("set_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  user UserAccount @relation(fields: [tenantId, userId], references: [tenantId, id], map: "credential_user_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([userId, kind], map: "credential_current_uq", where: raw("is_current AND deleted_at IS NULL"))
+  @@index([userId, setAt(sort: Desc)], map: "credential_user_idx")
+  @@map("credential")
+  @@schema("iam")
+}
+
+model MfaFactor {
+  id              String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  kind            String
+  label           String?
+  secretEncrypted Bytes     @map("secret_encrypted")
+  confirmedAt     DateTime? @map("confirmed_at") @db.Timestamptz(6)
+  lastUsedStep    BigInt?   @map("last_used_step")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy       String?   @map("created_by") @db.Uuid
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy       String?   @map("updated_by") @db.Uuid
+  version         Int       @default(1)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy       String?   @map("deleted_by") @db.Uuid
+  deleteReason    String?   @map("delete_reason")
+
+  user UserAccount @relation(fields: [tenantId, userId], references: [tenantId, id], map: "mfa_factor_user_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([userId], map: "mfa_factor_user_idx")
+  @@map("mfa_factor")
+  @@schema("iam")
+}
+
+model MfaRecoveryCode {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  codeHash     String    @map("code_hash")
+  usedAt       DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  user UserAccount @relation(fields: [tenantId, userId], references: [tenantId, id], map: "mfa_recovery_code_user_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([userId], map: "mfa_recovery_code_user_idx")
+  @@map("mfa_recovery_code")
+  @@schema("iam")
+}
+
+model OtpChallenge {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  userId       String?   @map("user_id") @db.Uuid
+  phone        String?
+  purpose      String
+  codeHash     String    @map("code_hash")
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(6)
+  attempts     Int       @default(0)
+  consumedAt   DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  tenant Tenant       @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user   UserAccount? @relation(fields: [tenantId, userId], references: [tenantId, id], map: "otp_challenge_user_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([userId, createdAt(sort: Desc)], map: "otp_challenge_user_idx")
+  @@index([phone, createdAt(sort: Desc)], map: "otp_challenge_phone_idx")
+  @@map("otp_challenge")
+  @@schema("iam")
+}
+
+model Role {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  key          String
+  name         String
+  description  String?
+  isBuiltin    Boolean   @default(false) @map("is_builtin")
+  mfaRequired  Boolean   @default(false) @map("mfa_required")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grants          RoleGrantable[]  @relation("RoleGrantor")
+  grantedBy       RoleGrantable[]  @relation("RoleGrantable")
+  rolePermissions RolePermission[]
+  membershipRoles MembershipRole[]
+
+  @@unique([tenantId, id], map: "role_tenant_id_uq")
+  @@unique([tenantId, key], map: "role_key_uq", where: { deletedAt: null })
+  @@map("role")
+  @@schema("iam")
+}
+
+model RoleGrantable {
+  id              String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  grantorRoleId   String    @map("grantor_role_id") @db.Uuid
+  grantableRoleId String    @map("grantable_role_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy       String?   @map("created_by") @db.Uuid
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy       String?   @map("updated_by") @db.Uuid
+  version         Int       @default(1)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy       String?   @map("deleted_by") @db.Uuid
+  deleteReason    String?   @map("delete_reason")
+
+  grantor   Role @relation("RoleGrantor", fields: [tenantId, grantorRoleId], references: [tenantId, id], map: "role_grantable_grantor_fk", onDelete: NoAction, onUpdate: NoAction)
+  grantable Role @relation("RoleGrantable", fields: [tenantId, grantableRoleId], references: [tenantId, id], map: "role_grantable_grantable_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([grantorRoleId, grantableRoleId], map: "role_grantable_uq", where: { deletedAt: null })
+  @@map("role_grantable")
+  @@schema("iam")
+}
+
+model Permission {
+  id          String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  key         String   @unique
+  moduleKey   String   @map("module_key")
+  action      String
+  resource    String
+  description String   @default("")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy   String?  @map("created_by") @db.Uuid
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy   String?  @map("updated_by") @db.Uuid
+  version     Int      @default(1)
+
+  rolePermissions RolePermission[]
+  overrides       UserPermissionOverride[]
+
+  @@index([moduleKey], map: "permission_module_idx")
+  @@map("permission")
+  @@schema("iam")
+}
+
+model RolePermission {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  roleId       String    @map("role_id") @db.Uuid
+  permissionId String    @map("permission_id") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  role       Role       @relation(fields: [tenantId, roleId], references: [tenantId, id], map: "role_permission_role_fk", onDelete: NoAction, onUpdate: NoAction)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([roleId, permissionId], map: "role_permission_uq", where: { deletedAt: null })
+  @@map("role_permission")
+  @@schema("iam")
+}
+
+model CompanyMembership {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  isDefault    Boolean   @default(false) @map("is_default")
+  status       String    @default("active")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  user    UserAccount      @relation(fields: [tenantId, userId], references: [tenantId, id], map: "company_membership_user_fk", onDelete: NoAction, onUpdate: NoAction)
+  company Company          @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "company_membership_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  roles   MembershipRole[]
+
+  @@unique([tenantId, id], map: "company_membership_tenant_id_uq")
+  @@unique([userId, companyId], map: "company_membership_uq", where: { deletedAt: null })
+  @@unique([userId], map: "company_membership_default_uq", where: raw("is_default AND deleted_at IS NULL"))
+  @@map("company_membership")
+  @@schema("iam")
+}
+
+model MembershipRole {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  membershipId String    @map("membership_id") @db.Uuid
+  roleId       String    @map("role_id") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  membership CompanyMembership @relation(fields: [tenantId, membershipId], references: [tenantId, id], map: "membership_role_membership_fk", onDelete: NoAction, onUpdate: NoAction)
+  role       Role              @relation(fields: [tenantId, roleId], references: [tenantId, id], map: "membership_role_role_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([membershipId, roleId], map: "membership_role_uq", where: { deletedAt: null })
+  @@map("membership_role")
+  @@schema("iam")
+}
+
+model UserPermissionOverride {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  permissionId String    @map("permission_id") @db.Uuid
+  effect       String
+  reason       String?
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company    Company     @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "user_permission_override_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  user       UserAccount @relation(fields: [tenantId, userId], references: [tenantId, id], map: "user_permission_override_user_fk", onDelete: NoAction, onUpdate: NoAction)
+  permission Permission  @relation(fields: [permissionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([companyId, userId, permissionId], map: "user_permission_override_uq", where: { deletedAt: null })
+  @@map("user_permission_override")
+  @@schema("iam")
+}
+
+model DataScope {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  subjectType  String    @map("subject_type")
+  subjectId    String    @map("subject_id") @db.Uuid
+  scopeKind    String    @map("scope_kind")
+  scopeValues  String[]  @default([]) @map("scope_values") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company Company @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "data_scope_company_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([companyId, subjectType, subjectId, scopeKind], map: "data_scope_uq", where: { deletedAt: null })
+  @@map("data_scope")
+  @@schema("iam")
+}
+
+model Impersonation {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  actorUserId  String    @map("actor_user_id") @db.Uuid
+  targetUserId String    @map("target_user_id") @db.Uuid
+  reason       String
+  startedAt    DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  endedAt      DateTime? @map("ended_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  actor    UserAccount @relation("ImpersonationActor", fields: [tenantId, actorUserId], references: [tenantId, id], map: "impersonation_actor_fk", onDelete: NoAction, onUpdate: NoAction)
+  target   UserAccount @relation("ImpersonationTarget", fields: [tenantId, targetUserId], references: [tenantId, id], map: "impersonation_target_fk", onDelete: NoAction, onUpdate: NoAction)
+  sessions Session[]
+
+  @@unique([tenantId, id], map: "impersonation_tenant_id_uq")
+  @@map("impersonation")
+  @@schema("iam")
+}
+
+model Session {
+  id              String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  companyId       String?   @map("company_id") @db.Uuid
+  impersonationId String?   @map("impersonation_id") @db.Uuid
+  device          String?
+  userAgent       String?   @map("user_agent")
+  ip              String?   @db.Inet
+  lastSeenAt      DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(6)
+  revokedBy       String?   @map("revoked_by") @db.Uuid
+  revokeReason    String?   @map("revoke_reason")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy       String?   @map("created_by") @db.Uuid
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy       String?   @map("updated_by") @db.Uuid
+  version         Int       @default(1)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy       String?   @map("deleted_by") @db.Uuid
+  deleteReason    String?   @map("delete_reason")
+
+  user          UserAccount    @relation(fields: [tenantId, userId], references: [tenantId, id], map: "session_user_fk", onDelete: NoAction, onUpdate: NoAction)
+  company       Company?       @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "session_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  impersonation Impersonation? @relation(fields: [tenantId, impersonationId], references: [tenantId, id], map: "session_impersonation_fk", onDelete: NoAction, onUpdate: NoAction)
+  refreshTokens RefreshToken[]
+
+  @@unique([tenantId, id], map: "session_tenant_id_uq")
+  @@index([userId], map: "session_user_active_idx", where: raw("revoked_at IS NULL"))
+  @@map("session")
+  @@schema("iam")
+}
+
+model RefreshToken {
+  id            String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  sessionId     String    @map("session_id") @db.Uuid
+  familyId      String    @map("family_id") @db.Uuid
+  tokenHash     String    @map("token_hash")
+  rotatedFromId String?   @map("rotated_from_id") @db.Uuid
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt        DateTime? @map("used_at") @db.Timestamptz(6)
+  revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy     String?   @map("created_by") @db.Uuid
+  updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy     String?   @map("updated_by") @db.Uuid
+  version       Int       @default(1)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy     String?   @map("deleted_by") @db.Uuid
+  deleteReason  String?   @map("delete_reason")
+
+  session     Session        @relation(fields: [tenantId, sessionId], references: [tenantId, id], map: "refresh_token_session_fk", onDelete: NoAction, onUpdate: NoAction)
+  rotatedFrom RefreshToken?  @relation("RefreshTokenRotation", fields: [rotatedFromId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  rotatedTo   RefreshToken[] @relation("RefreshTokenRotation")
+
+  @@unique([tokenHash], map: "refresh_token_hash_uq")
+  @@index([familyId], map: "refresh_token_family_idx")
+  @@map("refresh_token")
+  @@schema("iam")
+}
+
+/// Login history; monthly partitions live in the `partitions` schema (not managed by Prisma).
+model LoginEvent {
+  id         String   @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  at         DateTime @default(now()) @db.Timestamptz(6)
+  userId     String?  @map("user_id") @db.Uuid
+  identifier String
+  method     String
+  result     String
+  ip         String?  @db.Inet
+  device     String?
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy  String?  @map("created_by") @db.Uuid
+
+  @@id([id, at])
+  @@index([userId, at(sort: Desc)], map: "login_event_user_idx")
+  @@map("login_event")
+  @@schema("iam")
+}
+
+model PasswordResetToken {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  tokenHash    String    @map("token_hash")
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt       DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  user UserAccount @relation(fields: [tenantId, userId], references: [tenantId, id], map: "password_reset_token_user_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tokenHash], map: "password_reset_token_hash_uq")
+  @@map("password_reset_token")
+  @@schema("iam")
+}
+
+model ApiClient {
+  id                 String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  companyId          String    @map("company_id") @db.Uuid
+  name               String
+  kind               String
+  clientSecretHash   String?   @map("client_secret_hash")
+  scopes             String[]  @default([])
+  rateLimitPerMinute Int       @default(600) @map("rate_limit_per_minute")
+  status             String    @default("active")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy          String?   @map("created_by") @db.Uuid
+  updatedAt          DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy          String?   @map("updated_by") @db.Uuid
+  version            Int       @default(1)
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy          String?   @map("deleted_by") @db.Uuid
+  deleteReason       String?   @map("delete_reason")
+
+  company Company  @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "api_client_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  keys    ApiKey[]
+
+  @@unique([companyId, id], map: "api_client_company_id_uq")
+  @@map("api_client")
+  @@schema("iam")
+}
+
+model ApiKey {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  apiClientId  String    @map("api_client_id") @db.Uuid
+  keyPrefix    String    @map("key_prefix")
+  keyHash      String    @map("key_hash")
+  expiresAt    DateTime? @map("expires_at") @db.Timestamptz(6)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(6)
+  lastUsedAt   DateTime? @map("last_used_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company   Company   @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "api_key_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  apiClient ApiClient @relation(fields: [companyId, apiClientId], references: [companyId, id], map: "api_key_client_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([keyHash], map: "api_key_hash_uq")
+  @@index([keyPrefix], map: "api_key_prefix_idx")
+  @@map("api_key")
+  @@schema("iam")
+}
+
+model IpAllowlist {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  cidr         String    @db.Inet
+  appliesTo    String    @default("admin") @map("applies_to")
+  note         String?
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("ip_allowlist")
+  @@schema("iam")
+}
+
+model SsoProvider {
+  id              String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  kind            String
+  name            String
+  configEncrypted Bytes     @map("config_encrypted")
+  status          String    @default("disabled")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy       String?   @map("created_by") @db.Uuid
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy       String?   @map("updated_by") @db.Uuid
+  version         Int       @default(1)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy       String?   @map("deleted_by") @db.Uuid
+  deleteReason    String?   @map("delete_reason")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("sso_provider")
+  @@schema("iam")
+}

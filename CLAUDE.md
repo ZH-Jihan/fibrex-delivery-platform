@@ -40,6 +40,9 @@ Work one phase at a time from `docs/phases/`. Never start a later phase before t
 
 ## Commands (fill in during Phase 1)
 
-- Start everything: `docker compose up`
-- Tests: `pnpm test` | Lint: `pnpm lint` | Type check: `pnpm typecheck`
-- Migrate: `pnpm db:migrate` | Seed: `pnpm db:seed`
+- First time: copy `.env.example` to `.env` and set passwords; `pnpm install`
+- Start everything: `docker compose up -d --wait` (Postgres is on host port 5433)
+- Tests: `pnpm test` (integration tests start their own Postgres container; Docker must be running) | Unit only: `pnpm test:unit`
+- Lint: `pnpm lint` | Type check: `pnpm typecheck` (also regenerates the Prisma client) | Format: `pnpm format`
+- Migrate: `pnpm db:migrate` | Status: `pnpm db:status` | Seed: `pnpm db:seed` (arrives in commit 10)
+- Migrations are hand-written SQL in `apps/api/prisma/migrations/`; keep `apps/api/prisma/schema/*.prisma` in step (the drift test enforces it). Never author migrations with `prisma migrate dev`.

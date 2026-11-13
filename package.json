@@ -16,7 +16,10 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "pnpm -r --parallel run typecheck",
-    "test": "pnpm -r run test"
+    "test": "pnpm -r run test",
+    "test:unit": "pnpm -r run --if-present test:unit",
+    "db:migrate": "pnpm --filter @fibrex/api run db:migrate",
+    "db:status": "pnpm --filter @fibrex/api run db:status"
   },
   "devDependencies": {
     "@fibrex/eslint-config": "workspace:*",

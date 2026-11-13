@@ -1,0 +1,23 @@
+// Fibrex Prisma schema: generator and datasource.
+//
+// Migrations are hand-written SQL in prisma/migrations (RLS policies, triggers, partitions,
+// exclusion and CHECK constraints cannot be expressed here). These .prisma files describe
+// the same tables for the typed client. The integration test `schema-drift.test.ts`
+// fails if the two ever disagree.
+//
+// One file per Postgres schema (= module). Database names are snake_case (@map / @@map);
+// client names are camelCase. Every relation states onDelete/onUpdate NoAction because
+// that is what the SQL foreign keys use (rows are never physically deleted anyway).
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../../src/generated/prisma"
+  previewFeatures     = ["partialIndexes"]
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["platform", "iam"]
+}

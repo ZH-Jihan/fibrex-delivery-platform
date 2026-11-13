@@ -1,0 +1,4 @@
+{
+  "extends": "@fibrex/tsconfig/node.json",
+  "include": ["src", "test", "vitest.config.ts", "prisma.config.ts"]
+}
