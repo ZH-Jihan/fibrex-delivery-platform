@@ -26,7 +26,18 @@ Update this file at the end of every session.
 | Commit | What | Verified |
 | --- | --- | --- |
 | 1 | pnpm workspace; shared TypeScript configs; ESLint with the `fibrex/module-boundaries` rule; `@fibrex/shared` money helpers | Yes. `pnpm test` (25 tests), `pnpm typecheck`, `pnpm lint` and `pnpm format:check` all pass. |
-| 2 | `docker-compose.yml` with PostgreSQL 16.16, Redis 7.4, SeaweedFS (S3) and Mailpit; database roles script; `.env.example` | **Not yet.** Docker is not installed on this computer. Only the shell syntax and formatting have been checked. |
+| 2 | `docker-compose.yml` with PostgreSQL 16.16, Redis 7.4, SeaweedFS (S3) and Mailpit; database roles script; `.env.example` | Yes (2026-11-13, Docker 29.9). See the checks below. |
+
+Commit 2 checks:
+
+- All 4 services become healthy with `docker compose up -d --wait`.
+- Roles: `fibrex_app` and `fibrex_bi` have no superuser rights and cannot bypass RLS. `fibrex_owner` owns the database.
+- `fibrex_app` gets "permission denied" when creating tables in `public`.
+- A wrong password is refused over the network.
+- Extensions `pg_trgm`, `btree_gist` and `pgcrypto` are installed.
+- Redis refuses commands without its password.
+- S3 create, put, get and delete work with the keys. Anonymous requests and a wrong secret get 403.
+- The Mailpit UI answers on port 8025.
 
 ### How to run what exists
 
@@ -51,7 +62,7 @@ Commit 3: Prisma setup; `platform` and `iam` schemas; RLS policies, triggers and
 ## Setup on this computer
 
 - pnpm 11.28.9 is installed in the user npm folder. pnpm runs project scripts with Node 24.22.3, which it downloaded itself; the system Node is still 22.14.
-- **Still needed: Docker Desktop (with WSL 2).**
+- Docker Desktop 29.9 is installed. The local `.env` was generated with random passwords (git-ignored).
 - To use Node 24 outside pnpm, install Node 24 LTS from nodejs.org.
 
 ## Adapter stubs still to replace
@@ -60,4 +71,4 @@ Commit 3: Prisma setup; `platform` and `iam` schemas; RLS policies, triggers and
 
 ## Known issues
 
-- Commit 2 has not been run (no Docker yet).
+- Development only: the official Postgres image trusts connections made from *inside* its own container. Use `docker compose run --no-deps ... -h postgres` (a separate container) when testing passwords. The bootstrap `postgres` superuser can also log in over the local network. Neither applies to staging or production, which use managed PostgreSQL.
