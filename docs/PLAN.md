@@ -236,7 +236,7 @@ PostgreSQL requires the primary key of a partitioned table to include the partit
 | `event_consumption` | A | consumer_key, event_id, processed_at | Makes consumers idempotent |
 | `webhook_subscription` | S | url, secret_encrypted, event_type_keys TEXT[], active, api_client_id | Signed webhooks |
 | `webhook_delivery` | A, partitioned | subscription_id, event_id, attempt, status_code, response_ms, error, next_retry_at | Delivery log |
-| `idempotency_key` | T | key, client_id, method, path, request_hash, response_status, response_body JSONB, expires_at | Required on all write endpoints |
+| ~~`idempotency_key`~~ | — | — | Dropped 2026-11-13: idempotency records live in Redis (see DECISIONS) |
 | `import_mapping` | S | entity_key, name, column_map JSONB, transforms JSONB | Saved column mappings |
 | `import_job` | S | entity_key, raw_input_id, mapping_id, status (uploaded, previewed, committed, rolled_back, failed), stats JSONB | |
 | `import_row` | A | import_job_id, row_no, raw JSONB, normalised JSONB, errors JSONB, created_entity_id | Rollback soft-deletes the created rows (audited) |

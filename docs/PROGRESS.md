@@ -4,7 +4,7 @@ Update this file at the end of every session.
 
 | Phase | Title | Status | Accepted on | Notes |
 | --- | --- | --- | --- | --- |
-| 1 | Foundation A | In progress (commits 1–3 of 13) | | Plan: `docs/phases/phase-01-plan.md` |
+| 1 | Foundation A | In progress (commits 1–4 of 13) | | Plan: `docs/phases/phase-01-plan.md` |
 | 2 | Foundation B | Not started | | |
 | 3 | People and documents | Not started | | |
 | 4 | Performance and tracking | Not started | | |
@@ -63,6 +63,33 @@ Commit 3 tests (`apps/api/test/integration`):
   - UUIDv7 ids have the right format and are time-ordered.
 - **Drift (`schema-drift.test.ts`):** Prisma reports an empty diff between `prisma/schema` and the migrated database.
 
+| Commit | What | Verified |
+| --- | --- | --- |
+| 4 | API kernel in `apps/api/src`: validated env config, request context (AsyncLocalStorage), pino JSON logs with redaction and request/trace ids, RFC 9457 error handling, Redis rate limiting, Idempotency-Key handling, Helmet and strict CORS, `/health` and `/ready`, an OpenAPI 3.1 registry with `/api/v1/openapi.json` and Swagger UI at `/api/docs`, optional OpenTelemetry tracing, graceful shutdown | Yes. 91 tests pass (66 in the API: 20 unit, 46 integration with throwaway Postgres and Redis containers). Typecheck, lint and format pass. A manual run against the local Docker stack reports `ready` with database and Redis `ok`, and a bad config refuses to start with a list of problems. |
+
+Commit 4 tests:
+
+- **Unit:**
+  - Env parsing: defaults, origin rules, https required in production, and errors listed without echoing secret values.
+  - Problem document shape; Zod and body-parser error mapping; unknown errors hidden.
+  - Request fingerprint canonicalisation.
+  - Context isolation across concurrent requests.
+- **Integration (`http-kernel.test.ts`):**
+  - Request ids are generated, a well-formed incoming id is kept, and junk is replaced.
+  - 404, validation, malformed JSON, 413 and 500 return problem documents, with no internal details in the 500.
+  - Readiness returns 503 naming the failed check without its error message.
+  - Idempotency:
+    - a key is required except on `/auth/*`;
+    - a repeat runs the handler once and replays the response;
+    - a different body with the same key gets 422;
+    - keys are scoped per caller;
+    - a duplicate sent while the first is still running gets 409;
+    - after a 5xx the key is released so the client can retry.
+  - Rate limit: 429 with Retry-After and RateLimit-* headers, counted per caller, and probes are not limited.
+  - With Redis down, reads still work (fail open) and writes get 503 without running (fail closed).
+  - Helmet headers are present; CORS allows only configured origins.
+  - The OpenAPI document includes routes, the Problem schema and the required Idempotency-Key header; Swagger UI loads.
+
 ### How to run what exists
 
 ```
@@ -70,6 +97,7 @@ pnpm install
 copy .env.example .env      (then set passwords)
 docker compose up -d --wait
 pnpm db:migrate
+pnpm --filter @fibrex/api dev     (API on http://localhost:3000; docs at /api/docs)
 pnpm test
 pnpm typecheck
 pnpm lint
@@ -77,14 +105,14 @@ pnpm lint
 
 ### Next
 
-Commit 4: API kernel. This covers config (env schema), structured logging with OpenTelemetry, request context, error handling, idempotency keys, rate limiting, and the OpenAPI registry.
+Commit 5: kernel database layer. This covers the Prisma client on the shared pool, a unit of work that sets the RLS context (`SET LOCAL`) for each request, the soft-delete extension, optimistic locking with 409 and a diff, and the generic CRUD controller factory.
 
 ## Setup on this computer
 
 - pnpm 11.28.9 is installed in the user npm folder. pnpm runs project scripts with Node 24.22.3, which it downloaded itself; the system Node is still 22.14.
 - Docker Desktop 29.9 is installed. The local `.env` was generated with random passwords (git-ignored).
 - A separate native PostgreSQL 17 service (`postgresql-x64-17`) uses port 5432 on this computer, so Fibrex's database is on **5433**.
-- pnpm build scripts are allowed only for `prisma` and `@prisma/engines` (`allowBuilds` in `pnpm-workspace.yaml`).
+- pnpm build scripts are allowed only for `prisma`, `@prisma/engines` and `esbuild` (`allowBuilds` in `pnpm-workspace.yaml`).
 - To use Node 24 outside pnpm, install Node 24 LTS from nodejs.org.
 
 ## Adapter stubs still to replace

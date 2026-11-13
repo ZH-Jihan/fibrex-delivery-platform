@@ -1,7 +1,8 @@
 /**
  * Integration test database.
  *
- * Purpose: start a disposable PostgreSQL 16 container that is built exactly like the
+ * Purpose: start a disposable Redis 7.4 container (for HTTP kernel tests) and a disposable
+ * PostgreSQL 16 container that is built exactly like the
  * development database (same image, same role script in infra/docker/postgres/init), apply
  * every migration with `prisma migrate deploy` as the owner role, and hand the connection
  * details to the tests. Passwords are random per run; the container is removed afterwards.
@@ -13,6 +14,7 @@ import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { RedisContainer } from '@testcontainers/redis';
 import type { TestProject } from 'vitest/node';
 
 export interface TestDatabase {
@@ -28,6 +30,8 @@ export interface TestDatabase {
 declare module 'vitest' {
   export interface ProvidedContext {
     testDatabase: TestDatabase;
+    /** redis:// URL of a throwaway Redis 7.4 (same image as docker-compose). */
+    redisUrl: string;
   }
 }
 
@@ -44,6 +48,11 @@ export default async function setup(project: TestProject): Promise<() => Promise
   const ownerPassword = pw();
   const appPassword = pw();
   const biPassword = pw();
+
+  const redisPassword = pw();
+  const redisContainerPromise = new RedisContainer('redis:7.4.12-alpine')
+    .withPassword(redisPassword)
+    .start();
 
   const container = await new PostgreSqlContainer('postgres:16.16-alpine')
     .withDatabase('fibrex')
@@ -90,8 +99,13 @@ export default async function setup(project: TestProject): Promise<() => Promise
   );
 
   project.provide('testDatabase', db);
+  const redisContainer = await redisContainerPromise;
+  project.provide(
+    'redisUrl',
+    `redis://:${redisPassword}@${redisContainer.getHost()}:${String(redisContainer.getPort())}/0`,
+  );
 
   return async () => {
-    await container.stop();
+    await Promise.all([container.stop(), redisContainer.stop()]);
   };
 }
