@@ -124,6 +124,13 @@ export const envSchema = z
     FILES_MAX_BYTES: positiveInt(25 * 1024 * 1024),
     FILES_UPLOAD_TTL_SECONDS: positiveInt(15 * 60),
     FILES_DOWNLOAD_TTL_SECONDS: positiveInt(5 * 60),
+
+    // --- Email (SMTP; Mailpit locally). With no host, email goes to the log stub. ---
+    SMTP_HOST: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(1).optional()),
+    SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(1025),
+    SMTP_USER: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(1).optional()),
+    SMTP_PASSWORD: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(1).optional()),
+    SMTP_FROM: z.string().min(3).default('Fibrex <no-reply@fibrex.local>'),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && env.CORS_ORIGINS.some((o) => o.startsWith('http:'))) {

@@ -6,14 +6,14 @@
  * further implementations of this interface without touching any caller.
  *
  * Depends on: nothing. Used by: kernel/auth/auth-service.ts (sign-in codes and password
- * reset links); the notifications module from commit 9.
+ * reset links); modules/notify (email notifications). Implementations: ./stub.ts, ./smtp.ts.
  */
 export interface OutboundMessage {
   channel: 'sms' | 'email';
   /** A phone number in international form (+974...) or an email address. */
   to: string;
   /** What the message is for, so a provider can pick a sender name or template. */
-  purpose: 'login_code' | 'password_reset';
+  purpose: 'login_code' | 'password_reset' | 'notification';
   subject?: string;
   text: string;
 }

@@ -1,0 +1,120 @@
+// Prisma description of the `notify` schema. The SQL in
+// migrations/20261114000400_notify is the source of truth (see base.prisma).
+
+model EventType {
+  id          String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  key         String   @unique
+  moduleKey   String   @map("module_key")
+  label       String
+  description String   @default("")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy   String?  @map("created_by") @db.Uuid
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy   String?  @map("updated_by") @db.Uuid
+  version     Int      @default(1)
+
+  @@map("event_type")
+  @@schema("notify")
+}
+
+model NotificationRule {
+  id            String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  companyId     String?   @map("company_id") @db.Uuid
+  name          String
+  eventTypeKey  String    @map("event_type_key")
+  channels      String[]  @default(["in_app"])
+  recipients    Json      @default("{}")
+  titleTemplate String    @map("title_template")
+  bodyTemplate  String    @default("") @map("body_template")
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy     String?   @map("created_by") @db.Uuid
+  updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy     String?   @map("updated_by") @db.Uuid
+  version       Int       @default(1)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy     String?   @map("deleted_by") @db.Uuid
+  deleteReason  String?   @map("delete_reason")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], map: "notification_rule_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, eventTypeKey], map: "notification_rule_event_idx", where: raw("deleted_at IS NULL AND is_active"))
+  @@map("notification_rule")
+  @@schema("notify")
+}
+
+model Notification {
+  id           String   @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  companyId    String?  @map("company_id") @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  eventTypeKey String   @map("event_type_key")
+  ruleId       String?  @map("rule_id") @db.Uuid
+  title        String
+  body         String   @default("")
+  data         Json     @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?  @map("created_by") @db.Uuid
+
+  @@id([id, createdAt])
+  @@index([tenantId, userId, createdAt(sort: Desc)], map: "notification_user_idx")
+  @@map("notification")
+  @@schema("notify")
+}
+
+model NotificationRead {
+  id             String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  notificationId String   @map("notification_id") @db.Uuid
+  readAt         DateTime @default(now()) @map("read_at") @db.Timestamptz(6)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy      String?  @map("created_by") @db.Uuid
+
+  @@unique([userId, notificationId], map: "notification_read_uq")
+  @@map("notification_read")
+  @@schema("notify")
+}
+
+model NotificationDelivery {
+  id             String   @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  notificationId String   @map("notification_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  channel        String
+  status         String
+  attempt        Int      @default(1)
+  address        String?
+  error          String?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy      String?  @map("created_by") @db.Uuid
+
+  @@id([id, createdAt])
+  @@index([tenantId, notificationId], map: "notification_delivery_n_idx")
+  @@map("notification_delivery")
+  @@schema("notify")
+}
+
+model NotificationPreference {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  eventTypeKey String    @default("*") @map("event_type_key")
+  channel      String
+  enabled      Boolean
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  user UserAccount @relation(fields: [tenantId, userId], references: [tenantId, id], map: "notification_preference_user_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([userId, eventTypeKey, channel], map: "notification_preference_uq", where: { deletedAt: null })
+  @@map("notification_preference")
+  @@schema("notify")
+}

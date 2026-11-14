@@ -2,6 +2,7 @@
 // Table definitions and comments: prisma/migrations/20261113000100_platform_iam.
 
 model UserAccount {
+  notificationPreferences NotificationPreference[]
   id                 String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
   tenantId           String    @map("tenant_id") @db.Uuid
   partyId            String?   @map("party_id") @db.Uuid

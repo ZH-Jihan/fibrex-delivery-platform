@@ -14,6 +14,8 @@
  */
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import type { MessagingAdapter } from './adapters/messaging/interface.js';
+import { SmtpMessagingAdapter } from './adapters/messaging/smtp.js';
 import { StubMessagingAdapter } from './adapters/messaging/stub.js';
 import { API_PREFIX, createApp } from './app.js';
 import { createAuditRouter } from './kernel/audit/audit-router.js';
@@ -41,6 +43,9 @@ import { createAccessAdminRouter } from './kernel/permissions/access-admin-route
 import { AccessAdminService } from './kernel/permissions/access-admin-service.js';
 import { KERNEL_PERMISSIONS, syncPermissionCatalogue } from './kernel/permissions/catalogue.js';
 import { PermissionService } from './kernel/permissions/permission-service.js';
+import { createJobRouter, JOB_PERMISSIONS } from './kernel/jobs/job-router.js';
+import { JobScheduler } from './kernel/jobs/scheduler.js';
+import { sealAuditLog } from './kernel/audit/sealing-job.js';
 import { createRedis } from './kernel/redis/client.js';
 import { S3StorageAdapter } from './adapters/storage/s3.js';
 import {
@@ -49,6 +54,16 @@ import {
   FilesService,
   createFilesRouter,
 } from './modules/files/index.js';
+import {
+  EmailQueue,
+  KERNEL_EVENT_TYPES,
+  NOTIFY_PERMISSIONS,
+  NotifyService,
+  RealtimeGateway,
+  createNotifyRouter,
+  syncEventTypes,
+  type NotificationView,
+} from './modules/notify/index.js';
 import {
   PARTY_PERMISSIONS,
   PartyReferenceRegistry,
@@ -80,10 +95,22 @@ async function main(): Promise<void> {
   });
   // STUB: sign-in codes and reset links are written to the log, not sent (never their
   // text in production). Replaced by real SMS and email providers later (PROGRESS.md).
-  const messaging = new StubMessagingAdapter({
+  const stubMessaging = new StubMessagingAdapter({
     logger,
     revealText: env.NODE_ENV !== 'production',
   });
+  // Email goes through SMTP when SMTP_HOST is set (Mailpit locally); SMS stays on the stub.
+  const messaging: MessagingAdapter =
+    env.SMTP_HOST === undefined
+      ? stubMessaging
+      : new SmtpMessagingAdapter({
+          host: env.SMTP_HOST,
+          port: env.SMTP_PORT,
+          ...(env.SMTP_USER === undefined ? {} : { user: env.SMTP_USER }),
+          ...(env.SMTP_PASSWORD === undefined ? {} : { password: env.SMTP_PASSWORD }),
+          from: env.SMTP_FROM,
+          sms: stubMessaging,
+        });
   const auth = new AuthService({ prisma, uow, redis, tokens, mfa, messaging, logger, env });
   const permissions = new PermissionService(uow);
   const admin = new AccessAdminService({ permissions });
@@ -155,6 +182,37 @@ async function main(): Promise<void> {
   });
   const apiKeys = new ApiKeyResolver({ prisma, uow, redis, logger });
 
+  // Notifications: the realtime gateway needs the HTTP server, which exists only after
+  // listen(), so the service pushes through a holder that is filled in below.
+  const realtimeHolder: { gateway?: RealtimeGateway } = {};
+  const emailQueue = new EmailQueue({ redisUrl: env.REDIS_URL, uow, messaging, logger });
+  const notify = new NotifyService({
+    uow,
+    logger,
+    email: emailQueue,
+    realtime: {
+      notify: (tenantId: string, userId: string, notification: NotificationView) => {
+        realtimeHolder.gateway?.notify(tenantId, userId, notification);
+      },
+    },
+  });
+  // Recurring background jobs (SPEC 2.12): audit sealing and monthly partition creation.
+  const scheduler = new JobScheduler(env.REDIS_URL, logger);
+  scheduler.register({
+    name: 'audit-seal',
+    everyMs: 60_000,
+    run: async () => {
+      await sealAuditLog(prisma);
+    },
+  });
+  scheduler.register({
+    name: 'partition-maintenance',
+    everyMs: 24 * 60 * 60_000,
+    run: async () => {
+      await prisma.$executeRaw`SELECT app.maintain_partitions()`;
+    },
+  });
+
   const app = createApp({
     env,
     logger,
@@ -187,6 +245,14 @@ async function main(): Promise<void> {
       for (const type of party.recycleTypes) recycleBin.register(type);
       for (const router of party.routers) api.use(router);
       api.use(createFilesRouter({ uow, registry, permissions, files, attachables }));
+      api.use(createNotifyRouter({ uow, registry, permissions, notify }));
+      api.use(
+        createJobRouter({
+          registry,
+          authorize: permissions.authorize,
+          queues: () => [scheduler.getQueue(), emailQueue.getQueue()],
+        }),
+      );
       api.use(
         createAuditRouter({
           uow,
@@ -219,11 +285,18 @@ async function main(): Promise<void> {
     ...KERNEL_PERMISSIONS,
     ...PARTY_PERMISSIONS,
     ...FILES_PERMISSIONS,
+    ...NOTIFY_PERMISSIONS,
+    ...JOB_PERMISSIONS,
   ]);
+  await syncEventTypes(prisma, KERNEL_EVENT_TYPES);
+  await scheduler.start();
+  emailQueue.startWorker();
 
   const server = app.listen(env.PORT, () => {
     logger.info({ port: env.PORT }, 'Fibrex API listening');
   });
+
+  realtimeHolder.gateway = new RealtimeGateway({ server, tokens, corsOrigins: env.CORS_ORIGINS });
 
   let stopping = false;
   const stop = (signal: string) => {
@@ -236,10 +309,16 @@ async function main(): Promise<void> {
     }, 10_000);
     force.unref();
     server.close(() => {
-      void Promise.allSettled([pool.end(), redis.quit()]).then(() => {
-        logger.info('shutdown complete');
-        process.exit(0);
-      });
+      void Promise.allSettled([
+        realtimeHolder.gateway?.close(),
+        scheduler.stop(),
+        emailQueue.close(),
+      ])
+        .then(() => Promise.allSettled([pool.end(), redis.quit()]))
+        .then(() => {
+          logger.info('shutdown complete');
+          process.exit(0);
+        });
     });
   };
   process.on('SIGTERM', () => {

@@ -4,7 +4,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 
 | Phase | Title | Status | Accepted on | Notes |
 | --- | --- | --- | --- | --- |
-| 1 | Foundation A | In progress (commits 1–8 of 13) | | Plan: `docs/phases/phase-01-plan.md` |
+| 1 | Foundation A | In progress (commits 1–9 of 13) | | Plan: `docs/phases/phase-01-plan.md` |
 | 2 | Foundation B | Not started | | |
 | 3 | People and documents | Not started | | |
 | 4 | Performance and tracking | Not started | | |
@@ -34,10 +34,11 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | 7c | Permissions and administration (`packages/shared/src/permissions` = the one `can()`; `kernel/permissions`; `kernel/auth/user-admin-router.ts`): permission catalogue synced at start-up, access read from the database on every request, matrix, per-user overrides, data scopes, `/users`, `/roles`, memberships with anti-escalation rules, `/me/permissions`, `/me/companies`, switch company (new session). `main.ts` now mounts the user, access and audit routers. Deleting anything now needs a reason (400 without one) | 239 tests pass in total |
 | 7d | Impersonation and API clients (`kernel/auth/impersonation.ts`, `api-keys.ts`, `api-client-router.ts`, migration `iam_api_keys`): separate impersonation token with both identities audited, `/api-clients` CRUD with scope rules, key issue/list/revoke, API-key sign-in with per-client rate limit. Not built: `POST /oauth/token` (kind `oauth_client`) | 253 tests pass in total |
 | 8 | Party and files (`modules/party`, `modules/files`, `adapters/storage`, migration `party_files`): parties with roles, identifiers (encrypted, hashed, one holder at a time), contacts, addresses, relationships, bank accounts (second-person approval), duplicate detection and review, merge with preview and history; signed uploads verified by size, SHA-256 and type, downloads (audited), attachments with versions, raw inputs | 271 tests pass in total |
+| 9 | Notifications and jobs (`modules/notify`, `kernel/jobs`, `adapters/messaging/smtp.ts`, migration `notify`): rules with Handlebars text, recipients by user, role or payload field, per-user channel preferences, insert-only notifications/read marks/delivery steps, Socket.IO `/realtime` push, BullMQ email queue with retries into SMTP (Mailpit), job scheduler (audit sealing every minute, partition maintenance daily), `/jobs` monitor. Not built: Redis adapter for several API instances; rule limited to one company through the API | 282 tests pass in total (11 new, incl. Mailpit) |
 
 ## Next
 
-Commit 9 (mid model): notifications (rules, in-app with Socket.IO, email queue through an SMTP adapter) and the job scheduler (also gives `sealAuditLog` its schedule). Still waiting: export of sealed audit batches to write-once storage (`audit_seal.worm_object_key`; the storage adapter now exists); data-scope ids for client platforms; built-in roles and their matrix rows arrive with the seed in commit 10; virus scanning of uploads (files stay `not_scanned`).
+Commit 10 (mid model): seed (built-in roles and their matrix rows, demo tenant). Still waiting: export of sealed audit batches to write-once storage (`audit_seal.worm_object_key`); data-scope ids for client platforms; virus scanning of uploads (files stay `not_scanned`).
 
 ## How to run
 
@@ -60,7 +61,7 @@ pnpm test
 
 ## Adapter stubs still to replace
 
-- `apps/api/src/adapters/messaging/stub.ts` (SMS and email): sign-in codes and password-reset links are written to the API log instead of being sent (text hidden in production). Email gets a real SMTP adapter in commit 9; SMS in Phase 9.
+- `apps/api/src/adapters/messaging/stub.ts` (SMS and email): sign-in codes and password-reset links are written to the API log instead of being sent (text hidden in production). Email uses the SMTP adapter (`smtp.ts`) whenever `SMTP_HOST` is set; SMS gets a real provider in Phase 9.
 
 - `apps/api/src/adapters/storage/memory.ts` (in-memory object store): used by tests only; development and production use the S3 adapter (`S3_*` variables, the API will not start without them).
 
