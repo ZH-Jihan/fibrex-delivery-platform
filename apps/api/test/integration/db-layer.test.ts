@@ -29,6 +29,7 @@ import { ForbiddenError } from '../../src/kernel/http/errors.js';
 import { createLogger } from '../../src/kernel/observability/logger.js';
 import { createRedis } from '../../src/kernel/redis/client.js';
 import { createFixture, type Fixture } from './fixtures.js';
+import { TEST_AUTH_ENV } from './test-env.js';
 import { connect, testDatabase } from './helpers.js';
 import { connectionUrl } from './global-setup.js';
 
@@ -77,6 +78,7 @@ beforeAll(async () => {
     env: loadEnv({
       DATABASE_URL: 'postgresql://unused@localhost:1/x',
       REDIS_URL: 'redis://localhost:1',
+      ...TEST_AUTH_ENV,
       RATE_LIMIT_ANONYMOUS: '10000',
     }),
     logger: createLogger({ level: 'silent', pretty: false, serviceName: 'test' }),

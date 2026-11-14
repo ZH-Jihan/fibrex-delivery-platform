@@ -14,9 +14,15 @@
  */
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { createApp } from './app.js';
+import { API_PREFIX, createApp } from './app.js';
+import { AccessTokens } from './kernel/auth/access-token.js';
+import { createAuthRouter } from './kernel/auth/auth-router.js';
+import { AuthService } from './kernel/auth/auth-service.js';
+import { authenticate } from './kernel/auth/authenticate.js';
 import { ConfigError, loadEnv } from './kernel/config/env.js';
 import { createPool } from './kernel/db/pool.js';
+import { createPrisma } from './kernel/db/prisma.js';
+import { UnitOfWork } from './kernel/db/unit-of-work.js';
 import { createLogger } from './kernel/observability/logger.js';
 import { createRedis } from './kernel/redis/client.js';
 
@@ -34,11 +40,28 @@ function main(): void {
   });
   const pool = createPool(env.DATABASE_URL);
   const redis = createRedis(env.REDIS_URL);
+  const prisma = createPrisma(pool);
+  const uow = new UnitOfWork(prisma);
+  const tokens = new AccessTokens(env.AUTH_TOKEN_SECRET, env.AUTH_ACCESS_TTL_SECONDS);
+  const auth = new AuthService({ prisma, uow, redis, tokens, env });
 
   const app = createApp({
     env,
     logger,
     redis,
+    authenticate: authenticate({ tokens, redis }),
+    mountApi: (api, registry) => {
+      api.use(
+        createAuthRouter({
+          auth,
+          registry,
+          redis,
+          logger,
+          env,
+          cookiePath: `${API_PREFIX}/auth`,
+        }),
+      );
+    },
     readinessChecks: [
       {
         name: 'database',

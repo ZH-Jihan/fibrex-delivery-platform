@@ -4,6 +4,8 @@ import { ConfigError, loadEnv } from './env.js';
 const base = {
   DATABASE_URL: 'postgresql://fibrex_app:secret-value@localhost:5433/fibrex',
   REDIS_URL: 'redis://:secret@localhost:6379/0',
+  AUTH_TOKEN_SECRET: 'unit-test-token-secret-0123456789abcdef',
+  DATA_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
 };
 
 describe('loadEnv', () => {

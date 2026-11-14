@@ -80,6 +80,29 @@ export const envSchema = z
       z.url().optional(),
     ),
     OTEL_SERVICE_NAME: z.string().min(1).default('fibrex-api'),
+
+    // --- Authentication (SPEC 2.1, 6.5). The two secrets have no default: the server
+    // refuses to start without them. ---
+    // Signs access tokens (HMAC-SHA256) and keys the hashes of one-time codes.
+    AUTH_TOKEN_SECRET: z.string().min(32, 'must be at least 32 characters'),
+    // Encrypts secrets stored in the database (TOTP seeds): 32 random bytes, base64.
+    DATA_ENCRYPTION_KEY: z
+      .string()
+      .refine((v) => Buffer.from(v, 'base64').length === 32, 'must be 32 bytes in base64'),
+    AUTH_ACCESS_TTL_SECONDS: positiveInt(15 * 60),
+    AUTH_REFRESH_TTL_DAYS: positiveInt(30),
+    AUTH_IMPERSONATION_TTL_SECONDS: positiveInt(60 * 60),
+    AUTH_MAX_FAILED_ATTEMPTS: positiveInt(5),
+    AUTH_LOCK_MINUTES: positiveInt(15),
+    AUTH_PASSWORD_MIN_LENGTH: z.coerce.number().int().min(8).max(128).default(12),
+    // How many earlier passwords may not be used again.
+    AUTH_PASSWORD_HISTORY: z.coerce.number().int().min(0).max(24).default(5),
+    AUTH_OTP_TTL_SECONDS: positiveInt(5 * 60),
+    AUTH_RESET_TTL_MINUTES: positiveInt(30),
+    // How long a re-authentication (step-up) stays valid for sensitive actions.
+    AUTH_REAUTH_TTL_SECONDS: positiveInt(5 * 60),
+    // Sign-in, one-time code and password-reset requests allowed per address per window.
+    AUTH_RATE_LIMIT: positiveInt(20),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && env.CORS_ORIGINS.some((o) => o.startsWith('http:'))) {

@@ -18,6 +18,7 @@ import { loadEnv } from '../../src/kernel/config/env.js';
 import { registerRoute } from '../../src/kernel/http/openapi.js';
 import { createLogger } from '../../src/kernel/observability/logger.js';
 import { createRedis } from '../../src/kernel/redis/client.js';
+import { TEST_AUTH_ENV } from './test-env.js';
 
 const silent = createLogger({ level: 'silent', pretty: false, serviceName: 'test' });
 
@@ -25,6 +26,7 @@ function testEnv(over: Record<string, string> = {}) {
   return loadEnv({
     DATABASE_URL: 'postgresql://unused@localhost:1/x',
     REDIS_URL: 'redis://localhost:1',
+    ...TEST_AUTH_ENV,
     CORS_ORIGINS: 'http://localhost:5173',
     TRUST_PROXY_HOPS: '1',
     BODY_LIMIT: '1kb',

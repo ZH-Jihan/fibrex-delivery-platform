@@ -28,6 +28,8 @@ export interface RequestContext {
   companyIds: readonly string[];
   /** Keys of the caller's roles, recorded on audit rows. Filled by authentication. */
   roleKeys?: readonly string[];
+  /** The signed-in user's session (iam.session). Absent for API clients and anonymous callers. */
+  sessionId?: string;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();

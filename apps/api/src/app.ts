@@ -25,7 +25,7 @@
  * the HTTP integration tests.
  */
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
-import express, { Router, type Express } from 'express';
+import express, { Router, type Express, type RequestHandler } from 'express';
 import type { Redis } from 'ioredis';
 import { pinoHttp } from 'pino-http';
 import swaggerUi from 'swagger-ui-express';
@@ -51,6 +51,11 @@ export interface AppDeps {
   logger: Logger;
   redis: Redis;
   readinessChecks: readonly ReadinessCheck[];
+  /**
+   * Fills the request context from the caller's credentials (kernel/auth/authenticate.ts).
+   * Optional only so kernel tests can run the HTTP layers without a database.
+   */
+  authenticate?: RequestHandler;
   /** Lets modules (and tests) mount routes on /api/v1 and document them. */
   mountApi?: (api: Router, registry: OpenAPIRegistry) => void;
 }
@@ -101,6 +106,7 @@ export function createApp(deps: AppDeps): Express {
   });
   api.use(rateLimitMiddleware(limiter, logger));
   api.use(express.json({ limit: env.BODY_LIMIT, strict: true }));
+  if (deps.authenticate !== undefined) api.use(deps.authenticate);
   api.use(
     idempotencyMiddleware({
       redis,
