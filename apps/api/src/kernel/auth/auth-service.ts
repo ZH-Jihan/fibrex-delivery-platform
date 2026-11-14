@@ -48,7 +48,8 @@
  *     AUTH_REAUTH_TTL_SECONDS on that one session (assertRecentReauth).
  *
  * Company switching opens a new session (see switchCompany). Permissions are not decided
- * here: kernel/permissions does that. Not here yet: impersonation and API keys (7d).
+ * here: kernel/permissions does that. Impersonation is in ./impersonation.ts and API keys
+ * in ./api-keys.ts.
  *
  * Depends on: kernel/db (unit of work, Prisma), ioredis, ./password-hasher.ts,
  * ./access-token.ts, ./mfa.ts, adapters/messaging/interface.ts, kernel/context,
@@ -87,6 +88,7 @@ export type AuthEnv = Pick<
   | 'AUTH_OTP_RESEND_SECONDS'
   | 'AUTH_RESET_TTL_MINUTES'
   | 'AUTH_REAUTH_TTL_SECONDS'
+  | 'AUTH_IMPERSONATION_TTL_SECONDS'
   | 'AUTH_TOTP_ISSUER'
   | 'WEB_BASE_URL'
 >;
@@ -798,8 +800,9 @@ export class AuthService {
    * so access tokens already issued for it stop working at once instead of at expiry.
    * Redis is written inside the transaction on purpose: if Redis is down the transaction
    * rolls back and the caller gets an error, rather than a "signed out" that is not true.
+   * Public for kernel/auth/impersonation.ts, which ends impersonation sessions this way.
    */
-  private async revokeSession(
+  async revokeSession(
     db: Db,
     sessionId: string,
     revokedBy: string | null,
@@ -814,13 +817,13 @@ export class AuthService {
       where: { sessionId, revokedAt: null },
       data: { revokedAt: now },
     });
-    // Kept a little longer than an access token lives, to cover clock differences.
-    await this.deps.redis.set(
-      sessionRevokedKey(sessionId),
-      reason,
-      'EX',
-      this.deps.tokens.lifetimeSeconds + 60,
+    // Kept a little longer than the longest access token lives (an impersonation token
+    // can outlive a normal one), to cover clock differences.
+    const longest = Math.max(
+      this.deps.tokens.lifetimeSeconds,
+      this.deps.env.AUTH_IMPERSONATION_TTL_SECONDS,
     );
+    await this.deps.redis.set(sessionRevokedKey(sessionId), reason, 'EX', longest + 60);
   }
 
   // ---------------------------------------------------------------------------------
@@ -1298,12 +1301,14 @@ export class AuthService {
    * Ends every session of a user (administrator action: lock, forced sign-out, access
    * changed, account deleted). Each session is ended in its own company's scope; see
    * revokeInOwnContext. The caller's permission over the user is checked before this.
+   * Sessions in which this user is impersonating someone else end too: a locked or
+   * signed-out administrator must not keep acting through another person's account.
    */
   async revokeAllSessionsOf(userId: string, reason: string): Promise<number> {
     const actor = currentUser();
     const sessions = await this.deps.uow.run((db) =>
       db.session.findMany({
-        where: { userId, revokedAt: null },
+        where: { revokedAt: null, OR: [{ userId }, { impersonation: { actorUserId: userId } }] },
         select: { id: true, companyId: true },
       }),
     );

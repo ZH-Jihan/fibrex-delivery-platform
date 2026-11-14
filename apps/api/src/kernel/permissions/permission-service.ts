@@ -20,7 +20,13 @@
  *      if matrix rows still point at it.
  *   4. Overrides and scopes are read for the session's company only (the tables are
  *      company-scoped, and row-level security would hide other companies anyway).
- *   5. API clients have no permissions yet: API keys and their scopes arrive in part 7d.
+ *   5. An API client's permissions are its `scopes` (permission keys), read fresh like a
+ *      user's, minus any key that is retired and any `iam.*` key: an integration never
+ *      administers identity or access (the admin router refuses to give such scopes, and
+ *      this is the second line). A client has no roles and no data-scope limits: it is
+ *      bounded by its company and its scopes.
+ *   6. While impersonating, the access is the target user's: the administrator sees and
+ *      may do exactly what that user may (that is the point of acting as them).
  *
  * Depends on: @fibrex/shared (can, resolvePermissions, resolveScopes), kernel/db,
  * kernel/context, kernel/http/errors.ts.
@@ -31,6 +37,7 @@ import {
   can,
   resolvePermissions,
   resolveScopes,
+  UNRESTRICTED_SCOPE,
   type Access,
   type OverrideEffect,
   type ScopedRecord,
@@ -136,17 +143,32 @@ export class PermissionService {
     const principal = ctx.principal;
     if (principal === undefined) throw new UnauthenticatedError();
     const companyId = ctx.companyIds[0] ?? null;
-    if (principal.kind !== 'user') {
-      return Promise.resolve({
-        userId: principal.apiClientId,
-        partyId: null,
-        companyId,
-        roles: [],
-        permissions: [],
-        scopes: [],
-      });
+    if (principal.kind === 'api_client') {
+      return this.uow.run((db) => this.loadClient(db, principal.apiClientId, companyId));
     }
     return this.uow.run((db) => this.load(db, principal.userId, companyId));
+  }
+
+  /** The access of an API client in its company (rule 5). */
+  async loadClient(db: Db, apiClientId: string, companyId: string | null): Promise<Access> {
+    const client = await db.apiClient.findFirst({
+      where: { id: apiClientId, status: 'active' },
+      select: { scopes: true },
+    });
+    const wanted = (client?.scopes ?? []).filter((key) => !key.startsWith('iam.'));
+    const active = await db.permission.findMany({
+      where: { key: { in: wanted }, isActive: true },
+      select: { key: true },
+    });
+    return {
+      userId: apiClientId,
+      partyId: null,
+      companyId,
+      roles: [],
+      permissions: active.map((p) => p.key).sort(),
+      // The whole company (an empty list would admit no record at all).
+      scopes: client === null ? [] : [UNRESTRICTED_SCOPE],
+    };
   }
 
   /**

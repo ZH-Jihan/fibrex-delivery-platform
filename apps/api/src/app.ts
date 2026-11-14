@@ -45,9 +45,11 @@ export const API_VERSION = '1.0.0';
 
 /**
  * Paths under /api/v1 that do not require an Idempotency-Key. They are safe to repeat,
- * and their answers carry access tokens, which must not be kept for replay.
+ * and their answers carry access tokens or API keys, which must not be kept for replay
+ * (a repeated call simply issues another one).
  */
-const IDEMPOTENCY_EXEMPT_PREFIXES = ['/auth/', '/me/switch-company'];
+const IDEMPOTENCY_EXEMPT_PREFIXES = ['/auth/', '/me/switch-company', '/impersonations'];
+const IDEMPOTENCY_EXEMPT_PATTERNS = [/^\/api-clients\/[^/]+\/keys\/?$/];
 
 export interface AppDeps {
   env: Env;
@@ -116,7 +118,9 @@ export function createApp(deps: AppDeps): Express {
       logger,
       ttlSeconds: env.IDEMPOTENCY_TTL_SECONDS,
       lockSeconds: env.IDEMPOTENCY_LOCK_SECONDS,
-      exempt: (req) => IDEMPOTENCY_EXEMPT_PREFIXES.some((p) => req.path.startsWith(p)),
+      exempt: (req) =>
+        IDEMPOTENCY_EXEMPT_PREFIXES.some((p) => req.path.startsWith(p)) ||
+        IDEMPOTENCY_EXEMPT_PATTERNS.some((p) => p.test(req.path)),
     }),
   );
   deps.mountApi?.(api, registry);

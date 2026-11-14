@@ -20,9 +20,15 @@ import { createAuditRouter } from './kernel/audit/audit-router.js';
 import { createAuditService } from './kernel/audit/audit-service.js';
 import { RecycleBin } from './kernel/audit/recycle-bin.js';
 import { AccessTokens } from './kernel/auth/access-token.js';
+import {
+  createApiClientRepository,
+  createApiClientRouter,
+} from './kernel/auth/api-client-router.js';
+import { ApiKeyResolver } from './kernel/auth/api-keys.js';
 import { createAuthRouter } from './kernel/auth/auth-router.js';
 import { AuthService } from './kernel/auth/auth-service.js';
 import { authenticate } from './kernel/auth/authenticate.js';
+import { createImpersonationRouter } from './kernel/auth/impersonation.js';
 import { MfaFactors } from './kernel/auth/mfa.js';
 import { createUserAdminRouter, createUserRepository } from './kernel/auth/user-admin-router.js';
 import { ConfigError, loadEnv } from './kernel/config/env.js';
@@ -83,12 +89,20 @@ async function main(): Promise<void> {
     repository: admin.roleRepository(),
     describe: (role) => role.name,
   });
+  recycleBin.register({
+    entityType: 'iam.api_client',
+    moduleKey: 'iam',
+    label: 'API client',
+    repository: createApiClientRepository({ permissions }),
+    describe: (client) => client.name,
+  });
+  const apiKeys = new ApiKeyResolver({ prisma, uow, redis, logger });
 
   const app = createApp({
     env,
     logger,
     redis,
-    authenticate: authenticate({ tokens, redis }),
+    authenticate: authenticate({ tokens, redis, apiKeys }),
     mountApi: (api, registry) => {
       api.use(
         createAuthRouter({
@@ -102,6 +116,8 @@ async function main(): Promise<void> {
       );
       api.use(createUserAdminRouter({ uow, registry, permissions, admin, auth }));
       api.use(createAccessAdminRouter({ uow, registry, permissions, admin, auth }));
+      api.use(createImpersonationRouter({ uow, registry, permissions, admin, auth, tokens, env }));
+      api.use(createApiClientRouter({ uow, registry, permissions, auth }));
       api.use(
         createAuditRouter({
           uow,

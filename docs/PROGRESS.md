@@ -4,7 +4,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 
 | Phase | Title | Status | Accepted on | Notes |
 | --- | --- | --- | --- | --- |
-| 1 | Foundation A | In progress (commits 1–6 of 13) | | Plan: `docs/phases/phase-01-plan.md` |
+| 1 | Foundation A | In progress (commits 1–7 of 13) | | Plan: `docs/phases/phase-01-plan.md` |
 | 2 | Foundation B | Not started | | |
 | 3 | People and documents | Not started | | |
 | 4 | Performance and tracking | Not started | | |
@@ -32,10 +32,11 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | 7a | Auth and sessions (`kernel/auth`, mounted in `main.ts`): Argon2id passwords, signed access tokens, sign-in with lockout and login history, rotating refresh cookie with reuse detection and CSRF, forced password change, password policy, `/me`, sessions, remote sign-out | 174 tests pass in total |
 | 7b | MFA and one-time codes (`kernel/auth/mfa.ts`, `totp.ts`, `kernel/crypto/secret-box.ts`, `adapters/messaging`): authenticator app (encrypted seed, replay protection, recovery codes, forced set-up for roles with `mfa_required`), second step at sign-in, phone sign-in codes, forgot/reset password, re-authentication. Not built: re-auth by phone code for users with neither password nor app | 197 tests pass in total |
 | 7c | Permissions and administration (`packages/shared/src/permissions` = the one `can()`; `kernel/permissions`; `kernel/auth/user-admin-router.ts`): permission catalogue synced at start-up, access read from the database on every request, matrix, per-user overrides, data scopes, `/users`, `/roles`, memberships with anti-escalation rules, `/me/permissions`, `/me/companies`, switch company (new session). `main.ts` now mounts the user, access and audit routers. Deleting anything now needs a reason (400 without one) | 239 tests pass in total |
+| 7d | Impersonation and API clients (`kernel/auth/impersonation.ts`, `api-keys.ts`, `api-client-router.ts`, migration `iam_api_keys`): separate impersonation token with both identities audited, `/api-clients` CRUD with scope rules, key issue/list/revoke, API-key sign-in with per-client rate limit. Not built: `POST /oauth/token` (kind `oauth_client`) | 253 tests pass in total |
 
 ## Next
 
-Commit 7 part 7d (strongest model): impersonation, API clients and keys (API clients have no permissions until then). Still waiting: `sealAuditLog` gets its schedule from the job scheduler in commit 9; export of sealed batches to write-once storage (`audit_seal.worm_object_key`) waits for the storage adapter in commit 8; data-scope ids for client platforms are not checked until that table exists; the built-in roles and their matrix rows arrive with the seed in commit 10.
+Commit 8 (mid model): party and files modules. Still waiting: `sealAuditLog` gets its schedule from the job scheduler in commit 9; export of sealed batches to write-once storage (`audit_seal.worm_object_key`) waits for the storage adapter in commit 8; data-scope ids for client platforms are not checked until that table exists; the built-in roles and their matrix rows arrive with the seed in commit 10.
 
 ## How to run
 

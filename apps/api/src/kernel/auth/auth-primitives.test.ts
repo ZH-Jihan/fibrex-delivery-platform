@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AccessTokens } from './access-token.js';
+import { generateApiKey, hashApiKey, looksLikeApiKey } from './api-keys.js';
 import { hashPassword, verifyPassword } from './password-hasher.js';
 
 const input = {
@@ -82,5 +83,36 @@ describe('access tokens', () => {
     expect(tokens.verify(`${none}.${payload}.`)).toBeUndefined();
     expect(tokens.verify(`${none}.${payload}.${signature}`)).toBeUndefined();
     expect(tokens.verify('not-a-token')).toBeUndefined();
+  });
+});
+
+describe('impersonation tokens', () => {
+  it('carry the real user in `imp` and their own lifetime', () => {
+    let now = 1_800_000_000_000;
+    const tokens = new AccessTokens(SECRET, 900, () => now);
+    const actor = '018f3c1e-0000-7000-8000-000000000009';
+    const claims = tokens.verify(
+      tokens.issue({ ...input, impersonatorId: actor, ttlSeconds: 3600 }),
+    );
+    expect(claims?.imp).toBe(actor);
+    expect((claims?.exp ?? 0) - (claims?.iat ?? 0)).toBe(3600);
+    const plain = tokens.issue(input);
+    expect(tokens.verify(plain)?.imp).toBeUndefined();
+    now += 1000 * 1000; // past a normal token's 900 s, inside the impersonation's hour
+    expect(tokens.verify(plain)).toBeUndefined();
+  });
+});
+
+describe('API keys', () => {
+  it('are random, marked, and stored only as a hash with a short visible prefix', () => {
+    const a = generateApiKey();
+    const b = generateApiKey();
+    expect(a.key).toMatch(/^fbx_[A-Za-z0-9_-]{43}$/);
+    expect(a.key).not.toBe(b.key);
+    expect(a.keyPrefix).toBe(a.key.slice(0, 12));
+    expect(a.keyHash).toBe(hashApiKey(a.key));
+    expect(a.keyHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(looksLikeApiKey(a.key)).toBe(true);
+    expect(looksLikeApiKey('eyJhbGciOiJIUzI1NiJ9.x.y')).toBe(false);
   });
 });
