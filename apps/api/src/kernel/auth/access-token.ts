@@ -9,6 +9,7 @@
  *   sub    user id                    tid  tenant id
  *   sid    session id                 cid  company the session is working in (optional)
  *   roles  role keys in that company  pwd  true while the user must change the password
+ *   mfa    true while the user must still set up two-step verification
  *   iat / exp  issued at / expires at (seconds)
  *
  * Checks on verify, in order, and why:
@@ -38,6 +39,7 @@ const claimsSchema = z.object({
   cid: z.uuid().optional(),
   roles: z.array(z.string().max(64)).max(50),
   pwd: z.literal(true).optional(),
+  mfa: z.literal(true).optional(),
   iat: z.number().int(),
   exp: z.number().int(),
 });
@@ -51,6 +53,8 @@ export interface AccessTokenInput {
   companyId: string | undefined;
   roleKeys: readonly string[];
   mustChangePassword: boolean;
+  /** The user's roles demand two-step verification and it is not set up yet. */
+  mfaEnrolmentRequired?: boolean;
 }
 
 export class AccessTokens {
@@ -84,6 +88,7 @@ export class AccessTokens {
       ...(input.companyId === undefined ? {} : { cid: input.companyId }),
       roles: [...input.roleKeys],
       ...(input.mustChangePassword ? { pwd: true as const } : {}),
+      ...(input.mfaEnrolmentRequired === true ? { mfa: true as const } : {}),
       iat,
       exp: iat + this.ttlSeconds,
     };

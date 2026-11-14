@@ -6,6 +6,21 @@
  *   POST   /auth/logout            end the session
  *   POST   /auth/password/change   signed-in user changes their own password
  *   GET    /me                     who am I, in which company, with which roles
+ *
+ * Part 7b:
+ *   POST   /auth/mfa/verify        second factor at sign-in (app code or recovery code)
+ *   POST   /auth/otp/request       send a sign-in code to a phone number
+ *   POST   /auth/otp/verify        sign in with that code
+ *   POST   /auth/password/forgot   send a reset link
+ *   POST   /auth/password/reset    choose a new password with the link's token
+ *   POST   /auth/mfa/totp/setup    start setting up an authenticator app
+ *   POST   /auth/mfa/totp/confirm  finish it; returns the recovery codes once
+ *   DELETE /auth/mfa/totp          remove it (needs a recent re-authentication)
+ *   POST   /auth/reauth            prove identity again before a sensitive action
+ *
+ * When the user has an authenticator app, /auth/login and /auth/otp/verify answer
+ * `{ mfaRequired: true, mfaToken }` and set no cookies; the session starts at
+ * /auth/mfa/verify. "Send me a code/link" routes always answer 204, whoever asks.
  *   GET    /me/sessions            my active sessions
  *   DELETE /me/sessions/{id}       sign one of them out remotely
  *   GET    /me/login-history       my recent sign-in attempts
@@ -35,7 +50,7 @@ import { AppError } from '../http/errors.js';
 import { problemSchema, registerRoute } from '../http/openapi.js';
 import { RateLimiter, rateLimitMiddleware } from '../http/rate-limit.js';
 import type { Logger } from '../observability/logger.js';
-import type { AuthService, ClientInfo, IssuedSession } from './auth-service.js';
+import type { AuthService, ClientInfo, IssuedSession, SignInResult } from './auth-service.js';
 
 export const REFRESH_COOKIE = 'fibrex_refresh';
 export const CSRF_COOKIE = 'fibrex_csrf';
@@ -51,13 +66,48 @@ export interface AuthRouterDeps {
   cookiePath: string;
 }
 
+const tenantSlug = z
+  .string()
+  .regex(/^[a-z0-9][a-z0-9-]{0,62}$/, { message: 'Not a valid organisation code' });
 const loginBody = z.object({
-  tenant: z
-    .string()
-    .regex(/^[a-z0-9][a-z0-9-]{0,62}$/, { message: 'Not a valid organisation code' }),
+  tenant: tenantSlug,
   identifier: z.string().trim().min(3).max(255),
   password: z.string().min(1).max(128),
 });
+// International form, the same rule the database enforces on stored numbers.
+const phone = z
+  .string()
+  .trim()
+  .regex(/^\+[1-9][0-9]{6,14}$/, {
+    message: 'Use the international form, for example +97455500000',
+  });
+// Six digits from the app, or a recovery code (XXXXX-XXXXX; case, spaces and dash are forgiven).
+const secondFactorCode = z.string().trim().min(6).max(24);
+const totpCode = z
+  .string()
+  .trim()
+  .regex(/^\d{6}$/, { message: 'Enter the 6-digit code' });
+const mfaVerifyBody = z.object({
+  mfaToken: z.string().min(20).max(128),
+  code: secondFactorCode,
+});
+const otpRequestBody = z.object({ tenant: tenantSlug, phone });
+const otpVerifyBody = z.object({ tenant: tenantSlug, phone, code: totpCode });
+const forgotBody = z.object({ tenant: tenantSlug, identifier: z.string().trim().min(3).max(255) });
+const resetBody = z.object({
+  token: z.string().min(40).max(128),
+  // The exact minimum is configuration (AUTH_PASSWORD_MIN_LENGTH), checked by the service.
+  newPassword: z.string().min(8).max(128),
+});
+const totpConfirmBody = z.object({ code: totpCode });
+const reauthBody = z
+  .object({
+    password: z.string().min(1).max(128).optional(),
+    code: secondFactorCode.optional(),
+  })
+  .refine((b) => b.password !== undefined || b.code !== undefined, {
+    message: 'Give your password, or a code from your authenticator app',
+  });
 const changePasswordBody = z.object({
   currentPassword: z.string().min(1).max(128),
   // The exact minimum is configuration (AUTH_PASSWORD_MIN_LENGTH), checked by the service.
@@ -79,12 +129,26 @@ const identity = {
   user: sessionUser,
   companyId: z.uuid().nullable(),
   roles: z.array(z.string()),
+  mfaEnrolmentRequired: z.boolean(),
 };
 const accessGrant = z
   .object({ accessToken: z.string(), expiresIn: z.number().int(), ...identity })
   .meta({ id: 'AccessGrant' });
 const signedIn = accessGrant.extend({ csrfToken: z.string() }).meta({ id: 'SignedIn' });
-const me = z.object({ ...identity, sessionId: z.uuid() }).meta({ id: 'Me' });
+const mfaChallenge = z
+  .object({ mfaRequired: z.literal(true), mfaToken: z.string(), expiresIn: z.number().int() })
+  .meta({ id: 'MfaChallenge' });
+const signInResult = z.union([signedIn, mfaChallenge]);
+const totpSetup = z
+  .object({ secret: z.string(), otpauthUrl: z.string() })
+  .meta({ id: 'TotpSetup' });
+const totpConfirmed = accessGrant
+  .extend({ recoveryCodes: z.array(z.string()) })
+  .meta({ id: 'TotpConfirmed' });
+const reauthResult = z.object({ validUntil: z.iso.datetime() }).meta({ id: 'Reauthenticated' });
+const me = z
+  .object({ ...identity, sessionId: z.uuid(), mfaEnabled: z.boolean() })
+  .meta({ id: 'Me' });
 const sessionItem = z
   .object({
     id: z.uuid(),
@@ -168,8 +232,20 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
     user: issued.user,
     companyId: issued.companyId,
     roles: issued.roles,
+    mfaEnrolmentRequired: issued.mfaEnrolmentRequired,
     csrfToken,
   });
+  /**
+   * Answers a first-factor sign-in. A session gets its cookies; a user who still owes a
+   * second factor gets only the MFA token, and no cookie at all.
+   */
+  const sendSignIn = (res: Response, result: SignInResult) => {
+    if ('mfaRequired' in result) {
+      res.json(result);
+      return;
+    }
+    res.json(body(result, setCookies(res, result)));
+  };
 
   // Stricter limit for guessing-prone routes, counted per client address.
   const loginLimiter = rateLimitMiddleware(
@@ -184,8 +260,43 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
 
   router.post('/auth/login', loginLimiter, async (req, res) => {
     const input = loginBody.parse(req.body);
-    const issued = await auth.login(input, clientInfo(req));
+    sendSignIn(res, await auth.login(input, clientInfo(req)));
+  });
+
+  router.post('/auth/mfa/verify', loginLimiter, async (req, res) => {
+    const issued = await auth.verifyMfa(mfaVerifyBody.parse(req.body), clientInfo(req));
     res.json(body(issued, setCookies(res, issued)));
+  });
+
+  router.post('/auth/otp/request', loginLimiter, async (req, res) => {
+    await auth.requestLoginCode(otpRequestBody.parse(req.body), clientInfo(req));
+    res.status(204).end();
+  });
+  router.post('/auth/otp/verify', loginLimiter, async (req, res) => {
+    sendSignIn(res, await auth.loginWithCode(otpVerifyBody.parse(req.body), clientInfo(req)));
+  });
+
+  router.post('/auth/password/forgot', loginLimiter, async (req, res) => {
+    await auth.forgotPassword(forgotBody.parse(req.body), clientInfo(req));
+    res.status(204).end();
+  });
+  router.post('/auth/password/reset', loginLimiter, async (req, res) => {
+    await auth.resetPassword(resetBody.parse(req.body), clientInfo(req));
+    res.status(204).end();
+  });
+
+  router.post('/auth/mfa/totp/setup', async (_req, res) => {
+    res.json(await auth.setupTotp());
+  });
+  router.post('/auth/mfa/totp/confirm', async (req, res) => {
+    res.json(await auth.confirmTotp(totpConfirmBody.parse(req.body).code));
+  });
+  router.delete('/auth/mfa/totp', async (_req, res) => {
+    res.json(await auth.disableTotp());
+  });
+
+  router.post('/auth/reauth', async (req, res) => {
+    res.json(await auth.reauthenticate(reauthBody.parse(req.body)));
   });
 
   router.post('/auth/refresh', async (req, res) => {
@@ -257,8 +368,115 @@ function registerDocs(registry: OpenAPIRegistry): void {
     summary: 'Sign in with username, email or phone and a password',
     request: { body: { content: { 'application/json': { schema: loginBody } } } },
     responses: {
-      200: json('Signed in; the refresh and CSRF cookies are set', signedIn),
+      200: json(
+        'Signed in (cookies are set), or a second factor is required (no cookies)',
+        signInResult,
+      ),
       401: problem('Wrong details, or the account is locked or disabled'),
+    },
+  });
+  const bodyOf = (schema: z.ZodType) => ({
+    body: { content: { 'application/json': { schema } } },
+  });
+  registerRoute(registry, {
+    method: 'post',
+    path: '/auth/mfa/verify',
+    tags,
+    summary: 'Finish sign-in with an authenticator code or a recovery code',
+    request: bodyOf(mfaVerifyBody),
+    responses: {
+      200: json('Signed in; the refresh and CSRF cookies are set', signedIn),
+      401: problem('Wrong code, locked account, or the sign-in step expired'),
+    },
+  });
+  registerRoute(registry, {
+    method: 'post',
+    path: '/auth/otp/request',
+    tags,
+    summary: 'Send a sign-in code to a phone number',
+    request: bodyOf(otpRequestBody),
+    responses: {
+      204: { description: 'Accepted (the same answer whether or not the number is known)' },
+    },
+  });
+  registerRoute(registry, {
+    method: 'post',
+    path: '/auth/otp/verify',
+    tags,
+    summary: 'Sign in with a phone number and the code sent to it',
+    request: bodyOf(otpVerifyBody),
+    responses: {
+      200: json('Signed in, or a second factor is required', signInResult),
+      401: problem('Wrong or expired code, or the account is locked or disabled'),
+    },
+  });
+  registerRoute(registry, {
+    method: 'post',
+    path: '/auth/password/forgot',
+    tags,
+    summary: 'Send a password-reset link',
+    request: bodyOf(forgotBody),
+    responses: {
+      204: { description: 'Accepted (the same answer whether or not the account exists)' },
+    },
+  });
+  registerRoute(registry, {
+    method: 'post',
+    path: '/auth/password/reset',
+    tags,
+    summary: 'Choose a new password with a reset token; every session is signed out',
+    request: bodyOf(resetBody),
+    responses: {
+      204: { description: 'Password changed' },
+      400: problem('The new password is too short'),
+      422: problem('The token is invalid, used or expired, or the password was used recently'),
+    },
+  });
+  registerRoute(registry, {
+    method: 'post',
+    path: '/auth/mfa/totp/setup',
+    tags,
+    summary: 'Start setting up an authenticator app',
+    responses: {
+      200: json('The seed, as text and as an otpauth link for a QR code', totpSetup),
+      401: problem('Not signed in'),
+      409: problem('An authenticator app is already set up'),
+    },
+  });
+  registerRoute(registry, {
+    method: 'post',
+    path: '/auth/mfa/totp/confirm',
+    tags,
+    summary: 'Finish setting up the authenticator app',
+    request: bodyOf(totpConfirmBody),
+    responses: {
+      200: json('Enabled; recovery codes (shown once) and a fresh access token', totpConfirmed),
+      401: problem('Not signed in'),
+      422: problem('Wrong code, or no setup in progress'),
+    },
+  });
+  registerRoute(registry, {
+    method: 'delete',
+    path: '/auth/mfa/totp',
+    tags,
+    summary: 'Remove my authenticator app',
+    responses: {
+      200: json('Removed; a fresh access token', accessGrant),
+      401: problem('Not signed in'),
+      403: problem('Re-authentication is required first'),
+      404: problem('No authenticator app is set up'),
+    },
+  });
+  registerRoute(registry, {
+    method: 'post',
+    path: '/auth/reauth',
+    tags,
+    summary: 'Confirm my identity again before a sensitive action',
+    request: bodyOf(reauthBody),
+    responses: {
+      200: json('Confirmed for this session until the given time', reauthResult),
+      401: problem('Not signed in'),
+      422: problem('Wrong password or code, or the account is locked'),
     },
   });
   registerRoute(registry, {

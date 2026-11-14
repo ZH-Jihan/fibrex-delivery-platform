@@ -14,12 +14,15 @@
  */
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { StubMessagingAdapter } from './adapters/messaging/stub.js';
 import { API_PREFIX, createApp } from './app.js';
 import { AccessTokens } from './kernel/auth/access-token.js';
 import { createAuthRouter } from './kernel/auth/auth-router.js';
 import { AuthService } from './kernel/auth/auth-service.js';
 import { authenticate } from './kernel/auth/authenticate.js';
+import { MfaFactors } from './kernel/auth/mfa.js';
 import { ConfigError, loadEnv } from './kernel/config/env.js';
+import { SecretBox } from './kernel/crypto/secret-box.js';
 import { createPool } from './kernel/db/pool.js';
 import { createPrisma } from './kernel/db/prisma.js';
 import { UnitOfWork } from './kernel/db/unit-of-work.js';
@@ -43,7 +46,18 @@ function main(): void {
   const prisma = createPrisma(pool);
   const uow = new UnitOfWork(prisma);
   const tokens = new AccessTokens(env.AUTH_TOKEN_SECRET, env.AUTH_ACCESS_TTL_SECONDS);
-  const auth = new AuthService({ prisma, uow, redis, tokens, env });
+  const mfa = new MfaFactors({
+    box: new SecretBox(env.DATA_ENCRYPTION_KEY),
+    tokenSecret: env.AUTH_TOKEN_SECRET,
+    issuer: env.AUTH_TOTP_ISSUER,
+  });
+  // STUB: sign-in codes and reset links are written to the log, not sent (never their
+  // text in production). Replaced by real SMS and email providers later (PROGRESS.md).
+  const messaging = new StubMessagingAdapter({
+    logger,
+    revealText: env.NODE_ENV !== 'production',
+  });
+  const auth = new AuthService({ prisma, uow, redis, tokens, mfa, messaging, logger, env });
 
   const app = createApp({
     env,

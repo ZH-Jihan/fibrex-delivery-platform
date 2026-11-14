@@ -29,15 +29,35 @@
  *      scope, so session writes must run in the session's own company. It also makes the
  *      audit trail name the user as the actor.
  *
- * Not here yet: MFA, phone one-time codes, forgot/reset password, re-authentication
- * (part 7b); permissions and company switching (7c); impersonation and API keys (7d).
+ * Added in part 7b (each rule is commented where it is enforced):
+ *   - Two-step verification. When the user has an authenticator app, the first factor
+ *     (password or phone code) does not open a session: it returns a short-lived, single
+ *     use "MFA token", and the session opens only after POST /auth/mfa/verify. A user
+ *     whose roles demand two-step verification but who has none yet gets a session that
+ *     can only set it up (the `mfa` claim; enforced in ./authenticate.ts).
+ *   - Wrong second-factor codes, wrong phone codes and wrong re-authentication count
+ *     towards the same account lock as wrong passwords. For a user with an authenticator
+ *     app the counter is cleared only when BOTH factors have passed; otherwise someone
+ *     who knows the password could clear it at will and guess codes without limit.
+ *   - Phone sign-in codes and password-reset links: the answer to "send me one" is always
+ *     the same whether or not the account exists, and the message goes out after the
+ *     response path, so neither the reply nor its timing reveals who has an account.
+ *   - Resetting a password signs out every session of the user. It never signs anyone
+ *     in, so it is not a way around two-step verification.
+ *   - Re-authentication (step-up): proving identity again unlocks sensitive actions for
+ *     AUTH_REAUTH_TTL_SECONDS on that one session (assertRecentReauth).
+ *
+ * Not here yet: permissions and company switching (7c); impersonation and API keys (7d).
  *
  * Depends on: kernel/db (unit of work, Prisma), ioredis, ./password-hasher.ts,
- * ./access-token.ts, kernel/context, kernel/http/errors.ts.
+ * ./access-token.ts, ./mfa.ts, adapters/messaging/interface.ts, kernel/context,
+ * kernel/http/errors.ts, kernel/observability/logger.ts.
  * Used by: kernel/auth/auth-router.ts, kernel/auth/authenticate.ts (revocation key).
  */
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Redis } from 'ioredis';
+import { z } from 'zod';
+import type { MessagingAdapter, OutboundMessage } from '../../adapters/messaging/interface.js';
 import type { Env } from '../config/env.js';
 import { currentContext, requireContext } from '../context/request-context.js';
 import type { Db, PrismaDb } from '../db/prisma.js';
@@ -49,7 +69,9 @@ import {
   UnprocessableError,
   ValidationError,
 } from '../http/errors.js';
+import type { Logger } from '../observability/logger.js';
 import type { AccessTokens } from './access-token.js';
+import type { MfaFactors, MfaState } from './mfa.js';
 import { hashPassword, verifyAgainstDummy, verifyPassword } from './password-hasher.js';
 
 export type AuthEnv = Pick<
@@ -59,6 +81,12 @@ export type AuthEnv = Pick<
   | 'AUTH_LOCK_MINUTES'
   | 'AUTH_PASSWORD_MIN_LENGTH'
   | 'AUTH_PASSWORD_HISTORY'
+  | 'AUTH_OTP_TTL_SECONDS'
+  | 'AUTH_OTP_RESEND_SECONDS'
+  | 'AUTH_RESET_TTL_MINUTES'
+  | 'AUTH_REAUTH_TTL_SECONDS'
+  | 'AUTH_TOTP_ISSUER'
+  | 'WEB_BASE_URL'
 >;
 
 export interface AuthServiceDeps {
@@ -66,6 +94,10 @@ export interface AuthServiceDeps {
   uow: UnitOfWork;
   redis: Redis;
   tokens: AccessTokens;
+  mfa: MfaFactors;
+  /** Delivers sign-in codes and reset links (a stub in development). */
+  messaging: MessagingAdapter;
+  logger: Logger;
   env: AuthEnv;
 }
 
@@ -90,12 +122,63 @@ export interface AccessGrant {
   user: SessionUser;
   companyId: string | null;
   roles: string[];
+  /** True while the session may only set up two-step verification. */
+  mfaEnrolmentRequired: boolean;
 }
 
 export interface IssuedSession extends AccessGrant {
   refreshToken: string;
   refreshExpiresAt: Date;
 }
+
+/** The first factor passed, but an authenticator code is still owed. No session yet. */
+export interface MfaChallenge {
+  mfaRequired: true;
+  /** Proves the first factor passed; sent back with the code. Single use. */
+  mfaToken: string;
+  /** Seconds until the MFA token expires. */
+  expiresIn: number;
+}
+
+export type SignInResult = IssuedSession | MfaChallenge;
+
+/** The MFA token is unknown, expired or already used: sign in again from the start. */
+export class MfaChallengeExpiredError extends AppError {
+  constructor() {
+    super(
+      401,
+      'mfa_challenge_expired',
+      'Unauthenticated',
+      'This sign-in step has expired. Sign in again.',
+    );
+  }
+}
+
+/** A sensitive action was attempted without a recent re-authentication. */
+export class ReauthRequiredError extends AppError {
+  constructor() {
+    super(403, 'reauth_required', 'Forbidden', 'Confirm your identity again to continue');
+  }
+}
+
+/** Redis key that marks a session as recently re-authenticated. */
+function reauthKey(sessionId: string): string {
+  return `auth:reauth:${sessionId}`;
+}
+
+/** Redis key of a sign-in waiting for its second factor. Only a hash of the token is kept. */
+function mfaPendingKey(mfaToken: string): string {
+  return `auth:mfa:${sha256(mfaToken)}`;
+}
+
+/** What is remembered between the first factor and the second. */
+const pendingMfaSchema = z.object({
+  tenantId: z.uuid(),
+  userId: z.uuid(),
+  method: z.enum(['password', 'otp']),
+  identifier: z.string(),
+});
+type PendingMfa = z.infer<typeof pendingMfaSchema>;
 
 /** One answer for every sign-in failure, so nothing about the account leaks. */
 export class InvalidCredentialsError extends AppError {
@@ -144,7 +227,38 @@ function toAccess(membership: {
 }
 
 type LoginResult =
-  'success' | 'bad_credentials' | 'locked' | 'disabled' | 'password_change_required';
+  | 'success'
+  | 'bad_credentials'
+  | 'locked'
+  | 'disabled'
+  | 'mfa_required'
+  | 'mfa_failed'
+  | 'password_change_required';
+
+/** One sign-in attempt: where it is aimed and how, for the login history. */
+interface Attempt {
+  tenantId: string;
+  /** What the caller typed to identify themselves (username, email or phone). */
+  identifier: string;
+  method: 'password' | 'otp';
+  client: ClientInfo;
+}
+
+/** A user whose first factor (or both) has been checked. */
+interface Verified {
+  user: UserRow;
+  access: Access;
+  mfa: MfaState;
+}
+
+function isLocked(user: { lockedUntil: Date | null }): boolean {
+  return user.lockedUntil !== null && user.lockedUntil.getTime() > Date.now();
+}
+
+/** What a phone sign-in code is bound to when hashed. */
+function otpScope(tenantId: string, phone: string): string {
+  return `otp:login:${tenantId}:${phone}`;
+}
 
 export class AuthService {
   private readonly deps: AuthServiceDeps;
@@ -160,40 +274,142 @@ export class AuthService {
   async login(
     input: { tenant: string; identifier: string; password: string },
     client: ClientInfo,
-  ): Promise<IssuedSession> {
+  ): Promise<SignInResult> {
     const tenantId = await this.resolveTenant(input.tenant);
     if (tenantId === undefined) {
       // Unknown tenant: spend the same time as a real check, then give the same answer.
       await verifyAgainstDummy(input.password);
       throw new InvalidCredentialsError();
     }
-    const identifier = input.identifier.trim().toLowerCase();
-    const record = (db: Db, userId: string | null, result: LoginResult) =>
-      db.loginEvent.create({
-        data: {
-          tenantId,
-          userId,
-          identifier: identifier.slice(0, 255),
-          method: 'password',
-          result,
-          ip: client.ip ?? null,
-          userAgent: client.userAgent?.slice(0, 512) ?? null,
-        },
-      });
+    const attempt: Attempt = {
+      tenantId,
+      identifier: input.identifier.trim().toLowerCase(),
+      method: 'password',
+      client,
+    };
 
     // Transaction 1, as "nobody yet": check the credentials and record a failure.
     const verified = await this.deps.uow.runAs(this.preAuthContext(tenantId, client), (db) =>
-      this.checkCredentials(db, identifier, input.password, (userId, result) =>
-        record(db, userId, result),
-      ),
+      this.checkCredentials(db, attempt, input.password),
     );
     // It has committed (login history, failure counter, lock), so now it is safe to throw.
     if (verified === undefined) throw new InvalidCredentialsError();
+    return this.afterFirstFactor(attempt, verified);
+  }
 
-    // Transaction 2, as the user in their company: create the session. Running it under
-    // the user's own identity means the audit trail names them as the actor, and the
-    // audit row for the session (which carries the company) passes row-level security.
-    const { user, access } = verified;
+  /** Writes one line of login history (iam.login_event). */
+  private recordLogin(db: Db, attempt: Attempt, userId: string | null, result: LoginResult) {
+    return db.loginEvent.create({
+      data: {
+        tenantId: attempt.tenantId,
+        userId,
+        identifier: attempt.identifier.slice(0, 255),
+        method: attempt.method,
+        result,
+        ip: attempt.client.ip ?? null,
+        userAgent: attempt.client.userAgent?.slice(0, 512) ?? null,
+      },
+    });
+  }
+
+  /** The user and their access when the password is right; undefined otherwise (recorded). */
+  private async checkCredentials(
+    db: Db,
+    attempt: Attempt,
+    password: string,
+  ): Promise<Verified | undefined> {
+    const { identifier } = attempt;
+    // A person may sign in with their username, email or phone number.
+    const user = await db.userAccount.findFirst({
+      where: { OR: [{ username: identifier }, { email: identifier }, { phone: identifier }] },
+    });
+    if (user === null) {
+      await verifyAgainstDummy(password);
+      await this.recordLogin(db, attempt, null, 'bad_credentials');
+      return undefined;
+    }
+    if (user.status !== 'active') {
+      await verifyAgainstDummy(password);
+      await this.recordLogin(db, attempt, user.id, 'disabled');
+      return undefined;
+    }
+    // While locked, the password is not even checked: guessing cannot continue, and a
+    // correct guess during the lock is not confirmed.
+    if (isLocked(user)) {
+      await verifyAgainstDummy(password);
+      await this.recordLogin(db, attempt, user.id, 'locked');
+      return undefined;
+    }
+
+    const credential = await db.credential.findFirst({
+      where: { userId: user.id, kind: 'password', isCurrent: true },
+    });
+    const matches =
+      credential === null
+        ? (await verifyAgainstDummy(password), false)
+        : await verifyPassword(credential.hash, password);
+    if (!matches) {
+      await this.registerFailure(db, user.id);
+      await this.recordLogin(db, attempt, user.id, 'bad_credentials');
+      return undefined;
+    }
+    return this.firstFactorPassed(db, attempt, user);
+  }
+
+  /**
+   * Bookkeeping once the password or phone code was right.
+   *
+   * Without an authenticator app the sign-in is complete: clear the failure counter.
+   * With one, the counter is deliberately left alone until the second factor passes
+   * (see completeSignIn). If a correct password cleared it, someone who knows the
+   * password could alternate "password" and "guess a code" for ever and never be locked.
+   */
+  private async firstFactorPassed(db: Db, attempt: Attempt, user: UserRow): Promise<Verified> {
+    const mfa = await this.deps.mfa.state(db, user.id);
+    if (mfa.enabled) {
+      await this.recordLogin(db, attempt, user.id, 'mfa_required');
+    } else {
+      await this.completeSignIn(db, user.id);
+    }
+    return { user, access: await this.defaultAccess(db, user.id), mfa };
+  }
+
+  /** Every factor has passed: clear the failure counter and note the sign-in time. */
+  private async completeSignIn(db: Db, userId: string): Promise<void> {
+    await db.userAccount.update({
+      where: { id: userId },
+      data: { failedAttempts: 0, lockedUntil: null, lastLoginAt: new Date() },
+    });
+  }
+
+  /**
+   * What the caller gets after the first factor: a session, or (when the user has an
+   * authenticator app) only a token that lets them present the second factor.
+   */
+  private async afterFirstFactor(attempt: Attempt, verified: Verified): Promise<SignInResult> {
+    if (!verified.mfa.enabled) return this.openSession(attempt, verified);
+    // 256 random bits, kept in Redis only as a hash, for AUTH_OTP_TTL_SECONDS. It is not
+    // a session: the only thing it can do is accompany a code to /auth/mfa/verify.
+    const mfaToken = randomBytes(32).toString('base64url');
+    const expiresIn = this.deps.env.AUTH_OTP_TTL_SECONDS;
+    const pending: PendingMfa = {
+      tenantId: attempt.tenantId,
+      userId: verified.user.id,
+      method: attempt.method,
+      identifier: attempt.identifier,
+    };
+    await this.deps.redis.set(mfaPendingKey(mfaToken), JSON.stringify(pending), 'EX', expiresIn);
+    return { mfaRequired: true, mfaToken, expiresIn };
+  }
+
+  /**
+   * Creates the session, as the user in their company. Running it under the user's own
+   * identity means the audit trail names them as the actor, and the audit row for the
+   * session (which carries the company) passes row-level security.
+   */
+  private openSession(attempt: Attempt, verified: Verified): Promise<IssuedSession> {
+    const { tenantId, client } = attempt;
+    const { user, access, mfa } = verified;
     return this.deps.uow.runAs(
       this.sessionContext(tenantId, user.id, access.companyId, client),
       async (db) => {
@@ -208,9 +424,14 @@ export class AuthService {
         });
         // A new family: every token later rotated from this one shares the id.
         const refresh = await this.createRefreshToken(db, tenantId, session.id, randomUUID(), null);
-        await record(db, user.id, user.mustChangePassword ? 'password_change_required' : 'success');
+        await this.recordLogin(
+          db,
+          attempt,
+          user.id,
+          user.mustChangePassword ? 'password_change_required' : 'success',
+        );
         return {
-          ...this.grant(user, session.id, access),
+          ...this.grant(user, session.id, access, mfa),
           refreshToken: refresh.token,
           refreshExpiresAt: refresh.expiresAt,
         };
@@ -218,53 +439,204 @@ export class AuthService {
     );
   }
 
-  /** The user and their access when the password is right; undefined otherwise (recorded). */
-  private async checkCredentials(
+  // ---------------------------------------------------------------------------------
+  // Second factor at sign-in
+  // ---------------------------------------------------------------------------------
+
+  /**
+   * Finishes a sign-in that is waiting for its second factor. `code` is six digits from
+   * the authenticator app, or a recovery code.
+   */
+  async verifyMfa(
+    input: { mfaToken: string; code: string },
+    client: ClientInfo,
+  ): Promise<IssuedSession> {
+    const key = mfaPendingKey(input.mfaToken);
+    const stored = await this.deps.redis.get(key);
+    const parsed = stored === null ? undefined : pendingMfaSchema.safeParse(JSON.parse(stored));
+    if (parsed?.success !== true) throw new MfaChallengeExpiredError();
+    const pending = parsed.data;
+    const attempt: Attempt = {
+      tenantId: pending.tenantId,
+      identifier: pending.identifier,
+      method: pending.method,
+      client,
+    };
+
+    // As "nobody yet", like the password check: a failure must commit before it is thrown.
+    const verified = await this.deps.uow.runAs(
+      this.preAuthContext(pending.tenantId, client),
+      async (db): Promise<Verified | undefined> => {
+        const user = await db.userAccount.findFirst({ where: { id: pending.userId } });
+        if (user?.status !== 'active') {
+          await this.recordLogin(db, attempt, user?.id ?? null, 'disabled');
+          return undefined;
+        }
+        // A locked account accepts no codes either, right or wrong.
+        if (isLocked(user)) {
+          await this.recordLogin(db, attempt, user.id, 'locked');
+          return undefined;
+        }
+        if (!(await this.deps.mfa.verifyCode(db, user.id, input.code))) {
+          // Counted like a wrong password: a few wrong codes lock the account.
+          await this.registerFailure(db, user.id);
+          await this.recordLogin(db, attempt, user.id, 'mfa_failed');
+          return undefined;
+        }
+        await this.completeSignIn(db, user.id);
+        return {
+          user,
+          access: await this.defaultAccess(db, user.id),
+          mfa: await this.deps.mfa.state(db, user.id),
+        };
+      },
+    );
+    if (verified === undefined) throw new InvalidCredentialsError();
+    // Single use: only the request that removes the token may open the session.
+    if ((await this.deps.redis.del(key)) !== 1) throw new MfaChallengeExpiredError();
+    return this.openSession(attempt, verified);
+  }
+
+  // ---------------------------------------------------------------------------------
+  // Phone sign-in codes
+  // ---------------------------------------------------------------------------------
+
+  /**
+   * Sends a six-digit sign-in code to a phone number. Never says whether the number
+   * belongs to an account: every path returns nothing.
+   */
+  async requestLoginCode(input: { tenant: string; phone: string }, client: ClientInfo) {
+    const tenantId = await this.resolveTenant(input.tenant);
+    if (tenantId === undefined) return;
+    const { phone } = input;
+    const { AUTH_OTP_TTL_SECONDS: ttl, AUTH_OTP_RESEND_SECONDS: gap } = this.deps.env;
+
+    const code = await this.deps.uow.runAs(this.preAuthContext(tenantId, client), async (db) => {
+      const user = await db.userAccount.findFirst({ where: { phone } });
+      // No code for unknown, disabled or locked accounts (a lock must stop this door too).
+      if (user?.status !== 'active' || isLocked(user)) return undefined;
+      const now = Date.now();
+      // One message per AUTH_OTP_RESEND_SECONDS per number, so the endpoint cannot be
+      // used to flood someone's phone or run up the SMS bill.
+      const recent = await db.otpChallenge.findFirst({
+        where: { phone, purpose: 'login', createdAt: { gt: new Date(now - gap * 1000) } },
+        select: { id: true },
+      });
+      if (recent !== null) return undefined;
+      // Only the newest code works: earlier unused ones are closed.
+      await db.otpChallenge.updateMany({
+        where: { phone, purpose: 'login', consumedAt: null },
+        data: { consumedAt: new Date(now) },
+      });
+      // randomInt is uniform over 000000-999999.
+      const fresh = String(randomInt(1_000_000)).padStart(6, '0');
+      await db.otpChallenge.create({
+        data: {
+          tenantId,
+          userId: user.id,
+          phone,
+          purpose: 'login',
+          codeHash: this.deps.mfa.hashCode(otpScope(tenantId, phone), fresh),
+          expiresAt: new Date(now + ttl * 1000),
+        },
+      });
+      return fresh;
+    });
+    if (code === undefined) return;
+    this.deliver({
+      channel: 'sms',
+      to: phone,
+      purpose: 'login_code',
+      text:
+        `Your ${this.deps.env.AUTH_TOTP_ISSUER} sign-in code is ${code}. ` +
+        `It expires in ${String(Math.ceil(ttl / 60))} minutes. Do not share it with anyone.`,
+    });
+  }
+
+  /** Signs in with a phone number and the code sent to it. */
+  async loginWithCode(
+    input: { tenant: string; phone: string; code: string },
+    client: ClientInfo,
+  ): Promise<SignInResult> {
+    const tenantId = await this.resolveTenant(input.tenant);
+    if (tenantId === undefined) throw new InvalidCredentialsError();
+    const attempt: Attempt = { tenantId, identifier: input.phone, method: 'otp', client };
+    const verified = await this.deps.uow.runAs(this.preAuthContext(tenantId, client), (db) =>
+      this.checkLoginCode(db, attempt, input.code),
+    );
+    if (verified === undefined) throw new InvalidCredentialsError();
+    // The code replaces the password only: an authenticator app is still asked for.
+    return this.afterFirstFactor(attempt, verified);
+  }
+
+  private async checkLoginCode(
     db: Db,
-    identifier: string,
-    password: string,
-    record: (userId: string | null, result: LoginResult) => Promise<unknown>,
-  ): Promise<{ user: UserRow; access: Access } | undefined> {
-    // A person may sign in with their username, email or phone number.
-    const user = await db.userAccount.findFirst({
-      where: { OR: [{ username: identifier }, { email: identifier }, { phone: identifier }] },
+    attempt: Attempt,
+    code: string,
+  ): Promise<Verified | undefined> {
+    const phone = attempt.identifier;
+    const now = new Date();
+    const challenge = await db.otpChallenge.findFirst({
+      where: { phone, purpose: 'login', consumedAt: null, expiresAt: { gt: now } },
+      orderBy: { createdAt: 'desc' },
     });
-    if (user === null) {
-      await verifyAgainstDummy(password);
-      await record(null, 'bad_credentials');
+    const challengeUserId = challenge?.userId ?? null;
+    if (challenge === null || challengeUserId === null) {
+      await this.recordLogin(db, attempt, null, 'bad_credentials');
       return undefined;
     }
-    if (user.status !== 'active') {
-      await verifyAgainstDummy(password);
-      await record(user.id, 'disabled');
+    const user = await db.userAccount.findFirst({ where: { id: challengeUserId } });
+    if (user?.status !== 'active') {
+      await this.recordLogin(db, attempt, user?.id ?? null, 'disabled');
       return undefined;
     }
-    // While locked, the password is not even checked: guessing cannot continue, and a
-    // correct guess during the lock is not confirmed.
-    if (user.lockedUntil !== null && user.lockedUntil.getTime() > Date.now()) {
-      await verifyAgainstDummy(password);
-      await record(user.id, 'locked');
+    if (isLocked(user)) {
+      await this.recordLogin(db, attempt, user.id, 'locked');
       return undefined;
     }
-
-    const credential = await db.credential.findFirst({
-      where: { userId: user.id, kind: 'password', isCurrent: true },
+    // Count the try before looking at the code (the database does the increment, so
+    // simultaneous tries all count). Past the limit even the right code is refused.
+    const { attempts } = await db.otpChallenge.update({
+      where: { id: challenge.id },
+      data: { attempts: { increment: 1 } },
+      select: { attempts: true },
     });
+    const expected = Buffer.from(challenge.codeHash);
+    const given = Buffer.from(this.deps.mfa.hashCode(otpScope(attempt.tenantId, phone), code));
     const matches =
-      credential === null
-        ? (await verifyAgainstDummy(password), false)
-        : await verifyPassword(credential.hash, password);
+      attempts <= this.deps.env.AUTH_MAX_FAILED_ATTEMPTS &&
+      expected.length === given.length &&
+      timingSafeEqual(expected, given);
     if (!matches) {
+      // Also counted against the account, so asking for new codes does not buy new tries.
       await this.registerFailure(db, user.id);
-      await record(user.id, 'bad_credentials');
+      await this.recordLogin(db, attempt, user.id, 'bad_credentials');
       return undefined;
     }
-
-    await db.userAccount.update({
-      where: { id: user.id },
-      data: { failedAttempts: 0, lockedUntil: null, lastLoginAt: new Date() },
+    // Use the code up; "still unused" is part of the condition, so it works exactly once.
+    const claimed = await db.otpChallenge.updateMany({
+      where: { id: challenge.id, consumedAt: null },
+      data: { consumedAt: now },
     });
-    return { user, access: await this.defaultAccess(db, user.id) };
+    if (claimed.count !== 1) {
+      await this.recordLogin(db, attempt, user.id, 'bad_credentials');
+      return undefined;
+    }
+    return this.firstFactorPassed(db, attempt, user);
+  }
+
+  /**
+   * Hands a message to the messaging adapter without waiting for it. The caller's
+   * response therefore takes the same time whether or not a message exists, and a
+   * provider outage cannot reveal (through an error) that the account exists.
+   */
+  private deliver(message: OutboundMessage): void {
+    void this.deps.messaging.send(message).catch((err: unknown) => {
+      this.deps.logger.error(
+        { err, channel: message.channel, purpose: message.purpose },
+        'a sign-in message could not be sent',
+      );
+    });
   }
 
   /**
@@ -360,8 +732,11 @@ export class AuthService {
       data: { lastSeenAt: now, ip: client.ip ?? row.session.ip },
     });
     const next = await this.createRefreshToken(db, tenantId, row.sessionId, row.familyId, row.id);
+    // Read again as well: a role that now demands two-step verification restricts the
+    // session from this refresh on, until the user has set it up.
+    const mfa = await this.deps.mfa.state(db, user.id);
     return {
-      ...this.grant(user, row.sessionId, access),
+      ...this.grant(user, row.sessionId, access, mfa),
       refreshToken: next.token,
       refreshExpiresAt: next.expiresAt,
     };
@@ -459,7 +834,6 @@ export class AuthService {
     newPassword: string;
   }): Promise<AccessGrant> {
     const { userId, sessionId, tenantId } = currentUser();
-    const companyId = requireContext().companyIds[0];
     const result = await this.deps.uow.run(async (db) => {
       const user = await db.userAccount.findFirst({ where: { id: userId } });
       if (user === null) throw new UnauthenticatedError();
@@ -481,11 +855,7 @@ export class AuthService {
         where: { userId, revokedAt: null, id: { not: sessionId } },
         select: { id: true, companyId: true },
       });
-      const access = (await this.accessIn(db, userId, companyId ?? null)) ?? NO_ACCESS;
-      return {
-        others,
-        grant: this.grant({ ...user, mustChangePassword: false }, sessionId, access),
-      };
+      return { others, grant: await this.freshGrant(db, { ...user, mustChangePassword: false }) };
     });
     if (result === undefined) {
       throw new UnprocessableError(
@@ -548,21 +918,262 @@ export class AuthService {
   }
 
   // ---------------------------------------------------------------------------------
+  // Forgotten password
+  // ---------------------------------------------------------------------------------
+
+  /**
+   * Sends a password-reset link by email (or by SMS when the account has no email).
+   * Never says whether the account exists: every path returns nothing.
+   */
+  async forgotPassword(input: { tenant: string; identifier: string }, client: ClientInfo) {
+    const tenantId = await this.resolveTenant(input.tenant);
+    if (tenantId === undefined) return;
+    const identifier = input.identifier.trim().toLowerCase();
+    const { AUTH_RESET_TTL_MINUTES: ttl, AUTH_OTP_RESEND_SECONDS: gap } = this.deps.env;
+
+    const issued = await this.deps.uow.runAs(this.preAuthContext(tenantId, client), async (db) => {
+      const user = await db.userAccount.findFirst({
+        where: { OR: [{ username: identifier }, { email: identifier }, { phone: identifier }] },
+      });
+      // A locked account may still reset (the lock is about guessing, and the link goes
+      // only to the owner's own inbox); a disabled one may not.
+      if (user?.status !== 'active') return undefined;
+      const to =
+        user.email !== null
+          ? ({ channel: 'email', address: user.email } as const)
+          : user.phone !== null
+            ? ({ channel: 'sms', address: user.phone } as const)
+            : undefined;
+      // Nowhere to send it: an administrator has to reset this password.
+      if (to === undefined) return undefined;
+      const now = Date.now();
+      // One link per AUTH_OTP_RESEND_SECONDS, so the endpoint cannot flood an inbox.
+      const recent = await db.passwordResetToken.findFirst({
+        where: { userId: user.id, createdAt: { gt: new Date(now - gap * 1000) } },
+        select: { id: true },
+      });
+      if (recent !== null) return undefined;
+      // Only the newest link works: earlier unused ones are retired (soft-deleted).
+      await db.passwordResetToken.updateMany({
+        where: { userId: user.id, usedAt: null },
+        data: { deletedAt: new Date(now), deleteReason: 'superseded' },
+      });
+      // Same shape as a refresh token: "<tenant id>.<256 random bits>", stored as a hash.
+      const token = `${tenantId}.${randomBytes(32).toString('base64url')}`;
+      await db.passwordResetToken.create({
+        data: {
+          tenantId,
+          userId: user.id,
+          tokenHash: sha256(token),
+          expiresAt: new Date(now + ttl * 60_000),
+        },
+      });
+      return { to, token };
+    });
+    if (issued === undefined) return;
+
+    // The token rides in the URL fragment (after #), which browsers never send to a
+    // server, so it cannot end up in web-server or proxy logs.
+    const link = new URL('/reset-password', this.deps.env.WEB_BASE_URL);
+    link.hash = `token=${issued.token}`;
+    const product = this.deps.env.AUTH_TOTP_ISSUER;
+    this.deliver({
+      channel: issued.to.channel,
+      to: issued.to.address,
+      purpose: 'password_reset',
+      subject: `Reset your ${product} password`,
+      text:
+        `Use this link to choose a new ${product} password. It works once and expires in ` +
+        `${String(ttl)} minutes: ${link.toString()} If you did not ask for it, ignore this message.`,
+    });
+  }
+
+  /** Sets a new password using the token from a reset link, and signs the user out everywhere. */
+  async resetPassword(input: { token: string; newPassword: string }, client: ClientInfo) {
+    const invalid = () =>
+      new UnprocessableError(
+        'reset_token_invalid',
+        'This reset link is not valid or has expired. Ask for a new one.',
+      );
+    const tenantId = tenantOfToken(input.token);
+    if (tenantId === undefined) throw invalid();
+    const tokenHash = sha256(input.token);
+
+    // Step 1 (read only, as "nobody yet"): whose token is this?
+    const owner = await this.deps.uow.runAs(this.preAuthContext(tenantId, client), (db) =>
+      db.passwordResetToken.findUnique({ where: { tokenHash }, select: { userId: true } }),
+    );
+    if (owner === null) throw invalid();
+    const { userId } = owner;
+
+    // Step 2, as that user, so the audit trail names them as the one who changed it.
+    const sessions = await this.deps.uow.runAs(
+      this.sessionContext(tenantId, userId, null, client),
+      async (db) => {
+        const user = await db.userAccount.findFirst({ where: { id: userId } });
+        if (user?.status !== 'active') return undefined;
+        // Use the token up. Unused and unexpired are part of the condition, so of two
+        // requests with the same link exactly one gets through.
+        const now = new Date();
+        const claimed = await db.passwordResetToken.updateMany({
+          where: { tokenHash, usedAt: null, expiresAt: { gt: now } },
+          data: { usedAt: now },
+        });
+        if (claimed.count !== 1) return undefined;
+        // If the new password breaks the policy this throws, the transaction rolls back
+        // and the link is still usable for a better password.
+        await this.setPassword(db, tenantId, userId, input.newPassword);
+        await db.userAccount.update({
+          where: { id: userId },
+          data: { mustChangePassword: false, failedAttempts: 0, lockedUntil: null },
+        });
+        return db.session.findMany({
+          where: { userId, revokedAt: null },
+          select: { id: true, companyId: true },
+        });
+      },
+    );
+    if (sessions === undefined) throw invalid();
+    // Whoever knew the old password is signed out. One session at a time, each in its
+    // own company (see revokeInOwnContext).
+    for (const session of sessions) {
+      await this.revokeInOwnContext(tenantId, session, userId, 'password_reset', client);
+    }
+  }
+
+  // ---------------------------------------------------------------------------------
+  // Authenticator app: set up, confirm, remove
+  // ---------------------------------------------------------------------------------
+
+  /** Step 1: returns the seed (text, and the link behind the QR code) to load into the app. */
+  async setupTotp(): Promise<{ secret: string; otpauthUrl: string }> {
+    const { userId } = currentUser();
+    return this.deps.uow.run(async (db) => {
+      const user = await db.userAccount.findFirst({ where: { id: userId } });
+      if (user === null) throw new UnauthenticatedError();
+      return this.deps.mfa.beginTotpSetup(db, user);
+    });
+  }
+
+  /**
+   * Step 2: a code from the app switches two-step verification on. Returns the recovery
+   * codes (shown this once) and a fresh access token without the "set it up" restriction.
+   */
+  async confirmTotp(code: string): Promise<AccessGrant & { recoveryCodes: string[] }> {
+    const { userId } = currentUser();
+    const result = await this.deps.uow.run(async (db) => {
+      const user = await db.userAccount.findFirst({ where: { id: userId } });
+      if (user === null) throw new UnauthenticatedError();
+      const recoveryCodes = await this.deps.mfa.confirmTotpSetup(db, user, code);
+      if (recoveryCodes === undefined) {
+        // Returned (not thrown) so the count commits; see changePassword.
+        await this.registerFailure(db, userId);
+        return undefined;
+      }
+      return { ...(await this.freshGrant(db, user)), recoveryCodes };
+    });
+    if (result === undefined) {
+      throw new UnprocessableError('mfa_code_incorrect', 'That code is not correct. Try again.');
+    }
+    return result;
+  }
+
+  /**
+   * Removes the authenticator app. A sensitive action: it needs a recent
+   * re-authentication. If the user's roles demand two-step verification, the returned
+   * access token is restricted again until a new app is set up.
+   */
+  async disableTotp(): Promise<AccessGrant> {
+    const { userId } = currentUser();
+    await this.assertRecentReauth();
+    return this.deps.uow.run(async (db) => {
+      const user = await db.userAccount.findFirst({ where: { id: userId } });
+      if (user === null) throw new UnauthenticatedError();
+      if (!(await this.deps.mfa.disableTotp(db, userId))) {
+        throw new NotFoundError('No authenticator app is set up');
+      }
+      return this.freshGrant(db, user);
+    });
+  }
+
+  // ---------------------------------------------------------------------------------
+  // Re-authentication (step-up for sensitive actions)
+  // ---------------------------------------------------------------------------------
+
+  /**
+   * Proves again that the person at the keyboard is the account owner. A user with an
+   * authenticator app must give a code from it (or a recovery code); a user without one
+   * gives their password. Success is remembered for this session only, for
+   * AUTH_REAUTH_TTL_SECONDS.
+   */
+  async reauthenticate(input: {
+    password?: string | undefined;
+    code?: string | undefined;
+  }): Promise<{ validUntil: string }> {
+    const { userId, sessionId } = currentUser();
+    const ok = await this.deps.uow.run(async (db) => {
+      const user = await db.userAccount.findFirst({ where: { id: userId } });
+      if (user === null) throw new UnauthenticatedError();
+      // A locked account cannot step up either, whatever is presented.
+      if (isLocked(user)) return false;
+      const mfa = await this.deps.mfa.state(db, userId);
+      let passed: boolean;
+      if (mfa.enabled) {
+        if (input.code === undefined)
+          throw missing('code', 'Enter a code from your authenticator app');
+        passed = await this.deps.mfa.verifyCode(db, userId, input.code);
+      } else {
+        if (input.password === undefined) throw missing('password', 'Enter your password');
+        const current = await db.credential.findFirst({
+          where: { userId, kind: 'password', isCurrent: true },
+        });
+        passed = current !== null && (await verifyPassword(current.hash, input.password));
+      }
+      // Counted like a failed sign-in, so a stolen access token cannot guess without limit.
+      if (!passed) await this.registerFailure(db, userId);
+      return passed;
+    });
+    if (!ok) {
+      throw new UnprocessableError(
+        'reauth_failed',
+        'That is not correct, or the account is locked',
+      );
+    }
+    const ttl = this.deps.env.AUTH_REAUTH_TTL_SECONDS;
+    await this.deps.redis.set(reauthKey(sessionId), '1', 'EX', ttl);
+    return { validUntil: new Date(Date.now() + ttl * 1000).toISOString() };
+  }
+
+  /**
+   * Guard for sensitive actions: passes only when this session re-authenticated within
+   * AUTH_REAUTH_TTL_SECONDS. If Redis cannot be reached this throws, which is the safe side.
+   */
+  async assertRecentReauth(): Promise<void> {
+    const { sessionId } = currentUser();
+    if ((await this.deps.redis.exists(reauthKey(sessionId))) !== 1) throw new ReauthRequiredError();
+  }
+
+  // ---------------------------------------------------------------------------------
   // The signed-in user: profile, sessions, login history
   // ---------------------------------------------------------------------------------
 
-  async me(): Promise<Omit<AccessGrant, 'accessToken' | 'expiresIn'> & { sessionId: string }> {
+  async me(): Promise<
+    Omit<AccessGrant, 'accessToken' | 'expiresIn'> & { sessionId: string; mfaEnabled: boolean }
+  > {
     const { userId, sessionId } = currentUser();
     const companyId = requireContext().companyIds[0];
     return this.deps.uow.run(async (db) => {
       const user = await db.userAccount.findFirst({ where: { id: userId } });
       if (user === null) throw new UnauthenticatedError();
       const access = (await this.accessIn(db, userId, companyId ?? null)) ?? NO_ACCESS;
+      const mfa = await this.deps.mfa.state(db, userId);
       return {
         user: toSessionUser(user),
         companyId: access.companyId,
         roles: access.roleKeys,
         sessionId,
+        mfaEnabled: mfa.enabled,
+        mfaEnrolmentRequired: mfa.required && !mfa.enabled,
       };
     });
   }
@@ -714,7 +1325,10 @@ export class AuthService {
     return { token, expiresAt };
   }
 
-  private grant(user: UserRow, sessionId: string, access: Access): AccessGrant {
+  private grant(user: UserRow, sessionId: string, access: Access, mfa: MfaState): AccessGrant {
+    // Demanded by a role but not set up yet: the token is marked, and authenticate.ts
+    // then lets it reach only the set-up routes.
+    const mfaEnrolmentRequired = mfa.required && !mfa.enabled;
     const accessToken = this.deps.tokens.issue({
       userId: user.id,
       tenantId: user.tenantId,
@@ -722,6 +1336,7 @@ export class AuthService {
       companyId: access.companyId ?? undefined,
       roleKeys: access.roleKeys,
       mustChangePassword: user.mustChangePassword,
+      mfaEnrolmentRequired,
     });
     return {
       accessToken,
@@ -729,7 +1344,19 @@ export class AuthService {
       user: toSessionUser(user),
       companyId: access.companyId,
       roles: access.roleKeys,
+      mfaEnrolmentRequired,
     };
+  }
+
+  /**
+   * A new access token for the current session, after something it states has changed
+   * (password changed, authenticator app added or removed).
+   */
+  private async freshGrant(db: Db, user: UserRow): Promise<AccessGrant> {
+    const { sessionId } = currentUser();
+    const companyId = requireContext().companyIds[0] ?? null;
+    const access = (await this.accessIn(db, user.id, companyId)) ?? NO_ACCESS;
+    return this.grant(user, sessionId, access, await this.deps.mfa.state(db, user.id));
   }
 }
 
@@ -743,7 +1370,11 @@ function toSessionUser(user: UserRow): SessionUser {
   };
 }
 
-/** The tenant id in front of a refresh token, when the token is well formed. */
+function missing(path: string, message: string): ValidationError {
+  return new ValidationError([{ path, code: 'required', message }]);
+}
+
+/** The tenant id in front of a refresh or reset token, when the token is well formed. */
 function tenantOfToken(token: string): string | undefined {
   const dot = token.indexOf('.');
   if (dot !== 36 || token.length > 128) return undefined;

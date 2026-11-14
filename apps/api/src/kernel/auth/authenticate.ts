@@ -17,6 +17,8 @@
  *      revoked session keeps working, and failing closed is the safe side for identity.
  *   4. While the user must change their password, only the routes needed to do that (and
  *      to sign out) are allowed. This is enforced here so no module can forget it.
+ *   5. The same for a user whose roles demand two-step verification and who has not set
+ *      it up yet: only the set-up routes work until they have.
  *
  * Depends on: ./access-token.ts, ./auth-service.ts (revocation key), kernel/context,
  * kernel/http/errors.ts, ioredis. Used by: src/app.ts through AppDeps.authenticate.
@@ -36,9 +38,34 @@ const ALLOWED_BEFORE_PASSWORD_CHANGE: ReadonlySet<string> = new Set([
   'GET /me',
 ]);
 
+/**
+ * Routes still usable while two-step verification must be set up first. Changing the
+ * password stays allowed, so a user who owes both steps does the password first (it is
+ * the only route in both lists) and the authenticator app second.
+ */
+const ALLOWED_BEFORE_MFA_ENROLMENT: ReadonlySet<string> = new Set([
+  'POST /auth/mfa/totp/setup',
+  'POST /auth/mfa/totp/confirm',
+  'POST /auth/password/change',
+  'POST /auth/logout',
+  'POST /auth/refresh',
+  'GET /me',
+]);
+
 export class PasswordChangeRequiredError extends AppError {
   constructor() {
     super(403, 'password_change_required', 'Forbidden', 'Change your password before continuing');
+  }
+}
+
+export class MfaEnrolmentRequiredError extends AppError {
+  constructor() {
+    super(
+      403,
+      'mfa_enrolment_required',
+      'Forbidden',
+      'Set up two-step verification before continuing',
+    );
   }
 }
 
@@ -70,11 +97,12 @@ export function authenticate(deps: { tokens: AccessTokens; redis: Redis }): Requ
     ctx.roleKeys = claims.roles;
     ctx.sessionId = claims.sid;
 
-    if (
-      claims.pwd === true &&
-      !ALLOWED_BEFORE_PASSWORD_CHANGE.has(`${req.method} ${req.path.replace(/\/+$/, '')}`)
-    ) {
+    const route = `${req.method} ${req.path.replace(/\/+$/, '')}`;
+    if (claims.pwd === true && !ALLOWED_BEFORE_PASSWORD_CHANGE.has(route)) {
       throw new PasswordChangeRequiredError();
+    }
+    if (claims.mfa === true && !ALLOWED_BEFORE_MFA_ENROLMENT.has(route)) {
+      throw new MfaEnrolmentRequiredError();
     }
     next();
   };

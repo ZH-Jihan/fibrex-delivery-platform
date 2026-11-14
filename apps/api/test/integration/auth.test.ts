@@ -20,6 +20,8 @@ import {
 } from '../../src/kernel/auth/auth-router.js';
 import { AuthService } from '../../src/kernel/auth/auth-service.js';
 import { authenticate } from '../../src/kernel/auth/authenticate.js';
+import { MfaFactors } from '../../src/kernel/auth/mfa.js';
+import { SecretBox } from '../../src/kernel/crypto/secret-box.js';
 import { hashPassword } from '../../src/kernel/auth/password-hasher.js';
 import { loadEnv } from '../../src/kernel/config/env.js';
 import { createPool, type Pool } from '../../src/kernel/db/pool.js';
@@ -59,7 +61,21 @@ function buildApp(over: Record<string, string> = {}): Express {
   const logger = createLogger({ level: 'silent', pretty: false, serviceName: 'test' });
   const prisma = createPrisma(pool);
   const tokens = new AccessTokens(env.AUTH_TOKEN_SECRET, env.AUTH_ACCESS_TTL_SECONDS);
-  const auth = new AuthService({ prisma, uow: new UnitOfWork(prisma), redis, tokens, env });
+  const mfa = new MfaFactors({
+    box: new SecretBox(env.DATA_ENCRYPTION_KEY),
+    tokenSecret: env.AUTH_TOKEN_SECRET,
+    issuer: env.AUTH_TOTP_ISSUER,
+  });
+  const auth = new AuthService({
+    prisma,
+    uow: new UnitOfWork(prisma),
+    redis,
+    tokens,
+    mfa,
+    messaging: { send: () => Promise.resolve() },
+    logger,
+    env,
+  });
   return createApp({
     env,
     logger,

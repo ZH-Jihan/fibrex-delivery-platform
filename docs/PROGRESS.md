@@ -17,7 +17,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | 11 | Intelligence | Not started | | |
 | 12 | Hardening and go-live | Not started | | |
 
-## Current state (2026-11-13)
+## Current state (2026-11-14)
 
 `docs/PLAN.md` and `docs/phases/phase-01-plan.md` are approved. Phase 1 is built in the 13 commits of section 7 of the phase plan.
 
@@ -29,7 +29,8 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | 4 | API kernel: config, context, logging, errors, rate limit, idempotency, OpenAPI, health | 91 tests pass in total |
 | 5 | Kernel database layer (`kernel/db`, `kernel/http/crud-router.ts`): Prisma on the shared pool, unit of work setting the RLS context, soft-delete extension, versioned repository (409 with diff), CRUD router factory | 120 tests pass in total |
 | 6 | Audit (`audit` schema, `kernel/audit`): change trigger with field diff on every S and T table, AuditService, hash-chain sealing and verify, audit and recycle-bin endpoints | 151 tests pass in total |
-| 7a | Auth and sessions (`kernel/auth`, mounted in `main.ts`): Argon2id passwords, signed access tokens, sign-in with lockout and login history, rotating refresh cookie with reuse detection and CSRF, forced password change, password policy, `/me`, sessions, remote sign-out. Next: 7b MFA and OTP (also forgot/reset password and re-auth, which need the delivery stub), then 7c, 7d | 174 tests pass in total |
+| 7a | Auth and sessions (`kernel/auth`, mounted in `main.ts`): Argon2id passwords, signed access tokens, sign-in with lockout and login history, rotating refresh cookie with reuse detection and CSRF, forced password change, password policy, `/me`, sessions, remote sign-out | 174 tests pass in total |
+| 7b | MFA and one-time codes (`kernel/auth/mfa.ts`, `totp.ts`, `kernel/crypto/secret-box.ts`, `adapters/messaging`): authenticator app (encrypted seed, replay protection, recovery codes, forced set-up for roles with `mfa_required`), second step at sign-in, phone sign-in codes, forgot/reset password, re-authentication. Not built: re-auth by phone code for users with neither password nor app. Next: 7c (users, roles, permission matrix, `can()`, switch company), then 7d | 197 tests pass in total |
 
 ## Next
 
@@ -56,7 +57,7 @@ pnpm test
 
 ## Adapter stubs still to replace
 
-(none yet; the SMS stub for phone OTP arrives in commit 7)
+- `apps/api/src/adapters/messaging/stub.ts` (SMS and email): sign-in codes and password-reset links are written to the API log instead of being sent (text hidden in production). Email gets a real SMTP adapter in commit 9; SMS in Phase 9.
 
 ## Known issues
 

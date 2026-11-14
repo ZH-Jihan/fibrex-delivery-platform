@@ -98,7 +98,13 @@ export const envSchema = z
     // How many earlier passwords may not be used again.
     AUTH_PASSWORD_HISTORY: z.coerce.number().int().min(0).max(24).default(5),
     AUTH_OTP_TTL_SECONDS: positiveInt(5 * 60),
+    // Shortest gap between two codes (or two reset links) sent to the same person.
+    AUTH_OTP_RESEND_SECONDS: positiveInt(60),
     AUTH_RESET_TTL_MINUTES: positiveInt(30),
+    // Name shown in the authenticator app next to the account.
+    AUTH_TOTP_ISSUER: z.string().min(1).max(64).default('Fibrex'),
+    // Address of the web app, used to build the links sent in messages (password reset).
+    WEB_BASE_URL: z.url().default('http://localhost:5173'),
     // How long a re-authentication (step-up) stays valid for sensitive actions.
     AUTH_REAUTH_TTL_SECONDS: positiveInt(5 * 60),
     // Sign-in, one-time code and password-reset requests allowed per address per window.
