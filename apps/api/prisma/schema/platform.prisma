@@ -145,14 +145,26 @@ model Company {
   modules             CompanyModule[]
   settings            Setting[]
   numberSequences     NumberSequence[]
-  linksFrom           InterCompanyLink[]       @relation("InterCompanyFrom")
-  linksTo             InterCompanyLink[]       @relation("InterCompanyTo")
+  linksFrom           InterCompanyLink[]        @relation("InterCompanyFrom")
+  linksTo             InterCompanyLink[]        @relation("InterCompanyTo")
   memberships         CompanyMembership[]
   permissionOverrides UserPermissionOverride[]
   dataScopes          DataScope[]
   sessions            Session[]
   apiClients          ApiClient[]
   apiKeys             ApiKey[]
+  fileObjects         FileObject[]
+  fileAttachments     FileAttachment[]
+  rawInputs           RawInput[]
+  parties             Party[]
+  partyRoles          PartyRole[]
+  partyIdentifiers    PartyIdentifier[]
+  partyContacts       PartyContact[]
+  partyAddresses      PartyAddress[]
+  partyRelationships  PartyRelationship[]
+  partyBankAccounts   PartyBankAccount[]
+  partyDuplicates     PartyDuplicateCandidate[]
+  partyMerges         PartyMerge[]
 
   @@unique([tenantId, id], map: "company_tenant_id_uq")
   @@map("company")

@@ -36,6 +36,7 @@ model UserAccount {
   impersonationsTarget Impersonation[]          @relation("ImpersonationTarget")
   sessions             Session[]
   passwordResetTokens  PasswordResetToken[]
+  party                Party?                   @relation(fields: [tenantId, partyId], references: [tenantId, id], map: "user_account_party_fk", onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([tenantId, id], map: "user_account_tenant_id_uq")
   @@unique([tenantId, username], map: "user_account_username_uq", where: { deletedAt: null })

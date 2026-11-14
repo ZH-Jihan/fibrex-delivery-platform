@@ -129,3 +129,9 @@ Commit 5: kernel database layer. This covers the Prisma client on the shared poo
 - Sealing numbers rows at seal time (no writer lock), sha256 chain per tenant; `audit.verify_chain()` detects changed or removed rows. Cutting off the newest seals with their rows is only detectable through the WORM export (commit 8).
 - Note for commit 7: the trigger audits every S/T table, including `iam.session` and `iam.refresh_token`; throttle "last seen" style updates or they flood the log.
 - Tests: 31 new (8 unit, 23 integration in `test/integration/audit.test.ts`). Full suite 151.
+
+## Commit 8 (party and files)
+
+- Migration `20261114000300_party_files`: schemas `files` (file_object, file_attachment, raw_input) and `party` (9 tables); GiST exclusions for one identifier holder at a time and non-overlapping roles; check constraint for the two-person bank rule; `iam.user_account.party_id` foreign key added.
+- Not built: malware scan, photo type check, party search on sensitive ids by substring (by design), `/party-merges` history listing endpoint (data is in `party.party_merge`).
+- Tests: 18 new integration tests in `test/integration/party-files.test.ts`. Full suite 271 (32 shared, 10 eslint-config, 229 api).

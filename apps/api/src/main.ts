@@ -39,9 +39,22 @@ import { UnitOfWork } from './kernel/db/unit-of-work.js';
 import { createLogger } from './kernel/observability/logger.js';
 import { createAccessAdminRouter } from './kernel/permissions/access-admin-router.js';
 import { AccessAdminService } from './kernel/permissions/access-admin-service.js';
-import { syncPermissionCatalogue } from './kernel/permissions/catalogue.js';
+import { KERNEL_PERMISSIONS, syncPermissionCatalogue } from './kernel/permissions/catalogue.js';
 import { PermissionService } from './kernel/permissions/permission-service.js';
 import { createRedis } from './kernel/redis/client.js';
+import { S3StorageAdapter } from './adapters/storage/s3.js';
+import {
+  AttachableRegistry,
+  FILES_PERMISSIONS,
+  FilesService,
+  createFilesRouter,
+} from './modules/files/index.js';
+import {
+  PARTY_PERMISSIONS,
+  PartyReferenceRegistry,
+  PartyVault,
+  createPartyModule,
+} from './modules/party/index.js';
 
 const rootEnv = path.resolve(import.meta.dirname, '../../../.env');
 if (process.env.DATABASE_URL === undefined && existsSync(rootEnv)) {
@@ -96,6 +109,50 @@ async function main(): Promise<void> {
     repository: createApiClientRepository({ permissions }),
     describe: (client) => client.name,
   });
+  if (
+    env.S3_BUCKET === undefined ||
+    env.S3_ACCESS_KEY === undefined ||
+    env.S3_SECRET_KEY === undefined
+  ) {
+    throw new Error(
+      'Object storage is not configured: set S3_BUCKET, S3_ACCESS_KEY and S3_SECRET_KEY',
+    );
+  }
+  const storage = new S3StorageAdapter({
+    endpoint: env.S3_ENDPOINT,
+    region: env.S3_REGION,
+    bucket: env.S3_BUCKET,
+    accessKey: env.S3_ACCESS_KEY,
+    secretKey: env.S3_SECRET_KEY,
+    forcePathStyle: env.S3_FORCE_PATH_STYLE,
+  });
+  const audit = createAuditService();
+  const attachables = new AttachableRegistry();
+  const files = new FilesService({
+    storage,
+    permissions,
+    audit,
+    attachables,
+    tokenSecret: env.AUTH_TOKEN_SECRET,
+    maxBytes: env.FILES_MAX_BYTES,
+    uploadTtlSeconds: env.FILES_UPLOAD_TTL_SECONDS,
+    downloadTtlSeconds: env.FILES_DOWNLOAD_TTL_SECONDS,
+  });
+  // Columns in other modules that hold a party id and must follow a party merge.
+  const partyReferences = new PartyReferenceRegistry();
+  partyReferences.register({
+    schema: 'iam',
+    table: 'user_account',
+    column: 'party_id',
+    label: 'Login accounts',
+  });
+  partyReferences.register({
+    schema: 'files',
+    table: 'file_attachment',
+    column: 'entity_id',
+    label: 'Attached files',
+    where: "entity_type = 'party.party'",
+  });
   const apiKeys = new ApiKeyResolver({ prisma, uow, redis, logger });
 
   const app = createApp({
@@ -118,12 +175,24 @@ async function main(): Promise<void> {
       api.use(createAccessAdminRouter({ uow, registry, permissions, admin, auth }));
       api.use(createImpersonationRouter({ uow, registry, permissions, admin, auth, tokens, env }));
       api.use(createApiClientRouter({ uow, registry, permissions, auth }));
+      const party = createPartyModule({
+        uow,
+        registry,
+        permissions,
+        audit,
+        vault: new PartyVault(new SecretBox(env.DATA_ENCRYPTION_KEY), env.DATA_ENCRYPTION_KEY),
+        references: partyReferences,
+      });
+      attachables.register(party.attachable);
+      for (const type of party.recycleTypes) recycleBin.register(type);
+      for (const router of party.routers) api.use(router);
+      api.use(createFilesRouter({ uow, registry, permissions, files, attachables }));
       api.use(
         createAuditRouter({
           uow,
           registry,
           authorize: permissions.authorize,
-          audit: createAuditService(),
+          audit,
           recycleBin,
         }),
       );
@@ -146,7 +215,11 @@ async function main(): Promise<void> {
 
   // The permission catalogue is written before the first request is served, so the matrix
   // never offers fewer permissions than the code checks.
-  await syncPermissionCatalogue(prisma);
+  await syncPermissionCatalogue(prisma, [
+    ...KERNEL_PERMISSIONS,
+    ...PARTY_PERMISSIONS,
+    ...FILES_PERMISSIONS,
+  ]);
 
   const server = app.listen(env.PORT, () => {
     logger.info({ port: env.PORT }, 'Fibrex API listening');

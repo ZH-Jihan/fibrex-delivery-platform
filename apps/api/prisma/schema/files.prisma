@@ -1,0 +1,81 @@
+// Prisma description of the `files` schema. The SQL in
+// migrations/20261114000300_party_files is the source of truth (see base.prisma).
+
+model FileObject {
+  id           String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  bucket       String
+  objectKey    String   @map("object_key")
+  sha256       String
+  sizeBytes    BigInt   @map("size_bytes")
+  mimeType     String   @map("mime_type")
+  originalName String   @map("original_name")
+  scanStatus   String   @default("not_scanned") @map("scan_status")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?  @map("created_by") @db.Uuid
+
+  company     Company          @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "file_object_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  attachments FileAttachment[]
+  rawInputs   RawInput[]
+
+  @@unique([companyId, id], map: "file_object_company_id_uq")
+  @@unique([bucket, objectKey], map: "file_object_key_uq")
+  @@index([companyId, sha256], map: "file_object_sha_idx")
+  @@map("file_object")
+  @@schema("files")
+}
+
+model FileAttachment {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  entityType   String    @map("entity_type")
+  entityId     String    @map("entity_id") @db.Uuid
+  fileObjectId String    @map("file_object_id") @db.Uuid
+  purpose      String
+  versionNo    Int       @default(1) @map("version_no")
+  supersedesId String?   @map("supersedes_id") @db.Uuid
+  label        String?
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company    Company          @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "file_attachment_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  file       FileObject       @relation(fields: [companyId, fileObjectId], references: [companyId, id], map: "file_attachment_file_fk", onDelete: NoAction, onUpdate: NoAction)
+  supersedes FileAttachment?  @relation("AttachmentVersions", fields: [companyId, supersedesId], references: [companyId, id], map: "file_attachment_supersedes_fk", onDelete: NoAction, onUpdate: NoAction)
+  successors FileAttachment[] @relation("AttachmentVersions")
+
+  @@unique([companyId, id], map: "file_attachment_company_id_uq")
+  @@unique([supersedesId], map: "file_attachment_supersedes_uq", where: raw("supersedes_id IS NOT NULL AND deleted_at IS NULL"))
+  @@index([tenantId, entityType, entityId], map: "file_attachment_entity_idx")
+  @@index([fileObjectId], map: "file_attachment_file_idx")
+  @@map("file_attachment")
+  @@schema("files")
+}
+
+model RawInput {
+  id           String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  kind         String
+  source       String
+  receivedAt   DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+  fileObjectId String?  @map("file_object_id") @db.Uuid
+  sha256       String
+  meta         Json     @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?  @map("created_by") @db.Uuid
+
+  company Company     @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "raw_input_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  file    FileObject? @relation(fields: [companyId, fileObjectId], references: [companyId, id], map: "raw_input_file_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([companyId, kind, receivedAt(sort: Desc)], map: "raw_input_kind_idx")
+  @@map("raw_input")
+  @@schema("files")
+}

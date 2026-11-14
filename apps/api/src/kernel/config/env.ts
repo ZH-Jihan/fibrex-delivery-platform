@@ -109,6 +109,21 @@ export const envSchema = z
     AUTH_REAUTH_TTL_SECONDS: positiveInt(5 * 60),
     // Sign-in, one-time code and password-reset requests allowed per address per window.
     AUTH_RATE_LIMIT: positiveInt(20),
+
+    // --- Object storage (S3-compatible; SeaweedFS locally). Optional here so tools that
+    // never touch files need not set them; the API refuses to start without a bucket. ---
+    S3_ENDPOINT: z.preprocess((v) => (v === '' ? undefined : v), z.url().optional()),
+    S3_REGION: z.string().min(1).default('us-east-1'),
+    S3_BUCKET: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(3).optional()),
+    S3_ACCESS_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(1).optional()),
+    S3_SECRET_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(1).optional()),
+    S3_FORCE_PATH_STYLE: z
+      .enum(['true', 'false'])
+      .default('true')
+      .transform((v) => v === 'true'),
+    FILES_MAX_BYTES: positiveInt(25 * 1024 * 1024),
+    FILES_UPLOAD_TTL_SECONDS: positiveInt(15 * 60),
+    FILES_DOWNLOAD_TTL_SECONDS: positiveInt(5 * 60),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && env.CORS_ORIGINS.some((o) => o.startsWith('http:'))) {

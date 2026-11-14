@@ -1,0 +1,274 @@
+// Prisma description of the `party` schema. The SQL in
+// migrations/20261114000300_party_files is the source of truth (see base.prisma).
+
+model Party {
+  id              String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
+  kind            String
+  displayName     String    @map("display_name")
+  names           Json      @default("{}")
+  dateOfBirth     DateTime? @map("date_of_birth") @db.Date
+  gender          String?
+  nationalityCode String?   @map("nationality_code")
+  photoFileId     String?   @map("photo_file_id") @db.Uuid
+  customFields    Json      @default("{}") @map("custom_fields")
+  mergedIntoId    String?   @map("merged_into_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy       String?   @map("created_by") @db.Uuid
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy       String?   @map("updated_by") @db.Uuid
+  version         Int       @default(1)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy       String?   @map("deleted_by") @db.Uuid
+  deleteReason    String?   @map("delete_reason")
+
+  company          Company                   @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "party_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  roles            PartyRole[]
+  identifiers      PartyIdentifier[]
+  contacts         PartyContact[]
+  addresses        PartyAddress[]
+  relationsFrom    PartyRelationship[]       @relation("RelationshipFrom")
+  relationsTo      PartyRelationship[]       @relation("RelationshipTo")
+  bankAccounts     PartyBankAccount[]
+  duplicatesA      PartyDuplicateCandidate[] @relation("DuplicateA")
+  duplicatesB      PartyDuplicateCandidate[] @relation("DuplicateB")
+  mergesAsSurvivor PartyMerge[]              @relation("MergeSurvivor")
+  mergesAsMerged   PartyMerge[]              @relation("MergeMerged")
+  users            UserAccount[]
+
+  @@unique([companyId, id], map: "party_company_id_uq")
+  @@unique([tenantId, id], map: "party_tenant_id_uq")
+  @@index([displayName(ops: raw("gin_trgm_ops"))], map: "party_name_trgm_idx", type: Gin)
+  @@index([companyId, kind], map: "party_kind_idx")
+  @@map("party")
+  @@schema("party")
+}
+
+model PartyRole {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  partyId      String    @map("party_id") @db.Uuid
+  roleType     String    @map("role_type")
+  validFrom    DateTime  @default(dbgenerated("CURRENT_DATE")) @map("valid_from") @db.Date
+  validTo      DateTime? @map("valid_to") @db.Date
+  status       String    @default("active")
+  attributes   Json      @default("{}")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company Company @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "party_role_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  party   Party   @relation(fields: [companyId, partyId], references: [companyId, id], map: "party_role_party_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([partyId], map: "party_role_party_idx")
+  @@index([companyId, roleType, status], map: "party_role_type_idx")
+  @@map("party_role")
+  @@schema("party")
+}
+
+model PartyIdentifier {
+  id               String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  companyId        String    @map("company_id") @db.Uuid
+  partyId          String    @map("party_id") @db.Uuid
+  type             String
+  clientPlatformId String?   @map("client_platform_id") @db.Uuid
+  valueEncrypted   Bytes     @map("value_encrypted")
+  valueHash        String    @map("value_hash")
+  valueMasked      String    @map("value_masked")
+  valuePlain       String?   @map("value_plain")
+  validFrom        DateTime  @default(dbgenerated("CURRENT_DATE")) @map("valid_from") @db.Date
+  validTo          DateTime? @map("valid_to") @db.Date
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy        String?   @map("created_by") @db.Uuid
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy        String?   @map("updated_by") @db.Uuid
+  version          Int       @default(1)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy        String?   @map("deleted_by") @db.Uuid
+  deleteReason     String?   @map("delete_reason")
+
+  company Company @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "party_identifier_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  party   Party   @relation(fields: [companyId, partyId], references: [companyId, id], map: "party_identifier_party_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([partyId], map: "party_identifier_party_idx")
+  @@index([tenantId, type, valueHash], map: "party_identifier_lookup_idx")
+  @@map("party_identifier")
+  @@schema("party")
+}
+
+model PartyContact {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  partyId      String    @map("party_id") @db.Uuid
+  kind         String
+  value        String
+  isPrimary    Boolean   @default(false) @map("is_primary")
+  verifiedAt   DateTime? @map("verified_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company Company @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "party_contact_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  party   Party   @relation(fields: [companyId, partyId], references: [companyId, id], map: "party_contact_party_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([partyId, kind], map: "party_contact_primary_uq", where: raw("is_primary AND deleted_at IS NULL"))
+  @@index([partyId], map: "party_contact_party_idx")
+  @@index([tenantId, kind, value], map: "party_contact_value_idx")
+  @@map("party_contact")
+  @@schema("party")
+}
+
+model PartyAddress {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  partyId      String    @map("party_id") @db.Uuid
+  kind         String
+  lines        String[]  @default([])
+  city         String?
+  countryCode  String?   @map("country_code")
+  geo          Json?
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company Company @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "party_address_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  party   Party   @relation(fields: [companyId, partyId], references: [companyId, id], map: "party_address_party_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([partyId], map: "party_address_party_idx")
+  @@map("party_address")
+  @@schema("party")
+}
+
+model PartyRelationship {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  fromPartyId  String    @map("from_party_id") @db.Uuid
+  toPartyId    String    @map("to_party_id") @db.Uuid
+  type         String
+  validFrom    DateTime  @default(dbgenerated("CURRENT_DATE")) @map("valid_from") @db.Date
+  validTo      DateTime? @map("valid_to") @db.Date
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company   Company @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "party_relationship_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  fromParty Party   @relation("RelationshipFrom", fields: [companyId, fromPartyId], references: [companyId, id], map: "party_relationship_from_fk", onDelete: NoAction, onUpdate: NoAction)
+  toParty   Party   @relation("RelationshipTo", fields: [companyId, toPartyId], references: [companyId, id], map: "party_relationship_to_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([fromPartyId], map: "party_relationship_from_idx")
+  @@index([toPartyId], map: "party_relationship_to_idx")
+  @@map("party_relationship")
+  @@schema("party")
+}
+
+model PartyBankAccount {
+  id             String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  partyId        String    @map("party_id") @db.Uuid
+  kind           String
+  bankName       String?   @map("bank_name")
+  ibanEncrypted  Bytes     @map("iban_encrypted")
+  ibanHash       String    @map("iban_hash")
+  ibanMasked     String    @map("iban_masked")
+  accountName    String    @map("account_name")
+  walletProvider String?   @map("wallet_provider")
+  status         String    @default("pending")
+  proofFileId    String?   @map("proof_file_id") @db.Uuid
+  requestedBy    String    @map("requested_by") @db.Uuid
+  proofCheckedBy String?   @map("proof_checked_by") @db.Uuid
+  proofCheckedAt DateTime? @map("proof_checked_at") @db.Timestamptz(6)
+  approvedBy     String?   @map("approved_by") @db.Uuid
+  approvedAt     DateTime? @map("approved_at") @db.Timestamptz(6)
+  reviewNote     String?   @map("review_note")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy      String?   @map("created_by") @db.Uuid
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  version        Int       @default(1)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy      String?   @map("deleted_by") @db.Uuid
+  deleteReason   String?   @map("delete_reason")
+
+  company Company @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "party_bank_account_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  party   Party   @relation(fields: [companyId, partyId], references: [companyId, id], map: "party_bank_account_party_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([partyId, ibanHash], map: "party_bank_account_number_uq", where: { deletedAt: null })
+  @@index([partyId], map: "party_bank_account_party_idx")
+  @@map("party_bank_account")
+  @@schema("party")
+}
+
+model PartyDuplicateCandidate {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  partyAId     String    @map("party_a_id") @db.Uuid
+  partyBId     String    @map("party_b_id") @db.Uuid
+  score        Decimal   @db.Decimal(4, 3)
+  reasons      Json      @default("[]")
+  status       String    @default("open")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company Company @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "party_duplicate_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  partyA  Party   @relation("DuplicateA", fields: [companyId, partyAId], references: [companyId, id], map: "party_duplicate_a_fk", onDelete: NoAction, onUpdate: NoAction)
+  partyB  Party   @relation("DuplicateB", fields: [companyId, partyBId], references: [companyId, id], map: "party_duplicate_b_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([partyAId, partyBId], map: "party_duplicate_pair_uq", where: { deletedAt: null })
+  @@index([companyId, status, score(sort: Desc)], map: "party_duplicate_status_idx")
+  @@map("party_duplicate_candidate")
+  @@schema("party")
+}
+
+model PartyMerge {
+  id            String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  survivorId    String   @map("survivor_id") @db.Uuid
+  mergedId      String   @unique(map: "party_merge_merged_uq") @map("merged_id") @db.Uuid
+  snapshot      Json
+  repointedRefs Json     @map("repointed_refs")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy     String?  @map("created_by") @db.Uuid
+
+  company  Company @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "party_merge_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  survivor Party   @relation("MergeSurvivor", fields: [companyId, survivorId], references: [companyId, id], map: "party_merge_survivor_fk", onDelete: NoAction, onUpdate: NoAction)
+  merged   Party   @relation("MergeMerged", fields: [companyId, mergedId], references: [companyId, id], map: "party_merge_merged_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([survivorId], map: "party_merge_survivor_idx")
+  @@map("party_merge")
+  @@schema("party")
+}
