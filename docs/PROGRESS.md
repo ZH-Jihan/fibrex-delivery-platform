@@ -4,7 +4,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 
 | Phase | Title | Status | Accepted on | Notes |
 | --- | --- | --- | --- | --- |
-| 1 | Foundation A | In progress (commits 1–12c of 13) | | Plan: `docs/phases/phase-01-plan.md` |
+| 1 | Foundation A | Done (13 of 13 commits), awaiting acceptance | | Plan: `docs/phases/phase-01-plan.md` |
 | 2 | Foundation B | Not started | | |
 | 3 | People and documents | Not started | | |
 | 4 | Performance and tracking | Not started | | |
@@ -49,6 +49,14 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 
 | 12f | Web: permission matrix below 768 px shows one role at a time (role selector, switch per permission); module labels for party, files, notify (en, draft bn). Playwright now runs on its own database `fibrex_e2e` (created, migrated and seeded by `pnpm --filter @fibrex/api e2e:serve`; also `pnpm db:e2e`), API on port 3100 and web on 5174, never reusing a running server. Dev database cleaned: 34 "Journey branch" rows soft-deleted (reason "e2e cleanup") | 33 web + 245 API tests pass (1 new web); lint and typecheck clean; Playwright 6 pass |
 
+| 13 | CI (`.github/workflows/ci.yml`: lint, typecheck, `pnpm test`, Playwright on `fibrex_e2e`; artifacts on failure only), disabled `deploy-staging.yml` (hosting not chosen), `docs/ARCHITECTURE.md`, `docs/ADDING_A_MODULE.md`. Secret and ignore checks done | Lint clean; CI result below |
+
+## Phase 1 summary
+
+Kernel (config, RLS database layer, audit with hash chain, auth with MFA, permissions, impersonation, API clients), modules party, files and notify, seed, and the responsive web app with admin screens are built.
+314 tests (API + web) plus Playwright journeys run on a separate database; CI runs everything on every push and pull request to main.
+Deferred: the list below, plus audit export to write-once storage, data-scope ids for client platforms, upload virus scanning, bn/ur/hi/ne translation review, `POST /oauth/token`, phone-code re-auth, Redis adapter for several API instances, staging hosting.
+
 ## Deferred (from 12c, to schedule later)
 
 - Ctrl+K party search (Ctrl+K still lists menu screens only).
@@ -59,7 +67,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 
 ## Next
 
-Commit 13 (mid model): CI (`.github/workflows/ci.yml`, including Playwright) and docs. Still waiting: export of sealed audit batches to write-once storage (`audit_seal.worm_object_key`); data-scope ids for client platforms; virus scanning of uploads (files stay `not_scanned`).
+Phase 2 planning (strongest model) after Phase 1 acceptance. Still waiting: export of sealed audit batches to write-once storage (`audit_seal.worm_object_key`); data-scope ids for client platforms; virus scanning of uploads (files stay `not_scanned`).
 
 ## How to run
 
