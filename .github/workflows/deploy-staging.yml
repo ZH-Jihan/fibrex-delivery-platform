@@ -1,0 +1,26 @@
+# Staging deploy: DISABLED.
+#
+# HOSTING NOT CHOSEN YET. This workflow only runs when started by hand (workflow_dispatch) and
+# currently stops with an error on purpose. It exists so the pipeline shape is agreed early.
+# When hosting is chosen (record it in docs/DECISIONS.md), replace the "deploy" step with the
+# real one and keep credentials in GitHub environment secrets, never in the repository.
+# Intended order: CI green on main -> build API and web images -> run `pnpm db:migrate` as the
+# owner role -> roll out API/worker -> roll out web -> health check (GET /health).
+name: Deploy staging (disabled)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - name: Hosting not chosen yet
+        run: |
+          echo "::error::Staging hosting has not been chosen yet. This workflow is a placeholder."
+          exit 1

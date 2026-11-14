@@ -1,0 +1,92 @@
+# Continuous integration: lint, type check, unit + integration tests, Playwright journeys.
+# Runs on every push and pull request to main. Uses only throwaway secrets generated per run;
+# nothing here reads a repository secret. Depends on: Docker on the runner (ubuntu-latest has it),
+# docker-compose.yml, .env.example. See docs/ARCHITECTURE.md section 6.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v4
+
+      # Node 24 LTS from .node-version; the pnpm store is cached between runs.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Throwaway .env for this run only: random passwords, hex only so they are URL-safe.
+      # It feeds docker compose, the API and the Playwright servers. The file is git-ignored.
+      - name: Create .env with random throwaway secrets
+        run: |
+          cp .env.example .env
+          for name in superuser owner app bi redis s3-secret; do
+            sed -i "s/change-me-dev-$name/$(openssl rand -hex 16)/g" .env
+          done
+          sed -i "s/^AUTH_TOKEN_SECRET=.*/AUTH_TOKEN_SECRET=$(openssl rand -hex 32)/" .env
+          sed -i "s|^DATA_ENCRYPTION_KEY=.*|DATA_ENCRYPTION_KEY=$(openssl rand -base64 32)|" .env
+          grep -c "change-me" .env || true
+
+      - name: Lint
+        run: pnpm lint
+
+      # Also regenerates the Prisma client that the tests need.
+      - name: Type check
+        run: pnpm typecheck
+
+      # Postgres 16, Redis, S3 (SeaweedFS) and Mailpit from docker-compose.yml. The integration
+      # tests start their own throwaway containers as well; this stack serves the e2e run.
+      - name: Start Docker services
+        run: docker compose up -d --wait
+
+      - name: Unit and integration tests
+        run: pnpm test
+
+      - name: Install Playwright browser
+        run: pnpm --filter @fibrex/web exec playwright install --with-deps chromium
+
+      # Creates, migrates and seeds the separate database fibrex_e2e, starts its own API (3100)
+      # and web (5174). Never touches the dev database.
+      - name: Playwright journeys
+        run: pnpm --filter @fibrex/web test:e2e
+
+      # Failure only: screenshots, traces and the HTML report.
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-failure
+          path: |
+            apps/web/test-results/
+            apps/web/e2e/screenshots/
+            apps/web/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Docker service logs (failure only)
+        if: failure()
+        run: docker compose logs --no-color --tail=100
+
+      - name: Stop Docker services
+        if: always()
+        run: docker compose down -v
