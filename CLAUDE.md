@@ -65,7 +65,7 @@ Later phases: plan each phase with the strongest model, then build with the mid 
 - Start everything: `docker compose up -d --wait` (Postgres is on host port 5433)
 - Tests: `pnpm test` (integration tests start their own Postgres container; Docker must be running) | Unit only: `pnpm test:unit`
 - Web app: `pnpm --filter @fibrex/web dev` (http://localhost:5173, proxies /api to the API on 3000) | `pnpm --filter @fibrex/web build`
-- Browser journeys: `pnpm db:seed:e2e` once, then `pnpm --filter @fibrex/web test:e2e` (Docker stack and `pnpm db:seed` must be done; starts the API and web if they are not running)
+- Browser journeys: `pnpm --filter @fibrex/web test:e2e` (Docker stack must be up; it creates, migrates and seeds the separate database `fibrex_e2e` and starts its own API on 3100 and web on 5174; never touches the dev database)
 - Lint: `pnpm lint` | Type check: `pnpm typecheck` (also regenerates the Prisma client) | Format: `pnpm format`
 - Migrate: `pnpm db:migrate` | Status: `pnpm db:status` | Seed: `pnpm db:seed`
 - Migrations are hand-written SQL in `apps/api/prisma/migrations/`; keep `apps/api/prisma/schema/*.prisma` in step (the drift test enforces it). Never author migrations with `prisma migrate dev`.

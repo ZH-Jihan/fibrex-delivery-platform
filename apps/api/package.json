@@ -14,7 +14,9 @@
     "db:migrate": "prisma migrate deploy",
     "db:status": "prisma migrate status",
     "db:seed": "tsx src/seed/seed-cli.ts",
-    "db:seed:e2e": "tsx src/seed/e2e-seed-cli.ts"
+    "db:seed:e2e": "tsx src/seed/e2e-seed-cli.ts",
+    "db:e2e": "tsx src/seed/e2e-db-cli.ts",
+    "e2e:serve": "tsx src/seed/e2e-serve-cli.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "9.1.0",

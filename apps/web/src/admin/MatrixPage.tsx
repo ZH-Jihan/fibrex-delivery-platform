@@ -1,6 +1,7 @@
 /**
  * Permission matrix: one row per permission (grouped by module), one column per role, a
- * tick box in each cell. Ticks are collected as pending changes and saved together with
+ * tick box in each cell. Below 768 px the wide table is replaced by one role at a time: a role
+ * selector on top and the permissions as rows with a switch (same pending-changes state). Ticks are collected as pending changes and saved together with
  * PUT /permission-matrix. The API asks for a recent re-authentication on this call, so the
  * save runs through `useReauth`. Without `iam.permission_matrix.update` the boxes are
  * read-only. The matrix shows role grants only; per-user overrides are a later screen.
@@ -11,7 +12,16 @@ import { LayoutGrid, Save } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { useI18n } from '../i18n';
-import { Button, ErrorAlert, PageHeader, Pill, Skeleton, errorText } from '../ui/components';
+import {
+  Button,
+  ErrorAlert,
+  PageHeader,
+  Pill,
+  Select,
+  Skeleton,
+  errorText,
+} from '../ui/components';
+import { useBreakpoint } from '../theme/useBreakpoint';
 import { useReauth } from '../ui/useReauth';
 import { useToast } from '../ui/toast';
 
@@ -31,6 +41,9 @@ export function MatrixPage() {
   const [matrix, setMatrix] = useState<Matrix | null>(null);
   const [error, setError] = useState<unknown>(null);
   // Cells whose state differs from the server: cell id -> wanted state.
+  const mobile = useBreakpoint() === 'mobile';
+  // Mobile only: the role whose permissions are shown (defaults to the first role).
+  const [roleId, setRoleId] = useState('');
   const [pending, setPending] = useState<ReadonlyMap<string, boolean>>(new Map());
 
   const load = useCallback(() => {
@@ -80,6 +93,7 @@ export function MatrixPage() {
   if (error !== null) return <ErrorAlert error={error} />;
   if (matrix === null) return <Skeleton lines={6} />;
 
+  const activeRole = matrix.roles.find((r) => r.id === roleId) ?? matrix.roles[0];
   let lastModule = '';
   return (
     <>
@@ -100,56 +114,105 @@ export function MatrixPage() {
           ) : null
         }
       />
-      <div className="table-card table-wrap">
-        <table className="matrix">
-          <thead>
-            <tr>
-              <th />
-              {matrix.roles.map((r) => (
-                <th key={r.id}>{r.name}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {matrix.permissions.map((p) => {
-              const heading = p.moduleKey !== lastModule;
-              lastModule = p.moduleKey;
-              return [
-                heading ? (
-                  <tr key={`m-${p.moduleKey}`} className="matrix-module">
-                    <th colSpan={matrix.roles.length + 1}>
-                      {tOr(`module.${p.moduleKey}`, p.moduleKey)}
+      {mobile ? (
+        <div className="matrix-mobile">
+          <Select
+            label={t('matrix.role')}
+            value={activeRole?.id ?? ''}
+            options={matrix.roles.map((r) => ({ value: r.id, label: r.name }))}
+            onChange={(e) => {
+              setRoleId(e.target.value);
+            }}
+          />
+          {activeRole === undefined ? null : (
+            <ul className="matrix-list">
+              {matrix.permissions.map((p) => {
+                const heading = p.moduleKey !== lastModule;
+                lastModule = p.moduleKey;
+                const id = cell(activeRole.id, p.key);
+                const on = pending.get(id) ?? granted.has(id);
+                return (
+                  <li key={p.key} className="matrix-list-item">
+                    {heading ? (
+                      <div className="matrix-list-module">
+                        {tOr(`module.${p.moduleKey}`, p.moduleKey)}
+                      </div>
+                    ) : null}
+                    <label className="matrix-list-row">
+                      <span>
+                        {tOr(`permission.${p.key}`, p.description)}
+                        <small className="matrix-key">{p.key}</small>
+                      </span>
+                      <input
+                        type="checkbox"
+                        role="switch"
+                        className="switch"
+                        aria-label={`${activeRole.name}: ${p.key}`}
+                        checked={on}
+                        disabled={!canEdit}
+                        onChange={(e) => {
+                          toggle(activeRole.id, p.key, e.target.checked);
+                        }}
+                      />
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      ) : (
+        <div className="table-card table-wrap">
+          <table className="matrix">
+            <thead>
+              <tr>
+                <th />
+                {matrix.roles.map((r) => (
+                  <th key={r.id}>{r.name}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {matrix.permissions.map((p) => {
+                const heading = p.moduleKey !== lastModule;
+                lastModule = p.moduleKey;
+                return [
+                  heading ? (
+                    <tr key={`m-${p.moduleKey}`} className="matrix-module">
+                      <th colSpan={matrix.roles.length + 1}>
+                        {tOr(`module.${p.moduleKey}`, p.moduleKey)}
+                      </th>
+                    </tr>
+                  ) : null,
+                  <tr key={p.key}>
+                    <th scope="row">
+                      {tOr(`permission.${p.key}`, p.description)}
+                      <small className="matrix-key">{p.key}</small>
                     </th>
-                  </tr>
-                ) : null,
-                <tr key={p.key}>
-                  <th scope="row">
-                    {tOr(`permission.${p.key}`, p.description)}
-                    <small className="matrix-key">{p.key}</small>
-                  </th>
-                  {matrix.roles.map((r) => {
-                    const id = cell(r.id, p.key);
-                    const on = pending.get(id) ?? granted.has(id);
-                    return (
-                      <td key={r.id}>
-                        <input
-                          type="checkbox"
-                          aria-label={`${r.name}: ${p.key}`}
-                          checked={on}
-                          disabled={!canEdit}
-                          onChange={(e) => {
-                            toggle(r.id, p.key, e.target.checked);
-                          }}
-                        />
-                      </td>
-                    );
-                  })}
-                </tr>,
-              ];
-            })}
-          </tbody>
-        </table>
-      </div>
+                    {matrix.roles.map((r) => {
+                      const id = cell(r.id, p.key);
+                      const on = pending.get(id) ?? granted.has(id);
+                      return (
+                        <td key={r.id}>
+                          <input
+                            type="checkbox"
+                            aria-label={`${r.name}: ${p.key}`}
+                            checked={on}
+                            disabled={!canEdit}
+                            onChange={(e) => {
+                              toggle(r.id, p.key, e.target.checked);
+                            }}
+                          />
+                        </td>
+                      );
+                    })}
+                  </tr>,
+                ];
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
       {reauth.dialog}
     </>
   );

@@ -201,6 +201,23 @@ describe('MatrixPage', () => {
     await people.click(box);
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
   });
+
+  it('on a phone shows one role at a time with a switch per permission', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: /max-width: (\d+)px/.test(query),
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+    stub(signedIn);
+    render(wrap(<MatrixPage />));
+    const people = userEvent.setup();
+    expect(await screen.findByRole('combobox', { name: 'Role' })).toHaveValue('r1');
+    expect(screen.queryByRole('table')).toBeNull();
+    await people.click(screen.getByRole('switch', { name: 'Viewer: party.read' }));
+    expect(screen.getByText('1 unsaved changes')).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
 });
 
 describe('NotificationBell', () => {

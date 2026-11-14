@@ -9,7 +9,12 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [react()],
-  server: { port: 5173, strictPort: true, proxy: { '/api': 'http://localhost:3000' } },
+  // E2E_WEB_PORT / E2E_API_PORT let Playwright run its own web and API pair (isolated database).
+  server: {
+    port: Number(process.env.E2E_WEB_PORT ?? 5173),
+    strictPort: true,
+    proxy: { '/api': `http://localhost:${process.env.E2E_API_PORT ?? '3000'}` },
+  },
   test: {
     environment: 'jsdom',
     globals: true,
