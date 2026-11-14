@@ -19,7 +19,8 @@
     "test": "pnpm -r run test",
     "test:unit": "pnpm -r run --if-present test:unit",
     "db:migrate": "pnpm --filter @fibrex/api run db:migrate",
-    "db:status": "pnpm --filter @fibrex/api run db:status"
+    "db:status": "pnpm --filter @fibrex/api run db:status",
+    "db:seed": "pnpm --filter @fibrex/api run db:seed"
   },
   "devDependencies": {
     "@fibrex/eslint-config": "workspace:*",

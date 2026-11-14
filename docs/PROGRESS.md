@@ -4,7 +4,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 
 | Phase | Title | Status | Accepted on | Notes |
 | --- | --- | --- | --- | --- |
-| 1 | Foundation A | In progress (commits 1–9 of 13) | | Plan: `docs/phases/phase-01-plan.md` |
+| 1 | Foundation A | In progress (commits 1–10 of 13) | | Plan: `docs/phases/phase-01-plan.md` |
 | 2 | Foundation B | Not started | | |
 | 3 | People and documents | Not started | | |
 | 4 | Performance and tracking | Not started | | |
@@ -35,10 +35,11 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | 7d | Impersonation and API clients (`kernel/auth/impersonation.ts`, `api-keys.ts`, `api-client-router.ts`, migration `iam_api_keys`): separate impersonation token with both identities audited, `/api-clients` CRUD with scope rules, key issue/list/revoke, API-key sign-in with per-client rate limit. Not built: `POST /oauth/token` (kind `oauth_client`) | 253 tests pass in total |
 | 8 | Party and files (`modules/party`, `modules/files`, `adapters/storage`, migration `party_files`): parties with roles, identifiers (encrypted, hashed, one holder at a time), contacts, addresses, relationships, bank accounts (second-person approval), duplicate detection and review, merge with preview and history; signed uploads verified by size, SHA-256 and type, downloads (audited), attachments with versions, raw inputs | 271 tests pass in total |
 | 9 | Notifications and jobs (`modules/notify`, `kernel/jobs`, `adapters/messaging/smtp.ts`, migration `notify`): rules with Handlebars text, recipients by user, role or payload field, per-user channel preferences, insert-only notifications/read marks/delivery steps, Socket.IO `/realtime` push, BullMQ email queue with retries into SMTP (Mailpit), job scheduler (audit sealing every minute, partition maintenance daily), `/jobs` monitor. Not built: Redis adapter for several API instances; rule limited to one company through the API | 282 tests pass in total (11 new, incl. Mailpit) |
+| 10 | Seed (`apps/api/src/seed`, `pnpm db:seed`, owner role, dev/CI only, refuses production): idempotent demo tenant, company, branch HQ, roles super_admin/admin/manager/viewer with matrix rows and grantable links, Super Admin (password generated into `.env` as `SEED_SUPERADMIN_PASSWORD`), 6 synthetic parties | 283 tests pass in total |
 
 ## Next
 
-Commit 10 (mid model): seed (built-in roles and their matrix rows, demo tenant). Still waiting: export of sealed audit batches to write-once storage (`audit_seal.worm_object_key`); data-scope ids for client platforms; virus scanning of uploads (files stay `not_scanned`).
+Commit 11 (mid model): web shell and design system. Still waiting: export of sealed audit batches to write-once storage (`audit_seal.worm_object_key`); data-scope ids for client platforms; virus scanning of uploads (files stay `not_scanned`).
 
 ## How to run
 
