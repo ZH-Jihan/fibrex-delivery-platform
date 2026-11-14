@@ -64,6 +64,7 @@ Later phases: plan each phase with the strongest model, then build with the mid 
 - First time: copy `.env.example` to `.env` and set passwords; `pnpm install`
 - Start everything: `docker compose up -d --wait` (Postgres is on host port 5433)
 - Tests: `pnpm test` (integration tests start their own Postgres container; Docker must be running) | Unit only: `pnpm test:unit`
+- Web app: `pnpm --filter @fibrex/web dev` (http://localhost:5173, proxies /api to the API on 3000) | `pnpm --filter @fibrex/web build`
 - Lint: `pnpm lint` | Type check: `pnpm typecheck` (also regenerates the Prisma client) | Format: `pnpm format`
 - Migrate: `pnpm db:migrate` | Status: `pnpm db:status` | Seed: `pnpm db:seed`
 - Migrations are hand-written SQL in `apps/api/prisma/migrations/`; keep `apps/api/prisma/schema/*.prisma` in step (the drift test enforces it). Never author migrations with `prisma migrate dev`.
