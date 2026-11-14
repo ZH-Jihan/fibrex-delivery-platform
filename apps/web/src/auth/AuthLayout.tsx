@@ -39,6 +39,7 @@ export function AuthLayout({ title, children }: { title: string; children: React
             <option value="dark">{t('shell.theme.dark')}</option>
           </select>
         </div>
+        <img className="auth-logo" src="/fibrex-logo.jpeg" alt={t('app.name')} />
         <div className="card">
           <h1>{title}</h1>
           {children}

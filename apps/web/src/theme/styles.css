@@ -5,17 +5,20 @@
  * (inline/block, start/end) are used throughout so right-to-left languages mirror for free.
  */
 :root {
-  --bg: #f6f7f9;
+  --bg: #f5f7fb;
   --surface: #ffffff;
-  --surface-2: #eef0f4;
-  --border: #d5d9e0;
-  --text: #1a1f2b;
-  --text-muted: #5a6475;
-  --primary: #1d5fd1;
+  --surface-2: #eaeef5;
+  --border: #d3dae6;
+  --text: #0f1f3d;
+  --text-muted: #55627a;
+  --primary: #0b2a5c;
   --primary-text: #ffffff;
   --danger: #b42318;
   --success: #067647;
-  --focus: #1d5fd1;
+  --focus: #f37321;
+  /* Brand (Fibrex logo): navy #0b2a5c, orange #f37321. Orange is for accents, not body text. */
+  --accent: #f37321;
+  --accent-soft: #fde8d9;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -30,32 +33,36 @@
   color-scheme: light;
 }
 :root[data-theme='dark'] {
-  --bg: #0f131a;
-  --surface: #171c26;
-  --surface-2: #1f2633;
-  --border: #2d3646;
-  --text: #e8ecf3;
-  --text-muted: #9aa5b8;
-  --primary: #6ea0ff;
-  --primary-text: #0b1220;
+  --bg: #0a1222;
+  --surface: #111c30;
+  --surface-2: #18253d;
+  --border: #26354f;
+  --text: #e8edf6;
+  --text-muted: #9aa7bd;
+  --primary: #f58a3d;
+  --primary-text: #0b1a33;
   --danger: #ff8a80;
   --success: #5fd08f;
-  --focus: #6ea0ff;
+  --focus: #f58a3d;
+  --accent: #f58a3d;
+  --accent-soft: #3a2614;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']):not([data-theme='dark']) {
-    --bg: #0f131a;
-    --surface: #171c26;
-    --surface-2: #1f2633;
-    --border: #2d3646;
-    --text: #e8ecf3;
-    --text-muted: #9aa5b8;
-    --primary: #6ea0ff;
-    --primary-text: #0b1220;
+    --bg: #0a1222;
+    --surface: #111c30;
+    --surface-2: #18253d;
+    --border: #26354f;
+    --text: #e8edf6;
+    --text-muted: #9aa7bd;
+    --primary: #f58a3d;
+    --primary-text: #0b1a33;
     --danger: #ff8a80;
     --success: #5fd08f;
-    --focus: #6ea0ff;
+    --focus: #f58a3d;
+    --accent: #f58a3d;
+    --accent-soft: #3a2614;
     color-scheme: dark;
   }
 }
@@ -215,9 +222,30 @@ a {
   gap: var(--space-1);
 }
 .sidebar .brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-weight: 700;
   font-size: 1.1rem;
   padding: var(--space-2) var(--space-3);
+  border-block-end: 3px solid var(--accent);
+}
+/* The logo file has a white background, so it sits on a white tile in both themes. */
+.brand-logo {
+  inline-size: 40px;
+  block-size: 40px;
+  object-fit: contain;
+  background: #ffffff;
+  border-radius: var(--radius);
+}
+.auth-logo {
+  display: block;
+  inline-size: 140px;
+  block-size: 140px;
+  object-fit: contain;
+  margin: 0 auto var(--space-3);
+  background: #ffffff;
+  border-radius: calc(var(--radius) * 2);
 }
 .nav-group {
   color: var(--text-muted);

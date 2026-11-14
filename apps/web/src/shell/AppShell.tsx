@@ -73,6 +73,7 @@ export function AppShell({ nav = NAV }: { nav?: readonly NavGroup[] }) {
     <div className={collapsed ? 'shell collapsed' : 'shell'}>
       <nav className="sidebar" aria-label={t('shell.menu')}>
         <div className="brand">
+          <img className="brand-logo" src="/fibrex-logo.jpeg" alt="" />
           <span>{t('app.name')}</span>
         </div>
         <NavLink className="nav-link" to="/" end>
