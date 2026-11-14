@@ -365,19 +365,34 @@ dialog.dialog::backdrop {
   border-inline-start-color: var(--success);
 }
 
-@media (max-width: 720px) {
+/* Narrow screens: the sidebar becomes an icon-width rail (first letter of each entry). */
+@media (max-width: 900px) {
   .shell,
   .shell.collapsed {
-    grid-template-columns: 1fr;
+    grid-template-columns: var(--sidebar-w-collapsed) 1fr;
   }
   .sidebar {
-    flex-direction: row;
-    flex-wrap: wrap;
-    border-inline-end: 0;
-    border-block-end: 1px solid var(--border);
+    overflow: hidden;
+    padding: var(--space-2);
   }
-  .nav-group {
+  .sidebar .brand span,
+  .nav-group,
+  .sidebar > button {
     display: none;
+  }
+  .sidebar .brand {
+    padding: var(--space-1);
+    justify-content: center;
+  }
+  .nav-link {
+    padding: var(--space-2) 0;
+    text-align: center;
+  }
+  .nav-link span {
+    display: inline-block;
+    inline-size: 1.2em;
+    white-space: nowrap;
+    overflow: hidden;
   }
 }
 

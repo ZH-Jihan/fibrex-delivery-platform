@@ -43,3 +43,13 @@ export const NAV: readonly NavGroup[] = [
     items: [{ to: '/people', label: 'nav.people', permission: 'party.party.read' }],
   },
 ];
+
+/** Keeps only the entries `can` allows, and drops groups left empty. Used by the sidebar and Home. */
+export function filterNav(
+  nav: readonly NavGroup[],
+  can: (permission: string) => boolean,
+): NavGroup[] {
+  return nav
+    .map((g) => ({ ...g, items: g.items.filter((i) => can(i.permission)) }))
+    .filter((g) => g.items.length > 0);
+}

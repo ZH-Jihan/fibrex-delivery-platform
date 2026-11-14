@@ -18,7 +18,7 @@ import { Button } from '../ui/components';
 import { useToast } from '../ui/toast';
 import { CommandPalette } from './CommandPalette';
 import { NotificationBell } from './NotificationBell';
-import { NAV } from './nav';
+import { NAV, filterNav } from './nav';
 import type { NavGroup } from './nav';
 
 interface CompanyChoice {
@@ -65,9 +65,7 @@ export function AppShell({ nav = NAV }: { nav?: readonly NavGroup[] }) {
   }, [companyId]);
 
   // Keep only the entries the user may open, and drop groups left empty.
-  const visible = nav
-    .map((g) => ({ ...g, items: g.items.filter((i) => auth.can(i.permission)) }))
-    .filter((g) => g.items.length > 0);
+  const visible = filterNav(nav, auth.can);
 
   const impersonating = isImpersonating(getAccessToken());
 
@@ -85,7 +83,7 @@ export function AppShell({ nav = NAV }: { nav?: readonly NavGroup[] }) {
           <div key={group.label}>
             <div className="nav-group">{t(group.label)}</div>
             {group.items.map((item) => (
-              <NavLink key={item.to} className="nav-link" to={item.to}>
+              <NavLink key={item.to} className="nav-link" to={item.to} title={t(item.label)}>
                 <span>{t(item.label)}</span>
               </NavLink>
             ))}
