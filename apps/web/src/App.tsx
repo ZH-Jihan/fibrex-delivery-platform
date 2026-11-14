@@ -27,6 +27,10 @@ import { AppShell } from './shell/AppShell';
 import { MatrixPage } from './admin/MatrixPage';
 import { RolesPage } from './admin/RolesPage';
 import { UserDetailPage, UsersPage } from './admin/UsersPage';
+import { AuditPage } from './audit/AuditPage';
+import { RecycleBinPage } from './audit/RecycleBinPage';
+import { MePage } from './me/MePage';
+import { PartiesPage } from './people/PartiesPage';
 import type { ReactNode } from 'react';
 import { ThemeProvider } from './theme/theme';
 import { Skeleton } from './ui/components';
@@ -104,6 +108,31 @@ function Gate() {
           element={
             <Guarded permission="iam.permission_matrix.read">
               <MatrixPage />
+            </Guarded>
+          }
+        />
+        <Route path="me" element={<MePage />} />
+        <Route
+          path="audit"
+          element={
+            <Guarded permission="audit.log.read">
+              <AuditPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="recycle-bin"
+          element={
+            <Guarded permission="recycle_bin.view">
+              <RecycleBinPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="people"
+          element={
+            <Guarded permission="party.party.read">
+              <PartiesPage />
             </Guarded>
           }
         />

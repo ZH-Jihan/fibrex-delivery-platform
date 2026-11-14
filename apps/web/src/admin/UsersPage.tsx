@@ -18,6 +18,7 @@ import { DataTable } from '../ui/DataTable';
 import type { Column } from '../ui/DataTable';
 import { EntityForm } from '../ui/EntityForm';
 import type { FormField } from '../ui/EntityForm';
+import { MembershipsTab } from './MembershipsTab';
 import { HistoryTab } from '../ui/HistoryTab';
 import { useToast } from '../ui/toast';
 
@@ -180,7 +181,7 @@ function userFields(t: ReturnType<typeof useI18n>['t'], withUsername: boolean): 
   ];
 }
 
-type Tab = 'profile' | 'sessions' | 'logins' | 'history';
+type Tab = 'profile' | 'memberships' | 'sessions' | 'logins' | 'history';
 
 export function UserDetailPage() {
   const { id = '' } = useParams();
@@ -264,7 +265,7 @@ export function UserDetailPage() {
       </div>
       <ErrorAlert error={error} />
       <div role="tablist" className="tabs">
-        {(['profile', 'sessions', 'logins', 'history'] as const).map((k) => (
+        {(['profile', 'memberships', 'sessions', 'logins', 'history'] as const).map((k) => (
           <button
             key={k}
             role="tab"
@@ -301,6 +302,7 @@ export function UserDetailPage() {
           }}
         />
       ) : null}
+      {tab === 'memberships' ? <MembershipsTab userId={id} /> : null}
       {tab === 'sessions' ? <SessionsTab userId={id} /> : null}
       {tab === 'logins' ? <LoginsTab userId={id} /> : null}
       {tab === 'history' ? <HistoryTab entityType="iam.user_account" entityId={id} /> : null}

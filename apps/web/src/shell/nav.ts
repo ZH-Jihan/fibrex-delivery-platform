@@ -27,6 +27,12 @@ export const NAV: readonly NavGroup[] = [
       { to: '/users', label: 'nav.users', permission: 'iam.user.read' },
       { to: '/roles', label: 'nav.roles', permission: 'iam.role.read' },
       { to: '/permission-matrix', label: 'nav.matrix', permission: 'iam.permission_matrix.read' },
+      { to: '/audit', label: 'nav.audit', permission: 'audit.log.read' },
+      { to: '/recycle-bin', label: 'nav.bin', permission: 'recycle_bin.view' },
     ],
+  },
+  {
+    label: 'nav.people.group',
+    items: [{ to: '/people', label: 'nav.people', permission: 'party.party.read' }],
   },
 ];

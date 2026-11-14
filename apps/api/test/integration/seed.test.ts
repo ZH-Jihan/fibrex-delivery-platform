@@ -57,7 +57,7 @@ describe('seed', () => {
         `SELECT hash FROM iam.credential WHERE user_id = $1 AND is_current`,
         [first.superAdminId],
       );
-      expect(await verifyPassword(hash.rows[0]?.hash ?? "", PASSWORD)).toBe(true);
+      expect(await verifyPassword(hash.rows[0]?.hash ?? '', PASSWORD)).toBe(true);
     } finally {
       await owner.end();
     }

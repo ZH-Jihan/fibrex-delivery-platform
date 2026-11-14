@@ -153,7 +153,9 @@ export function AppShell({ nav = NAV }: { nav?: readonly NavGroup[] }) {
             <option value="light">{t('shell.theme.light')}</option>
             <option value="dark">{t('shell.theme.dark')}</option>
           </select>
-          <span aria-label={t('shell.userMenu')}>{auth.grant?.user.displayName}</span>
+          <NavLink to="/me" aria-label={t('shell.userMenu')}>
+            {auth.grant?.user.displayName}
+          </NavLink>
           <Button onClick={() => void auth.logout()}>{t('auth.signOut')}</Button>
         </header>
         <main className="content">

@@ -45,3 +45,9 @@ export const roleCreateSchema = z.strictObject({
 
 /** The key never changes after creation. */
 export const roleUpdateSchema = roleCreateSchema.omit({ key: true });
+
+/** The small form used by the People screen to create a party (the API accepts more fields). */
+export const partyQuickCreateSchema = z.strictObject({
+  kind: z.enum(['person', 'organisation']),
+  displayName,
+});

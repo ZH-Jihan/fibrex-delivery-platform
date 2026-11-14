@@ -24,9 +24,7 @@ export interface FormField {
 
 /** The part of a Zod schema this form needs. */
 export interface FormSchema {
-  safeParse: (
-    value: unknown,
-  ) =>
+  safeParse: (value: unknown) =>
     | { success: true; data: unknown }
     | {
         success: false;
