@@ -149,7 +149,11 @@ const reauthResult = z.object({ validUntil: z.iso.datetime() }).meta({ id: 'Reau
 const me = z
   .object({ ...identity, sessionId: z.uuid(), mfaEnabled: z.boolean() })
   .meta({ id: 'Me' });
-const sessionItem = z
+const switchCompanyBody = z.object({ companyId: z.uuid() });
+const companyChoice = z
+  .object({ id: z.uuid(), name: z.string(), isDefault: z.boolean(), current: z.boolean() })
+  .meta({ id: 'CompanyChoice' });
+export const sessionItem = z
   .object({
     id: z.uuid(),
     current: z.boolean(),
@@ -161,7 +165,7 @@ const sessionItem = z
     lastSeenAt: z.iso.datetime(),
   })
   .meta({ id: 'SessionItem' });
-const loginEvent = z
+export const loginEvent = z
   .object({
     at: z.iso.datetime(),
     method: z.string(),
@@ -343,6 +347,16 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
   });
   router.get('/me/login-history', async (req, res) => {
     res.json({ items: await auth.loginHistory(historyQuery.parse(req.query).limit) });
+  });
+  router.get('/me/companies', async (_req, res) => {
+    res.json({ items: await auth.listCompanies() });
+  });
+  // Authenticated by the access token (not by a cookie), so no CSRF check is needed. The
+  // old refresh cookie is replaced by the new session's.
+  router.post('/me/switch-company', async (req, res) => {
+    const { companyId } = switchCompanyBody.parse(req.body);
+    const issued = await auth.switchCompany(companyId, clientInfo(req));
+    res.json(body(issued, setCookies(res, issued)));
   });
 
   registerDocs(registry);
@@ -549,6 +563,28 @@ function registerDocs(registry: OpenAPIRegistry): void {
     responses: {
       200: json('Sign-in attempts', z.object({ items: z.array(loginEvent) })),
       401: problem('Not signed in'),
+    },
+  });
+  registerRoute(registry, {
+    method: 'get',
+    path: '/me/companies',
+    tags,
+    summary: 'The companies I can work in',
+    responses: {
+      200: json('Companies', z.object({ items: z.array(companyChoice) })),
+      401: problem('Not signed in'),
+    },
+  });
+  registerRoute(registry, {
+    method: 'post',
+    path: '/me/switch-company',
+    tags,
+    summary: 'Work in another of my companies (starts a new session and ends this one)',
+    request: bodyOf(switchCompanyBody),
+    responses: {
+      200: json('Signed in to the other company (cookies are replaced)', signedIn),
+      401: problem('Not signed in'),
+      403: problem('Not a company you have access to'),
     },
   });
 }

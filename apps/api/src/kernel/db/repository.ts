@@ -19,7 +19,13 @@
  * Used by: kernel/http/crud-router.ts and module services.
  */
 import { Prisma } from '../../generated/prisma/client.js';
-import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../http/errors.js';
+import {
+  BadRequestError,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  ValidationError,
+} from '../http/errors.js';
 import { VersionConflictError, diffChanges } from './optimistic-lock.js';
 import { currentUnit } from './unit-of-work.js';
 
@@ -247,12 +253,20 @@ export function createRepository<TRow extends BaseRow>(config: RepositoryConfig)
     softDelete: (id, expectedVersion, reason) =>
       guarded(async () => {
         const { context } = currentUnit();
+        // The database refuses a deleted row without a reason (the *_soft_delete_ck
+        // constraints). Checked here so the caller gets a clear 400, not a failed write.
+        const deleteReason = reason?.trim() ?? '';
+        if (deleteReason === '') {
+          throw new ValidationError([
+            { path: 'reason', code: 'required', message: 'Say why this is being deleted' },
+          ]);
+        }
         const rows = await delegate().updateManyAndReturn({
           where: { id, version: expectedVersion, ...LIVE },
           data: {
             deletedAt: new Date(),
             deletedBy: context.userId ?? null,
-            deleteReason: reason ?? null,
+            deleteReason,
           },
         });
         if (rows.length === 0) return explainMiss(id, expectedVersion, LIVE, {});

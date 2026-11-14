@@ -47,7 +47,8 @@
  *   - Re-authentication (step-up): proving identity again unlocks sensitive actions for
  *     AUTH_REAUTH_TTL_SECONDS on that one session (assertRecentReauth).
  *
- * Not here yet: permissions and company switching (7c); impersonation and API keys (7d).
+ * Company switching opens a new session (see switchCompany). Permissions are not decided
+ * here: kernel/permissions does that. Not here yet: impersonation and API keys (7d).
  *
  * Depends on: kernel/db (unit of work, Prisma), ioredis, ./password-hasher.ts,
  * ./access-token.ts, ./mfa.ts, adapters/messaging/interface.ts, kernel/context,
@@ -64,6 +65,7 @@ import type { Db, PrismaDb } from '../db/prisma.js';
 import type { DbContext, UnitOfWork } from '../db/unit-of-work.js';
 import {
   AppError,
+  ForbiddenError,
   NotFoundError,
   UnauthenticatedError,
   UnprocessableError,
@@ -929,54 +931,88 @@ export class AuthService {
     const tenantId = await this.resolveTenant(input.tenant);
     if (tenantId === undefined) return;
     const identifier = input.identifier.trim().toLowerCase();
-    const { AUTH_RESET_TTL_MINUTES: ttl, AUTH_OTP_RESEND_SECONDS: gap } = this.deps.env;
 
     const issued = await this.deps.uow.runAs(this.preAuthContext(tenantId, client), async (db) => {
       const user = await db.userAccount.findFirst({
         where: { OR: [{ username: identifier }, { email: identifier }, { phone: identifier }] },
       });
-      // A locked account may still reset (the lock is about guessing, and the link goes
-      // only to the owner's own inbox); a disabled one may not.
-      if (user?.status !== 'active') return undefined;
-      const to =
-        user.email !== null
-          ? ({ channel: 'email', address: user.email } as const)
-          : user.phone !== null
-            ? ({ channel: 'sms', address: user.phone } as const)
-            : undefined;
-      // Nowhere to send it: an administrator has to reset this password.
-      if (to === undefined) return undefined;
-      const now = Date.now();
-      // One link per AUTH_OTP_RESEND_SECONDS, so the endpoint cannot flood an inbox.
-      const recent = await db.passwordResetToken.findFirst({
-        where: { userId: user.id, createdAt: { gt: new Date(now - gap * 1000) } },
-        select: { id: true },
-      });
-      if (recent !== null) return undefined;
-      // Only the newest link works: earlier unused ones are retired (soft-deleted).
-      await db.passwordResetToken.updateMany({
-        where: { userId: user.id, usedAt: null },
-        data: { deletedAt: new Date(now), deleteReason: 'superseded' },
-      });
-      // Same shape as a refresh token: "<tenant id>.<256 random bits>", stored as a hash.
-      const token = `${tenantId}.${randomBytes(32).toString('base64url')}`;
-      await db.passwordResetToken.create({
-        data: {
-          tenantId,
-          userId: user.id,
-          tokenHash: sha256(token),
-          expiresAt: new Date(now + ttl * 60_000),
-        },
-      });
-      return { to, token };
+      return user === null ? undefined : this.issueResetToken(db, user);
     });
-    if (issued === undefined) return;
+    if (issued !== undefined) this.deliverResetLink(issued);
+  }
 
+  /**
+   * An administrator sends a user the same reset link (POST /users/{id}/reset-password).
+   * The administrator never sees or chooses the password. Unlike the public route this
+   * one says when nothing could be sent, because the caller already knows the account.
+   * The caller's permission over the target user is checked by the router before this.
+   */
+  async adminSendPasswordReset(userId: string): Promise<{ channel: 'email' | 'sms' }> {
+    currentUser();
+    const issued = await this.deps.uow.run(async (db) => {
+      const user = await db.userAccount.findFirst({ where: { id: userId } });
+      if (user === null) throw new NotFoundError();
+      return this.issueResetToken(db, user);
+    });
+    if (issued === undefined) {
+      throw new UnprocessableError(
+        'reset_not_sent',
+        'No link was sent: the account is disabled, has no email or phone, or was sent one a moment ago',
+      );
+    }
+    this.deliverResetLink(issued);
+    return { channel: issued.to.channel };
+  }
+
+  /** Creates a reset token for the user, or nothing when one must not or cannot be sent. */
+  private async issueResetToken(db: Db, user: UserRow) {
+    const { AUTH_RESET_TTL_MINUTES: ttl, AUTH_OTP_RESEND_SECONDS: gap } = this.deps.env;
+    // A locked account may still reset (the lock is about guessing, and the link goes
+    // only to the owner's own inbox); a disabled one may not.
+    if (user.status !== 'active') return undefined;
+    const to =
+      user.email !== null
+        ? ({ channel: 'email', address: user.email } as const)
+        : user.phone !== null
+          ? ({ channel: 'sms', address: user.phone } as const)
+          : undefined;
+    // Nowhere to send it.
+    if (to === undefined) return undefined;
+    const now = Date.now();
+    // One link per AUTH_OTP_RESEND_SECONDS, so the endpoint cannot flood an inbox.
+    const recent = await db.passwordResetToken.findFirst({
+      where: { userId: user.id, createdAt: { gt: new Date(now - gap * 1000) } },
+      select: { id: true },
+    });
+    if (recent !== null) return undefined;
+    // Only the newest link works: earlier unused ones are retired (soft-deleted).
+    await db.passwordResetToken.updateMany({
+      where: { userId: user.id, usedAt: null },
+      data: { deletedAt: new Date(now), deleteReason: 'superseded' },
+    });
+    // Same shape as a refresh token: "<tenant id>.<256 random bits>", stored as a hash.
+    const token = `${user.tenantId}.${randomBytes(32).toString('base64url')}`;
+    await db.passwordResetToken.create({
+      data: {
+        tenantId: user.tenantId,
+        userId: user.id,
+        tokenHash: sha256(token),
+        expiresAt: new Date(now + ttl * 60_000),
+      },
+    });
+    return { to, token };
+  }
+
+  private deliverResetLink(issued: {
+    to: { channel: 'email' | 'sms'; address: string };
+    token: string;
+  }): void {
     // The token rides in the URL fragment (after #), which browsers never send to a
     // server, so it cannot end up in web-server or proxy logs.
     const link = new URL('/reset-password', this.deps.env.WEB_BASE_URL);
     link.hash = `token=${issued.token}`;
     const product = this.deps.env.AUTH_TOTP_ISSUER;
+    const ttl = this.deps.env.AUTH_RESET_TTL_MINUTES;
     this.deliver({
       channel: issued.to.channel,
       to: issued.to.address,
@@ -1178,8 +1214,109 @@ export class AuthService {
     });
   }
 
-  async listSessions() {
-    const { userId, sessionId } = currentUser();
+  // ---------------------------------------------------------------------------------
+  // Companies: which ones the user may work in, and moving between them
+  // ---------------------------------------------------------------------------------
+
+  /** The companies the signed-in user is an active member of, the default one first. */
+  async listCompanies() {
+    const { userId } = currentUser();
+    const current = requireContext().companyIds[0] ?? null;
+    return this.deps.uow.run(async (db) => {
+      const memberships = await db.companyMembership.findMany({
+        where: { userId, status: 'active', company: { status: 'active', deletedAt: null } },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+        include: { company: { select: { legalName: true, tradeName: true } } },
+      });
+      return memberships.map((m) => ({
+        id: m.companyId,
+        name: m.company.tradeName ?? m.company.legalName,
+        isDefault: m.isDefault,
+        current: m.companyId === current,
+      }));
+    });
+  }
+
+  /**
+   * Moves the signed-in user to another of their companies.
+   *
+   * A session belongs to one company for its whole life: the database refuses to change
+   * `company_id` on any row (tenancy columns are immutable), and that is what keeps every
+   * audit row of a session in one company. So switching does not edit the session; it
+   *   1. checks, in the target company's scope, that the user is an active member of it
+   *      and that the company is active (403 otherwise, with nothing created);
+   *   2. opens a new session there with a new refresh-token family and the role keys the
+   *      user holds in that company;
+   *   3. ends the old session, so its access and refresh tokens stop working.
+   * The new session has not re-authenticated: sensitive actions ask again after a switch.
+   */
+  async switchCompany(companyId: string, client: ClientInfo): Promise<IssuedSession> {
+    const { userId, tenantId, sessionId } = currentUser();
+    const previous = requireContext().companyIds[0] ?? null;
+    const issued = await this.deps.uow.runAs(
+      this.sessionContext(tenantId, userId, companyId, client),
+      async (db) => {
+        const user = await db.userAccount.findFirst({ where: { id: userId } });
+        if (user?.status !== 'active') throw new UnauthenticatedError();
+        const access = await this.accessIn(db, userId, companyId);
+        const company = await db.company.findFirst({
+          where: { id: companyId, status: 'active' },
+          select: { id: true },
+        });
+        // One answer whether the company does not exist, is inactive or is not theirs.
+        if (access === undefined || company === null) {
+          throw new ForbiddenError('You do not have access to that company');
+        }
+        const session = await db.session.create({
+          data: {
+            tenantId,
+            userId,
+            companyId,
+            ip: client.ip ?? null,
+            userAgent: client.userAgent?.slice(0, 512) ?? null,
+          },
+        });
+        const refresh = await this.createRefreshToken(db, tenantId, session.id, randomUUID(), null);
+        return {
+          ...this.grant(user, session.id, access, await this.deps.mfa.state(db, userId)),
+          refreshToken: refresh.token,
+          refreshExpiresAt: refresh.expiresAt,
+        };
+      },
+    );
+    await this.revokeInOwnContext(
+      tenantId,
+      { id: sessionId, companyId: previous },
+      userId,
+      'switched_company',
+      client,
+    );
+    return issued;
+  }
+
+  /**
+   * Ends every session of a user (administrator action: lock, forced sign-out, access
+   * changed, account deleted). Each session is ended in its own company's scope; see
+   * revokeInOwnContext. The caller's permission over the user is checked before this.
+   */
+  async revokeAllSessionsOf(userId: string, reason: string): Promise<number> {
+    const actor = currentUser();
+    const sessions = await this.deps.uow.run((db) =>
+      db.session.findMany({
+        where: { userId, revokedAt: null },
+        select: { id: true, companyId: true },
+      }),
+    );
+    for (const session of sessions) {
+      await this.revokeInOwnContext(actor.tenantId, session, actor.userId, reason);
+    }
+    return sessions.length;
+  }
+
+  /** Active sessions of the signed-in user, or of `ofUserId` for an administrator. */
+  async listSessions(ofUserId?: string) {
+    const { userId: self, sessionId } = currentUser();
+    const userId = ofUserId ?? self;
     return this.deps.uow.run(async (db) => {
       const rows = await db.session.findMany({
         where: { userId, revokedAt: null },
@@ -1213,8 +1350,9 @@ export class AuthService {
     await this.revokeInOwnContext(tenantId, session, userId, 'revoked_by_user');
   }
 
-  async loginHistory(limit: number) {
-    const { userId } = currentUser();
+  /** Sign-in history of the signed-in user, or of `ofUserId` for an administrator. */
+  async loginHistory(limit: number, ofUserId?: string) {
+    const userId = ofUserId ?? currentUser().userId;
     return this.deps.uow.run(async (db) => {
       const rows = await db.loginEvent.findMany({
         where: { userId },

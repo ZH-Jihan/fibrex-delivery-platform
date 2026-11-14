@@ -6,7 +6,8 @@
   "description": "Zod schemas, types and money helpers shared by apps/api and apps/web",
   "exports": {
     ".": "./src/index.ts",
-    "./money": "./src/money/index.ts"
+    "./money": "./src/money/index.ts",
+    "./permissions": "./src/permissions/index.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

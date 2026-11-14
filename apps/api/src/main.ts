@@ -16,17 +16,25 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { StubMessagingAdapter } from './adapters/messaging/stub.js';
 import { API_PREFIX, createApp } from './app.js';
+import { createAuditRouter } from './kernel/audit/audit-router.js';
+import { createAuditService } from './kernel/audit/audit-service.js';
+import { RecycleBin } from './kernel/audit/recycle-bin.js';
 import { AccessTokens } from './kernel/auth/access-token.js';
 import { createAuthRouter } from './kernel/auth/auth-router.js';
 import { AuthService } from './kernel/auth/auth-service.js';
 import { authenticate } from './kernel/auth/authenticate.js';
 import { MfaFactors } from './kernel/auth/mfa.js';
+import { createUserAdminRouter, createUserRepository } from './kernel/auth/user-admin-router.js';
 import { ConfigError, loadEnv } from './kernel/config/env.js';
 import { SecretBox } from './kernel/crypto/secret-box.js';
 import { createPool } from './kernel/db/pool.js';
 import { createPrisma } from './kernel/db/prisma.js';
 import { UnitOfWork } from './kernel/db/unit-of-work.js';
 import { createLogger } from './kernel/observability/logger.js';
+import { createAccessAdminRouter } from './kernel/permissions/access-admin-router.js';
+import { AccessAdminService } from './kernel/permissions/access-admin-service.js';
+import { syncPermissionCatalogue } from './kernel/permissions/catalogue.js';
+import { PermissionService } from './kernel/permissions/permission-service.js';
 import { createRedis } from './kernel/redis/client.js';
 
 const rootEnv = path.resolve(import.meta.dirname, '../../../.env');
@@ -34,7 +42,7 @@ if (process.env.DATABASE_URL === undefined && existsSync(rootEnv)) {
   process.loadEnvFile(rootEnv);
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const env = loadEnv();
   const logger = createLogger({
     level: env.LOG_LEVEL,
@@ -58,6 +66,23 @@ function main(): void {
     revealText: env.NODE_ENV !== 'production',
   });
   const auth = new AuthService({ prisma, uow, redis, tokens, mfa, messaging, logger, env });
+  const permissions = new PermissionService(uow);
+  const admin = new AccessAdminService({ permissions });
+  const recycleBin = new RecycleBin();
+  recycleBin.register({
+    entityType: 'iam.user_account',
+    moduleKey: 'iam',
+    label: 'User',
+    repository: createUserRepository({ permissions, admin }),
+    describe: (user) => `${user.username} (${user.displayName})`,
+  });
+  recycleBin.register({
+    entityType: 'iam.role',
+    moduleKey: 'iam',
+    label: 'Role',
+    repository: admin.roleRepository(),
+    describe: (role) => role.name,
+  });
 
   const app = createApp({
     env,
@@ -73,6 +98,17 @@ function main(): void {
           logger,
           env,
           cookiePath: `${API_PREFIX}/auth`,
+        }),
+      );
+      api.use(createUserAdminRouter({ uow, registry, permissions, admin, auth }));
+      api.use(createAccessAdminRouter({ uow, registry, permissions, admin, auth }));
+      api.use(
+        createAuditRouter({
+          uow,
+          registry,
+          authorize: permissions.authorize,
+          audit: createAuditService(),
+          recycleBin,
         }),
       );
     },
@@ -91,6 +127,10 @@ function main(): void {
       },
     ],
   });
+
+  // The permission catalogue is written before the first request is served, so the matrix
+  // never offers fewer permissions than the code checks.
+  await syncPermissionCatalogue(prisma);
 
   const server = app.listen(env.PORT, () => {
     logger.info({ port: env.PORT }, 'Fibrex API listening');
@@ -122,7 +162,7 @@ function main(): void {
 }
 
 try {
-  main();
+  await main();
 } catch (err) {
   // The logger may not exist yet (bad configuration), so write plainly to stderr.
   if (err instanceof ConfigError) {

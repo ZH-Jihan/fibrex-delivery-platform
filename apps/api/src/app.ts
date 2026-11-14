@@ -43,8 +43,11 @@ import type { Logger } from './kernel/observability/logger.js';
 export const API_PREFIX = '/api/v1';
 export const API_VERSION = '1.0.0';
 
-/** Paths under /api/v1 that do not require an Idempotency-Key (safe to repeat). */
-const IDEMPOTENCY_EXEMPT_PREFIXES = ['/auth/'];
+/**
+ * Paths under /api/v1 that do not require an Idempotency-Key. They are safe to repeat,
+ * and their answers carry access tokens, which must not be kept for replay.
+ */
+const IDEMPOTENCY_EXEMPT_PREFIXES = ['/auth/', '/me/switch-company'];
 
 export interface AppDeps {
   env: Env;

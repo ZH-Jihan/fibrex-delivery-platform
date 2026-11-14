@@ -355,7 +355,13 @@ describe('CRUD router', () => {
     const created = await write('post', '/test-branches').send({ code: c, name: 'Temp' });
     const id = item(created).id;
 
-    const stale = await write('delete', `/test-branches/${id}`).set('If-Match', '"9"');
+    // Every deletion must say why (the database keeps the reason with the row).
+    const noReason = await write('delete', `/test-branches/${id}`).set('If-Match', '"1"');
+    expect(noReason.status).toBe(400);
+
+    const stale = await write('delete', `/test-branches/${id}`)
+      .set('If-Match', '"9"')
+      .send({ reason: 'Closed' });
     expect(stale.status).toBe(409);
 
     const deleted = await write('delete', `/test-branches/${id}`)
@@ -398,10 +404,9 @@ describe('CRUD router', () => {
     const created = await write('post', '/test-branches').send({ code: code(), name: 'Guarded' });
     denied = 'platform.branch.delete';
     try {
-      const res = await write('delete', `/test-branches/${item(created).id}`).set(
-        'If-Match',
-        '"1"',
-      );
+      const res = await write('delete', `/test-branches/${item(created).id}`)
+        .set('If-Match', '"1"')
+        .send({ reason: 'Not allowed anyway' });
       expect(res.status).toBe(403);
     } finally {
       denied = undefined;

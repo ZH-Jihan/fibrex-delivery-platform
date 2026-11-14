@@ -9,7 +9,7 @@
  *   GET    /things/{id}          read one              -> ETag: "<version>"
  *   POST   /things               create                -> 201, ETag
  *   PATCH  /things/{id}          update, If-Match      -> ETag
- *   DELETE /things/{id}          soft delete, If-Match (optional body { reason })
+ *   DELETE /things/{id}          soft delete, If-Match, body { reason } (required)
  *   POST   /things/{id}/restore  restore, If-Match
  *
  * Every handler, in this order:
@@ -84,7 +84,8 @@ const listQuery = z.object({
     .transform((v) => v === 'true'),
 });
 
-const deleteBody = z.object({ reason: z.string().trim().min(1).max(500).optional() });
+// Required: the database keeps a reason with every deleted row (see repository.softDelete).
+export const deleteBody = z.object({ reason: z.string().trim().min(1).max(500) });
 
 const ifMatchHeader = z.object({
   'If-Match': z.string().meta({ description: 'The record version you last read, e.g. "3"' }),
