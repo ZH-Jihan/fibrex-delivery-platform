@@ -1,0 +1,47 @@
+/**
+ * Shared form schemas for user and role administration.
+ * Purpose: the web forms validate with the same rules the API enforces (SPEC 6.2), so a
+ * form never accepts what the server would refuse. The API keeps its own copies with
+ * extra OpenAPI metadata; the rules here must match `user-admin-router.ts` and
+ * `access-admin-router.ts`.
+ * Depends on: zod. Used by: apps/web admin screens.
+ */
+import { z } from 'zod';
+
+const displayName = z.string().trim().min(1).max(200);
+const email = z.email().max(254);
+const phone = z.string().regex(/^\+[1-9][0-9]{6,14}$/, {
+  message: 'Use the international format, e.g. +97455512345',
+});
+
+export const userCreateSchema = z.strictObject({
+  username: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9][a-z0-9._-]{2,63}$/, {
+      message: '3 to 64 letters, digits, dot, dash or underscore',
+    }),
+  displayName,
+  email: email.optional(),
+  phone: phone.optional(),
+});
+
+/** The username never changes after creation. */
+export const userUpdateSchema = z.strictObject({
+  displayName,
+  email: email.optional(),
+  phone: phone.optional(),
+});
+
+export const roleCreateSchema = z.strictObject({
+  key: z.string().regex(/^[a-z][a-z0-9_]{1,62}$/, {
+    message: 'Lower-case letters, digits and underscore, starting with a letter',
+  }),
+  name: z.string().trim().min(1).max(100),
+  description: z.string().trim().max(500).optional(),
+  mfaRequired: z.boolean().optional(),
+});
+
+/** The key never changes after creation. */
+export const roleUpdateSchema = roleCreateSchema.omit({ key: true });

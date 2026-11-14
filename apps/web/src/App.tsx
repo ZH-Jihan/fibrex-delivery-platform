@@ -24,9 +24,19 @@ import {
 import { I18nProvider, useI18n } from './i18n';
 import { HomePage, NotFoundPage } from './shell/pages';
 import { AppShell } from './shell/AppShell';
+import { MatrixPage } from './admin/MatrixPage';
+import { RolesPage } from './admin/RolesPage';
+import { UserDetailPage, UsersPage } from './admin/UsersPage';
+import type { ReactNode } from 'react';
 import { ThemeProvider } from './theme/theme';
 import { Skeleton } from './ui/components';
 import { ToastProvider } from './ui/toast';
+
+/** A screen only for people holding `permission`; others see "not found". The API checks too. */
+function Guarded({ permission, children }: { permission: string; children: ReactNode }) {
+  const auth = useAuth();
+  return auth.can(permission) ? <>{children}</> : <NotFoundPage />;
+}
 
 function ResetRoute() {
   const { hash } = useLocation();
@@ -65,6 +75,38 @@ function Gate() {
     <Routes>
       <Route element={<AppShell />}>
         <Route index element={<HomePage />} />
+        <Route
+          path="users"
+          element={
+            <Guarded permission="iam.user.read">
+              <UsersPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="users/:id"
+          element={
+            <Guarded permission="iam.user.read">
+              <UserDetailPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="roles"
+          element={
+            <Guarded permission="iam.role.read">
+              <RolesPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="permission-matrix"
+          element={
+            <Guarded permission="iam.permission_matrix.read">
+              <MatrixPage />
+            </Guarded>
+          }
+        />
         <Route path="login" element={<Navigate to="/" replace />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

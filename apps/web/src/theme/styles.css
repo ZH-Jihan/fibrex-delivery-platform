@@ -380,3 +380,134 @@ dialog.dialog::backdrop {
     display: none;
   }
 }
+
+/* ---- Shared components (commit 12a): tables, forms, bell, palette, tabs ---- */
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.row-actions,
+.form-actions,
+.table-toolbar,
+.table-pager {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.form-actions {
+  justify-content: flex-end;
+  margin-block-start: var(--space-4);
+}
+.table-toolbar,
+.table-pager {
+  margin-block: var(--space-3);
+}
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: var(--space-4);
+  margin-block-end: var(--space-4);
+}
+.table-wrap {
+  overflow-x: auto;
+}
+.table-wrap table {
+  border-collapse: collapse;
+  inline-size: 100%;
+}
+.table-wrap th,
+.table-wrap td {
+  text-align: start;
+  padding: var(--space-2) var(--space-3);
+  border-block-end: 1px solid var(--border);
+}
+.th-sort {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  text-align: start;
+}
+.column-chooser label {
+  display: block;
+}
+.tabs {
+  display: flex;
+  gap: var(--space-2);
+  border-block-end: 1px solid var(--border);
+  margin-block-end: var(--space-4);
+}
+.tab {
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--text);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+}
+.tab[aria-selected='true'] {
+  border-block-end: 2px solid var(--primary);
+  font-weight: 600;
+}
+.bell {
+  position: relative;
+}
+.badge {
+  margin-inline-start: var(--space-1);
+  background: var(--danger);
+  color: var(--primary-text);
+  border-radius: 999px;
+  padding-inline: 6px;
+  font-size: 0.75rem;
+}
+.bell-panel {
+  position: absolute;
+  inset-inline-end: 0;
+  z-index: 20;
+  inline-size: 320px;
+  max-block-size: 60vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+}
+.bell-panel ul,
+.palette ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.bell-panel li.unread {
+  font-weight: 600;
+}
+.bell-panel li button {
+  display: grid;
+  inline-size: 100%;
+  padding-block: var(--space-2);
+}
+.palette {
+  inline-size: min(480px, 90vw);
+}
+.palette input {
+  inline-size: 100%;
+}
+.matrix th[scope='row'] {
+  font-weight: 400;
+  font-family: monospace;
+}
+.matrix-module th {
+  background: var(--surface-2);
+}
+.check {
+  display: block;
+  margin-block: var(--space-3);
+}

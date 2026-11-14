@@ -16,6 +16,8 @@ import { LANGUAGES, isLanguage, useI18n } from '../i18n';
 import { useTheme } from '../theme/theme';
 import { Button } from '../ui/components';
 import { useToast } from '../ui/toast';
+import { CommandPalette } from './CommandPalette';
+import { NotificationBell } from './NotificationBell';
 import { NAV } from './nav';
 import type { NavGroup } from './nav';
 
@@ -107,6 +109,8 @@ export function AppShell({ nav = NAV }: { nav?: readonly NavGroup[] }) {
         ) : null}
         <header className="topbar">
           <span className="spacer" />
+          <CommandPalette entries={visible.flatMap((g) => g.items)} />
+          <NotificationBell />
           {companies.length > 1 ? (
             <select
               aria-label={t('shell.company')}

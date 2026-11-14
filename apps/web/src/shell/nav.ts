@@ -20,4 +20,13 @@ export interface NavGroup {
   items: readonly NavItem[];
 }
 
-export const NAV: readonly NavGroup[] = [];
+export const NAV: readonly NavGroup[] = [
+  {
+    label: 'nav.admin',
+    items: [
+      { to: '/users', label: 'nav.users', permission: 'iam.user.read' },
+      { to: '/roles', label: 'nav.roles', permission: 'iam.role.read' },
+      { to: '/permission-matrix', label: 'nav.matrix', permission: 'iam.permission_matrix.read' },
+    ],
+  },
+];
