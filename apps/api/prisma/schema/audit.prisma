@@ -1,0 +1,72 @@
+// Schema `audit`: audit trail, hash-chain seals and export log (docs/PLAN.md section 3.3).
+// SQL source of truth: prisma/migrations/20261114000000_audit/migration.sql.
+// audit_log is partitioned by month on `at` (partitions live in schema `partitions`).
+
+model AuditLog {
+  id             String   @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  companyId      String?  @map("company_id") @db.Uuid
+  seq            BigInt?
+  at             DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  userId         String?  @map("user_id") @db.Uuid
+  impersonatorId String?  @map("impersonator_id") @db.Uuid
+  roleKeys       String[] @default([]) @map("role_keys")
+  ip             String?  @db.Inet
+  requestId      String?  @map("request_id")
+  moduleKey      String   @map("module_key")
+  entityType     String   @map("entity_type")
+  entityId       String?  @map("entity_id") @db.Uuid
+  action         String
+  diff           Json?
+  meta           Json?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy      String?  @map("created_by") @db.Uuid
+
+  @@id([id, at])
+  @@index([tenantId, at(sort: Desc)], map: "audit_log_tenant_at_idx")
+  @@index([tenantId, entityType, entityId, at(sort: Desc)], map: "audit_log_entity_idx")
+  @@index([tenantId, userId, at(sort: Desc)], map: "audit_log_user_idx")
+  @@index([tenantId, seq], map: "audit_log_seq_idx")
+  @@index([tenantId, at, id], map: "audit_log_pending_idx", where: raw("seq IS NULL"))
+  @@map("audit_log")
+  @@schema("audit")
+}
+
+model AuditSeal {
+  id            String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  fromSeq       BigInt   @map("from_seq")
+  toSeq         BigInt   @map("to_seq")
+  prevHash      Bytes    @map("prev_hash")
+  hash          Bytes
+  sealedAt      DateTime @default(now()) @map("sealed_at") @db.Timestamptz(6)
+  wormObjectKey String?  @map("worm_object_key")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy     String?  @map("created_by") @db.Uuid
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, fromSeq], map: "audit_seal_from_uq")
+  @@unique([tenantId, toSeq], map: "audit_seal_to_uq")
+  @@map("audit_seal")
+  @@schema("audit")
+}
+
+model ExportLog {
+  id         String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  entityType String   @map("entity_type")
+  filters    Json     @default("{}")
+  rowCount   Int      @map("row_count")
+  format     String
+  fileId     String?  @map("file_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy  String?  @map("created_by") @db.Uuid
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, userId, createdAt(sort: Desc)], map: "export_log_user_idx")
+  @@map("export_log")
+  @@schema("audit")
+}

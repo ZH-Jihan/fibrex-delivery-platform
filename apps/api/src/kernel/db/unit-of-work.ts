@@ -11,7 +11,8 @@
  *   1. `set_config(name, value, true)` is the function form of `SET LOCAL`: the value lasts
  *      until the transaction ends. Connections come from a shared pool, so a session-level
  *      SET would leak one tenant's context into the next request on that connection.
- *   2. All four settings are written on every transaction, as '' when absent. The SQL
+ *   2. All settings (the four that drive RLS, plus request id, client address and role
+ *      keys for the audit trail) are written on every transaction, as '' when absent. The SQL
  *      helpers (app.current_tenant_id() ...) read '' as NULL, so a missing value means
  *      "no rows", never "the previous value".
  *   3. Values are sent as bind parameters and must be UUIDs. The company list is sent as
@@ -38,6 +39,13 @@ export interface DbContext {
   readonly userId?: string;
   /** The real user while impersonating (kept for the audit trail). */
   readonly impersonatorId?: string;
+  /**
+   * Recorded on every audit row written in the transaction (who, from where). They do not
+   * affect what the transaction may read or write.
+   */
+  readonly requestId?: string;
+  readonly ip?: string;
+  readonly roleKeys?: readonly string[];
 }
 
 export interface Unit {
@@ -53,6 +61,7 @@ export interface UnitOfWorkOptions {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ROLE_KEY = /^[a-z0-9][a-z0-9_.:-]{0,63}$/i;
 
 const unitStorage = new AsyncLocalStorage<Unit>();
 
@@ -75,6 +84,11 @@ export function validateDbContext(ctx: DbContext): void {
   for (const id of ctx.companyIds) assertUuid('companyIds', id);
   if (ctx.userId !== undefined) assertUuid('userId', ctx.userId);
   if (ctx.impersonatorId !== undefined) assertUuid('impersonatorId', ctx.impersonatorId);
+  // Role keys travel as an array literal `{a,b}` like the companies: a key containing a
+  // comma or brace could otherwise add a role to the audit trail.
+  for (const key of ctx.roleKeys ?? []) {
+    if (!ROLE_KEY.test(key)) throw new Error('Database context: roleKeys has an invalid key');
+  }
 }
 
 /**
@@ -82,20 +96,26 @@ export function validateDbContext(ctx: DbContext): void {
  * request is anonymous: it gets 401, never a transaction without a tenant.
  */
 export function dbContextFromRequest(): DbContext {
-  const principal = currentContext()?.principal;
-  if (principal === undefined) throw new UnauthenticatedError();
-  const companyIds = currentContext()?.companyIds ?? [];
+  const request = currentContext();
+  const principal = request?.principal;
+  if (request === undefined || principal === undefined) throw new UnauthenticatedError();
+  const base = {
+    tenantId: principal.tenantId,
+    companyIds: request.companyIds,
+    requestId: request.requestId,
+    ...(request.ip === undefined ? {} : { ip: request.ip }),
+    ...(request.roleKeys === undefined ? {} : { roleKeys: request.roleKeys }),
+  };
   if (principal.kind === 'user') {
     return {
-      tenantId: principal.tenantId,
-      companyIds,
+      ...base,
       userId: principal.userId,
       ...(principal.impersonatorId === undefined
         ? {}
         : { impersonatorId: principal.impersonatorId }),
     };
   }
-  return { tenantId: principal.tenantId, companyIds };
+  return base;
 }
 
 function sameContext(a: DbContext, b: DbContext): boolean {
@@ -146,6 +166,7 @@ export class UnitOfWork {
   private begin<T>(context: DbContext, fn: (db: Db) => Promise<T>): Promise<T> {
     validateDbContext(context);
     const companies = `{${context.companyIds.join(',')}}`;
+    const roleKeys = `{${(context.roleKeys ?? []).join(',')}}`;
     return this.prisma.$transaction(
       async (tx) => {
         // First statement of the transaction: nothing can run before the context exists.
@@ -153,7 +174,10 @@ export class UnitOfWork {
           SELECT set_config('app.tenant_id', ${context.tenantId}, true),
                  set_config('app.company_ids', ${companies}, true),
                  set_config('app.user_id', ${context.userId ?? ''}, true),
-                 set_config('app.impersonator_id', ${context.impersonatorId ?? ''}, true)`;
+                 set_config('app.impersonator_id', ${context.impersonatorId ?? ''}, true),
+                 set_config('app.request_id', ${context.requestId ?? ''}, true),
+                 set_config('app.ip', ${context.ip ?? ''}, true),
+                 set_config('app.role_keys', ${roleKeys}, true)`;
         const db: Db = tx;
         return unitStorage.run({ db, context }, () => fn(db));
       },

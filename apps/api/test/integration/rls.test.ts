@@ -159,11 +159,11 @@ describe('grants: no physical deletes and no RLS bypass for the app role', () =>
     expect(r.rows[0]).toEqual({ version: 1 });
   });
 
-  it('every table in the platform and iam schemas has RLS enabled, except global tables', async () => {
+  it('every table in the platform, iam and audit schemas has RLS enabled, except global tables', async () => {
     const r = await owner.query<{ table: string }>(
       `SELECT n.nspname || '.' || c.relname AS table
          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname IN ('platform', 'iam') AND c.relkind IN ('r', 'p') AND NOT c.relrowsecurity
+        WHERE n.nspname IN ('platform', 'iam', 'audit') AND c.relkind IN ('r', 'p') AND NOT c.relrowsecurity
         ORDER BY 1`,
     );
     expect(r.rows.map((x) => x.table)).toEqual([
@@ -177,7 +177,7 @@ describe('grants: no physical deletes and no RLS bypass for the app role', () =>
     const r = await owner.query<{ table: string }>(
       `SELECT n.nspname || '.' || c.relname AS table
          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname IN ('platform', 'iam') AND c.relkind IN ('r', 'p')
+        WHERE n.nspname IN ('platform', 'iam', 'audit') AND c.relkind IN ('r', 'p')
           AND c.relname NOT IN ('tenant', 'currency', 'subscription_plan', 'permission')
           AND NOT EXISTS (SELECT 1 FROM pg_attribute a
                            WHERE a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped)`,

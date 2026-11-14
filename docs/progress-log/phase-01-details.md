@@ -122,3 +122,10 @@ Commit 5: kernel database layer. This covers the Prisma client on the shared poo
 ## Known issues
 
 - Development only: the official Postgres image trusts connections made from *inside* its own container. Use `docker compose run --no-deps ... -h postgres` (a separate container) when testing passwords. The bootstrap `postgres` superuser can also log in over the local network. Neither applies to staging or production, which use managed PostgreSQL.
+
+## Commit 6: audit (2026-11-14)
+
+- Migration `20261114000000_audit`: `audit.audit_log` (monthly partitions), `audit_seal`, `export_log`; trigger `zz_audit` on every S/T table and `platform.tenant`; `app.setup_table` now attaches it to new tables.
+- Sealing numbers rows at seal time (no writer lock), sha256 chain per tenant; `audit.verify_chain()` detects changed or removed rows. Cutting off the newest seals with their rows is only detectable through the WORM export (commit 8).
+- Note for commit 7: the trigger audits every S/T table, including `iam.session` and `iam.refresh_token`; throttle "last seen" style updates or they flood the log.
+- Tests: 31 new (8 unit, 23 integration in `test/integration/audit.test.ts`). Full suite 151.

@@ -44,6 +44,8 @@ model Tenant {
   roles         Role[]
   ipAllowlist   IpAllowlist[]
   ssoProviders  SsoProvider[]
+  auditSeals    AuditSeal[]
+  exportLogs    ExportLog[]
 
   @@unique([slug], map: "tenant_slug_uq", where: { deletedAt: null })
   @@map("tenant")

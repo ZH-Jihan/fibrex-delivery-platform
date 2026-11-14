@@ -26,6 +26,8 @@ export interface RequestContext {
   principal: Principal | undefined;
   /** Companies the request may touch; usually one, several for consolidated views. */
   companyIds: readonly string[];
+  /** Keys of the caller's roles, recorded on audit rows. Filled by authentication. */
+  roleKeys?: readonly string[];
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();

@@ -4,7 +4,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 
 | Phase | Title | Status | Accepted on | Notes |
 | --- | --- | --- | --- | --- |
-| 1 | Foundation A | In progress (commits 1–5 of 13) | | Plan: `docs/phases/phase-01-plan.md` |
+| 1 | Foundation A | In progress (commits 1–6 of 13) | | Plan: `docs/phases/phase-01-plan.md` |
 | 2 | Foundation B | Not started | | |
 | 3 | People and documents | Not started | | |
 | 4 | Performance and tracking | Not started | | |
@@ -28,10 +28,11 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | 3 | Hand-written SQL migrations: `app` helpers, 35 `platform` and `iam` tables with RLS; matching Prisma schema | 26 integration tests (RLS, integrity, drift) pass |
 | 4 | API kernel: config, context, logging, errors, rate limit, idempotency, OpenAPI, health | 91 tests pass in total |
 | 5 | Kernel database layer (`kernel/db`, `kernel/http/crud-router.ts`): Prisma on the shared pool, unit of work setting the RLS context, soft-delete extension, versioned repository (409 with diff), CRUD router factory | 120 tests pass in total |
+| 6 | Audit (`audit` schema, `kernel/audit`): change trigger with field diff on every S and T table, AuditService, hash-chain sealing and verify, audit and recycle-bin endpoints | 151 tests pass in total |
 
 ## Next
 
-Commit 6 (strongest model): audit. Not yet wired: `src/main.ts` creates the Prisma client and unit of work when the first module mounts; the CRUD router's `authorize` hook is supplied by IAM in commit 7.
+Commit 7 (strongest model): IAM. Not yet wired: `src/main.ts` mounts nothing yet (the audit and CRUD routers need authentication and the `authorize` hook from commit 7); `sealAuditLog` gets its schedule from the job scheduler in commit 9; export of sealed batches to write-once storage (`audit_seal.worm_object_key`) waits for the storage adapter in commit 8.
 
 ## How to run
 
