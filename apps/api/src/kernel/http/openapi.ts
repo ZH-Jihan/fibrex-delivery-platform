@@ -71,9 +71,13 @@ export function createOpenApiRegistry(): OpenAPIRegistry {
  */
 export function registerRoute(registry: OpenAPIRegistry, route: RouteConfig): void {
   const isWrite = ['post', 'put', 'patch', 'delete'].includes(route.method);
+  const own = route.request?.headers;
+  // A write route keeps its own documented headers (for example If-Match) and gains the key.
   const headers = isWrite
-    ? z.object({ [IDEMPOTENCY_HEADER]: idempotencyKeyHeader })
-    : route.request?.headers;
+    ? (own instanceof z.ZodObject ? own : z.object({})).extend({
+        [IDEMPOTENCY_HEADER]: idempotencyKeyHeader,
+      })
+    : own;
   registry.registerPath({
     ...route,
     request: headers === undefined ? route.request : { ...route.request, headers },

@@ -4,7 +4,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 
 | Phase | Title | Status | Accepted on | Notes |
 | --- | --- | --- | --- | --- |
-| 1 | Foundation A | In progress (commits 1–4 of 13) | | Plan: `docs/phases/phase-01-plan.md` |
+| 1 | Foundation A | In progress (commits 1–5 of 13) | | Plan: `docs/phases/phase-01-plan.md` |
 | 2 | Foundation B | Not started | | |
 | 3 | People and documents | Not started | | |
 | 4 | Performance and tracking | Not started | | |
@@ -27,10 +27,11 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | 2 | Docker Compose (Postgres on 5433, Redis, SeaweedFS S3, Mailpit), database roles | Stack healthy, role and password checks done |
 | 3 | Hand-written SQL migrations: `app` helpers, 35 `platform` and `iam` tables with RLS; matching Prisma schema | 26 integration tests (RLS, integrity, drift) pass |
 | 4 | API kernel: config, context, logging, errors, rate limit, idempotency, OpenAPI, health | 91 tests pass in total |
+| 5 | Kernel database layer (`kernel/db`, `kernel/http/crud-router.ts`): Prisma on the shared pool, unit of work setting the RLS context, soft-delete extension, versioned repository (409 with diff), CRUD router factory | 120 tests pass in total |
 
 ## Next
 
-Commit 5 (strongest model): kernel database layer. Prisma client on the shared pool, unit of work that sets the RLS context (`SET LOCAL`) per request, soft-delete extension, optimistic locking with 409 and a diff, generic CRUD controller factory.
+Commit 6 (strongest model): audit. Not yet wired: `src/main.ts` creates the Prisma client and unit of work when the first module mounts; the CRUD router's `authorize` hook is supplied by IAM in commit 7.
 
 ## How to run
 
