@@ -20,7 +20,8 @@
     "test:unit": "pnpm -r run --if-present test:unit",
     "db:migrate": "pnpm --filter @fibrex/api run db:migrate",
     "db:status": "pnpm --filter @fibrex/api run db:status",
-    "db:seed": "pnpm --filter @fibrex/api run db:seed"
+    "db:seed": "pnpm --filter @fibrex/api run db:seed",
+    "db:seed:e2e": "pnpm --filter @fibrex/api run db:seed:e2e"
   },
   "devDependencies": {
     "@fibrex/eslint-config": "workspace:*",

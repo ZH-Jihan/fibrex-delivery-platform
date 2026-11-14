@@ -21,6 +21,10 @@ import { API_PREFIX, createApp } from './app.js';
 import { createAuditRouter } from './kernel/audit/audit-router.js';
 import { createAuditService } from './kernel/audit/audit-service.js';
 import { RecycleBin } from './kernel/audit/recycle-bin.js';
+import {
+  createBranchRepository,
+  createOrganisationRouter,
+} from './kernel/platform/organisation-router.js';
 import { AccessTokens } from './kernel/auth/access-token.js';
 import {
   createApiClientRepository,
@@ -130,6 +134,13 @@ async function main(): Promise<void> {
     describe: (role) => role.name,
   });
   recycleBin.register({
+    entityType: 'platform.branch',
+    moduleKey: 'platform',
+    label: 'Branch',
+    repository: createBranchRepository(),
+    describe: (branch) => `${branch.code} (${branch.name})`,
+  });
+  recycleBin.register({
     entityType: 'iam.api_client',
     moduleKey: 'iam',
     label: 'API client',
@@ -233,6 +244,7 @@ async function main(): Promise<void> {
       api.use(createAccessAdminRouter({ uow, registry, permissions, admin, auth }));
       api.use(createImpersonationRouter({ uow, registry, permissions, admin, auth, tokens, env }));
       api.use(createApiClientRouter({ uow, registry, permissions, auth }));
+      api.use(createOrganisationRouter({ uow, registry, permissions }));
       const party = createPartyModule({
         uow,
         registry,

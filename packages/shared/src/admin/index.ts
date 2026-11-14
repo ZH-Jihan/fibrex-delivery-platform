@@ -51,3 +51,39 @@ export const partyQuickCreateSchema = z.strictObject({
   kind: z.enum(['person', 'organisation']),
   displayName,
 });
+
+/** Branch forms (same rules as `kernel/platform/organisation-router.ts`). */
+const branchFields = {
+  code: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9_-]{1,20}$/, {
+      message: 'Up to 20 letters, digits, dash or underscore',
+    }),
+  name: z.string().trim().min(1).max(200),
+  address: z.string().trim().max(500).optional(),
+  isHeadOffice: z.boolean().optional(),
+};
+export const branchCreateSchema = z.strictObject(branchFields);
+export const branchUpdateSchema = z.strictObject(branchFields).partial();
+
+/**
+ * The company settings form. The working week is edited as seven tick boxes `day_sun` ...
+ * `day_sat` (the screen turns them into the API's `workingWeek` list); the month arrives
+ * from a drop-down as text, so it is converted here.
+ */
+export const companyFormSchema = z.strictObject({
+  legalName: z.string().trim().min(1).max(300),
+  tradeName: z.string().trim().min(1).max(300).optional(),
+  countryCode: z.string().regex(/^[A-Z]{2}$/, { message: 'A two-letter country code, e.g. QA' }),
+  timeZone: z.string().trim().min(1).max(64),
+  fiscalYearStartMonth: z.coerce.number().int().min(1).max(12),
+  status: z.enum(['active', 'inactive']),
+  day_sun: z.boolean().optional(),
+  day_mon: z.boolean().optional(),
+  day_tue: z.boolean().optional(),
+  day_wed: z.boolean().optional(),
+  day_thu: z.boolean().optional(),
+  day_fri: z.boolean().optional(),
+  day_sat: z.boolean().optional(),
+});

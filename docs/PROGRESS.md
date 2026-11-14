@@ -4,7 +4,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 
 | Phase | Title | Status | Accepted on | Notes |
 | --- | --- | --- | --- | --- |
-| 1 | Foundation A | In progress (commits 1–12b of 13) | | Plan: `docs/phases/phase-01-plan.md` |
+| 1 | Foundation A | In progress (commits 1–12c of 13) | | Plan: `docs/phases/phase-01-plan.md` |
 | 2 | Foundation B | Not started | | |
 | 3 | People and documents | Not started | | |
 | 4 | Performance and tracking | Not started | | |
@@ -41,9 +41,19 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 
 | 12b | Web: user memberships tab (companies, roles, default; re-auth), audit log with integrity check, recycle bin with restore, people list/create, My account (sessions, sign-in history) | 306 tests pass in total (3 new) |
 
+| 12c | Organisation API (`kernel/platform/organisation-router.ts`): `/companies` (only your own; settings change; base currency fixed), `/branches` CRUD with one head office, recycle-bin entry; screens Company and Branches. Playwright (`apps/web/e2e`, `pnpm --filter @fibrex/web test:e2e`; users from `pnpm db:seed:e2e`, no MFA): sign-in, read-only user sees no create/edit buttons, branch create/edit/delete/recycle-bin/restore. The API sign-in limit (20/min) can block back-to-back runs against a long-running API; a fresh start raises it | 314 tests pass in total (8 new) + 3 Playwright |
+
+## Deferred (from 12c, to schedule later)
+
+- Ctrl+K party search (Ctrl+K still lists menu screens only).
+- Socket.IO push for the notification bell (the bell polls every 30 s).
+- User permission overrides and data-scope screens (the API exists).
+- API clients screens (the API exists).
+- Organisation: zones and teams, number sequences and company module flags (no API yet); company create and logo.
+
 ## Next
 
-Commit 12c (mid model): Playwright journeys; Ctrl+K party search; Socket.IO push for the bell; organisation screens (blocked: the API has no company/branch endpoints yet, so add them first); user overrides/scopes and API clients screens. Then commit 13. Still waiting: export of sealed audit batches to write-once storage (`audit_seal.worm_object_key`); data-scope ids for client platforms; virus scanning of uploads (files stay `not_scanned`).
+Commit 13 (mid model): CI (`.github/workflows/ci.yml`, including Playwright) and docs. Still waiting: export of sealed audit batches to write-once storage (`audit_seal.worm_object_key`); data-scope ids for client platforms; virus scanning of uploads (files stay `not_scanned`).
 
 ## How to run
 

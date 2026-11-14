@@ -9,7 +9,8 @@
     "build": "tsc -p tsconfig.json && vite build",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "test:unit": "vitest run"
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@fibrex/shared": "workspace:*",
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "@fibrex/tsconfig": "workspace:*",
+    "@playwright/test": "1.65.0",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.3",
     "@testing-library/user-event": "14.6.10",

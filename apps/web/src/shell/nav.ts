@@ -32,6 +32,13 @@ export const NAV: readonly NavGroup[] = [
     ],
   },
   {
+    label: 'nav.org',
+    items: [
+      { to: '/organisation/company', label: 'nav.company', permission: 'platform.company.read' },
+      { to: '/organisation/branches', label: 'nav.branches', permission: 'platform.branch.read' },
+    ],
+  },
+  {
     label: 'nav.people.group',
     items: [{ to: '/people', label: 'nav.people', permission: 'party.party.read' }],
   },
