@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { bn } from './bn';
 import { en } from './en';
 import { hi } from './hi';
-import { directionOf, translate } from './index';
+import { directionOf, translate, translateOr } from './index';
 import { ne } from './ne';
 import { ur } from './ur';
 
@@ -16,6 +16,12 @@ describe('i18n', () => {
   it('fills {merge} fields and leaves unknown ones visible', () => {
     expect(translate('en', 'shell.welcome', { name: 'Asha' })).toBe('Welcome, Asha');
     expect(translate('en', 'shell.welcome', {})).toBe('Welcome, {name}');
+  });
+
+  it('translates run-time keys and falls back to the database text', () => {
+    expect(translateOr('bn', 'module.iam', 'x')).toBe(bn['module.iam']);
+    expect(translateOr('hi', 'module.iam', 'x')).toBe(en['module.iam']);
+    expect(translateOr('bn', 'module.unknown', 'From database')).toBe('From database');
   });
 
   it('marks Urdu as right-to-left and the rest as left-to-right', () => {

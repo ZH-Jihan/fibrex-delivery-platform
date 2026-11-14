@@ -45,12 +45,26 @@ export function translate(
   return text.replace(/\{(\w+)\}/g, (whole, name: string) => String(values[name] ?? whole));
 }
 
+/**
+ * Looks up a key that is built at run time (for example a permission key from the
+ * database). Unlike `translate`, an unknown key is not an error: the caller's fallback
+ * (the database text) is returned, so a new module shows readable text before anyone
+ * translates it.
+ */
+export function translateOr(language: Language, key: string, fallback: string): string {
+  const table: Record<string, string | undefined> = tables[language];
+  const english: Record<string, string | undefined> = en;
+  return table[key] ?? english[key] ?? fallback;
+}
+
 export type TFunction = (key: MessageKey, values?: Record<string, string | number>) => string;
 
 interface I18n {
   language: Language;
   setLanguage: (language: Language) => void;
   t: TFunction;
+  /** Translation for a run-time key, or `fallback` when none exists. */
+  tOr: (key: string, fallback: string) => string;
 }
 const Context = createContext<I18n | null>(null);
 
@@ -82,7 +96,12 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<I18n>(
-    () => ({ language, setLanguage, t: (key, values) => translate(language, key, values) }),
+    () => ({
+      language,
+      setLanguage,
+      t: (key, values) => translate(language, key, values),
+      tOr: (key, fallback) => translateOr(language, key, fallback),
+    }),
     [language, setLanguage],
   );
   return <Context.Provider value={value}>{children}</Context.Provider>;

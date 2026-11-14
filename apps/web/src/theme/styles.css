@@ -502,7 +502,12 @@ dialog.dialog::backdrop {
 }
 .matrix th[scope='row'] {
   font-weight: 400;
+}
+.matrix-key {
+  display: block;
   font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }
 .matrix-module th {
   background: var(--surface-2);

@@ -23,7 +23,7 @@ interface Matrix {
 const cell = (roleId: string, permissionKey: string) => `${roleId}|${permissionKey}`;
 
 export function MatrixPage() {
-  const { t } = useI18n();
+  const { t, tOr } = useI18n();
   const auth = useAuth();
   const toast = useToast();
   const reauth = useReauth();
@@ -110,12 +110,15 @@ export function MatrixPage() {
               return [
                 heading ? (
                   <tr key={`m-${p.moduleKey}`} className="matrix-module">
-                    <th colSpan={matrix.roles.length + 1}>{p.moduleKey}</th>
+                    <th colSpan={matrix.roles.length + 1}>
+                      {tOr(`module.${p.moduleKey}`, p.moduleKey)}
+                    </th>
                   </tr>
                 ) : null,
                 <tr key={p.key}>
-                  <th scope="row" title={p.description}>
-                    {p.key}
+                  <th scope="row">
+                    {tOr(`permission.${p.key}`, p.description)}
+                    <small className="matrix-key">{p.key}</small>
                   </th>
                   {matrix.roles.map((r) => {
                     const id = cell(r.id, p.key);

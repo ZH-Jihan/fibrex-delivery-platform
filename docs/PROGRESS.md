@@ -43,6 +43,8 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 
 | 12c | Organisation API (`kernel/platform/organisation-router.ts`): `/companies` (only your own; settings change; base currency fixed), `/branches` CRUD with one head office, recycle-bin entry; screens Company and Branches. Playwright (`apps/web/e2e`, `pnpm --filter @fibrex/web test:e2e`; users from `pnpm db:seed:e2e`, no MFA): sign-in, read-only user sees no create/edit buttons, branch create/edit/delete/recycle-bin/restore. The API sign-in limit (20/min) can block back-to-back runs against a long-running API; a fresh start raises it | 314 tests pass in total (8 new) + 3 Playwright |
 
+| 12d | Web: readable permission labels. Matrix shows the description as the main label with the key below in small muted text; module and permission text through `tOr()` (en, draft bn; falls back to the database text). bn is a draft for native-speaker review; a few long descriptions have no bn text yet and show English | 28 web tests pass (1 new); lint and typecheck clean; API suite not re-run (no API change) |
+
 ## Deferred (from 12c, to schedule later)
 
 - Ctrl+K party search (Ctrl+K still lists menu screens only).
