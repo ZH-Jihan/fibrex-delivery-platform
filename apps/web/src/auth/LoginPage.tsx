@@ -6,6 +6,7 @@
  */
 import { useState } from 'react';
 import type { FormEvent } from 'react';
+import { LogIn, Smartphone, KeyRound } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useI18n } from '../i18n';
 import { Button, ErrorAlert, Field } from '../ui/components';
@@ -127,13 +128,14 @@ export function LoginPage() {
             ) : null}
           </>
         )}
-        <Button type="submit" variant="primary" disabled={busy} style={{ inlineSize: '100%' }}>
+        <Button type="submit" variant="primary" icon={LogIn} block disabled={busy}>
           {mode === 'phone' && !codeSent ? t('auth.sendCode') : t('auth.signIn')}
         </Button>
       </form>
       <div className="auth-links">
         <Button
           variant="link"
+          icon={mode === 'password' ? Smartphone : KeyRound}
           onClick={() => {
             setMode(mode === 'password' ? 'phone' : 'password');
             setCodeSent(false);

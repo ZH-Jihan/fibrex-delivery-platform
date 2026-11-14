@@ -1,12 +1,14 @@
 /**
- * ConfirmDialog: a modal question built on the native <dialog> element (focus trap, Escape
- * and backdrop come from the browser). Used before deletes and other hard-to-undo actions.
- * Depends on: ui/components, i18n. Used by: screens.
+ * ConfirmDialog: a modal question built on the native <dialog> element through Modal (focus
+ * trap, Escape and backdrop come from the browser). Used before deletes and other
+ * hard-to-undo actions; `danger` turns the confirm button red with a warning icon.
+ * Depends on: ui/components, ui/Modal, i18n. Used by: screens.
  */
-import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
+import { Check, TriangleAlert, X } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { Button } from './components';
+import { Modal } from './Modal';
 
 interface Props {
   open: boolean;
@@ -28,32 +30,22 @@ export function ConfirmDialog({
   onCancel,
 }: Props) {
   const { t } = useI18n();
-  const ref = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    const dialog = ref.current;
-    if (dialog === null) return;
-    // jsdom has no showModal; the guard keeps tests and old browsers working.
-    if (open && !dialog.open) {
-      if (typeof dialog.showModal === 'function') dialog.showModal();
-      else dialog.setAttribute('open', '');
-    }
-    if (!open && dialog.open) {
-      if (typeof dialog.close === 'function') dialog.close();
-      else dialog.removeAttribute('open');
-    }
-  }, [open]);
-
   return (
-    <dialog ref={ref} className="dialog" aria-labelledby="confirm-title" onClose={onCancel}>
+    <Modal open={open} onClose={onCancel} aria-labelledby="confirm-title">
       <h2 id="confirm-title">{title ?? t('confirm.title')}</h2>
       {children}
       <div className="dialog-actions">
-        <Button onClick={onCancel}>{t('common.cancel')}</Button>
-        <Button variant={danger ? 'danger' : 'primary'} onClick={onConfirm}>
+        <Button icon={X} onClick={onCancel}>
+          {t('common.cancel')}
+        </Button>
+        <Button
+          variant={danger ? 'danger' : 'primary'}
+          icon={danger ? TriangleAlert : Check}
+          onClick={onConfirm}
+        >
           {confirmLabel ?? t('common.confirm')}
         </Button>
       </div>
-    </dialog>
+    </Modal>
   );
 }

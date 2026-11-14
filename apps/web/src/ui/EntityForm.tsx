@@ -8,10 +8,11 @@
  * keeps the dependency list short. Swap it in if a form ever needs nested arrays.
  * Depends on: ui/components, i18n. Used by: admin and later module screens.
  */
-import { useId, useState } from 'react';
+import { useState } from 'react';
 import type { FormEvent } from 'react';
+import { Check, X } from 'lucide-react';
 import { useI18n } from '../i18n';
-import { Button, ErrorAlert, Field } from './components';
+import { Button, Checkbox, ErrorAlert, Field, Select, Textarea } from './components';
 
 export interface FormField {
   name: string;
@@ -50,7 +51,6 @@ export function EntityForm({
   onCancel,
 }: Props) {
   const { t } = useI18n();
-  const id = useId();
   const [values, setValues] = useState<Record<string, unknown>>(initial);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [failure, setFailure] = useState<unknown>(null);
@@ -94,65 +94,48 @@ export function EntityForm({
     }
   };
 
+  const checkboxes = fields.filter((f) => f.type === 'checkbox');
+  const others = fields.filter((f) => f.type !== 'checkbox');
+
   return (
     <form onSubmit={(e) => void submit(e)} noValidate>
-      {fields.map((f) => {
+      {others.map((f) => {
         const error = errors[f.name];
         const value = values[f.name];
+        const text = typeof value === 'string' ? value : '';
         const kind = f.type ?? 'text';
-        if (kind === 'checkbox') {
+        const extra = {
+          ...(error === undefined ? {} : { error }),
+          ...(f.hint === undefined ? {} : { hint: f.hint }),
+        };
+        if (kind === 'textarea') {
           return (
-            <label key={f.name} className="check">
-              <input
-                type="checkbox"
-                checked={value === true}
-                disabled={f.readOnly}
-                onChange={(e) => {
-                  set(f.name, e.target.checked);
-                }}
-              />{' '}
-              {f.label}
-            </label>
+            <Textarea
+              key={f.name}
+              label={f.label}
+              value={text}
+              readOnly={f.readOnly}
+              {...extra}
+              onChange={(e) => {
+                set(f.name, e.target.value);
+              }}
+            />
           );
         }
-        if (kind === 'textarea' || kind === 'select') {
-          const fid = `${id}-${f.name}`;
+        if (kind === 'select') {
           return (
-            <div className="field" key={f.name}>
-              <label htmlFor={fid}>{f.label}</label>
-              {kind === 'textarea' ? (
-                <textarea
-                  id={fid}
-                  value={typeof value === 'string' ? value : ''}
-                  readOnly={f.readOnly}
-                  aria-invalid={error ? true : undefined}
-                  onChange={(e) => {
-                    set(f.name, e.target.value);
-                  }}
-                />
-              ) : (
-                <select
-                  id={fid}
-                  value={typeof value === 'string' ? value : ''}
-                  disabled={f.readOnly}
-                  onChange={(e) => {
-                    set(f.name, e.target.value);
-                  }}
-                >
-                  <option value="" />
-                  {f.options?.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {error ? (
-                <span className="field-error" role="alert">
-                  {error}
-                </span>
-              ) : null}
-            </div>
+            <Select
+              key={f.name}
+              label={f.label}
+              value={text}
+              disabled={f.readOnly}
+              options={f.options ?? []}
+              placeholder=""
+              {...extra}
+              onChange={(e) => {
+                set(f.name, e.target.value);
+              }}
+            />
           );
         }
         return (
@@ -160,20 +143,38 @@ export function EntityForm({
             key={f.name}
             label={f.label}
             type={kind}
-            value={typeof value === 'string' ? value : ''}
+            value={text}
             readOnly={f.readOnly}
-            error={error}
-            {...(f.hint === undefined ? {} : { hint: f.hint })}
+            {...extra}
             onChange={(e) => {
               set(f.name, e.target.value);
             }}
           />
         );
       })}
+      {checkboxes.length > 0 ? (
+        <div className="check-list">
+          {checkboxes.map((f) => (
+            <Checkbox
+              key={f.name}
+              label={f.label}
+              checked={values[f.name] === true}
+              disabled={f.readOnly}
+              onChange={(e) => {
+                set(f.name, e.target.checked);
+              }}
+            />
+          ))}
+        </div>
+      ) : null}
       <ErrorAlert error={failure} />
       <div className="form-actions">
-        {onCancel ? <Button onClick={onCancel}>{t('common.cancel')}</Button> : null}
-        <Button type="submit" variant="primary" disabled={busy}>
+        {onCancel ? (
+          <Button icon={X} onClick={onCancel}>
+            {t('common.cancel')}
+          </Button>
+        ) : null}
+        <Button type="submit" variant="primary" icon={Check} disabled={busy}>
           {busy ? t('form.saving') : (submitLabel ?? t('common.save'))}
         </Button>
       </div>

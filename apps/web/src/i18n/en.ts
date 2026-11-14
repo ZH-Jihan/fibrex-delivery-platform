@@ -207,7 +207,8 @@ export const en = {
   'permission.iam.user.reset_password': 'Send a user a link to reset their password',
   'permission.iam.user.manage_access':
     "Change a user's companies, roles, permission overrides and data scope",
-  'permission.iam.user.impersonate': 'Act as another user for support (logged with both identities)',
+  'permission.iam.user.impersonate':
+    'Act as another user for support (logged with both identities)',
   'permission.iam.role.read': 'View roles',
   'permission.iam.role.create': 'Create roles',
   'permission.iam.role.update': 'Change roles',
@@ -234,7 +235,29 @@ export const en = {
   'permission.audit.log.export': 'Export the audit log',
   'permission.audit.log.verify': 'Verify the audit log hash chain',
   'permission.recycle_bin.view': 'View the recycle bin',
-  'permission.recycle_bin.restore':'Restore records from the recycle bin',
+  'permission.recycle_bin.restore': 'Restore records from the recycle bin',
+  // Shell and responsive layout (redesign).
+  'shell.tabs': 'Quick access',
+  'shell.openMenu': 'Open menu',
+  'shell.closeMenu': 'Close menu',
+  'shell.pinMenu': 'Keep the menu open',
+  'shell.unpinMenu': 'Shrink the menu',
+  'shell.search': 'Search',
+  'shell.signedInAs': 'Signed in as',
+  'shell.quickLinks': 'Your screens',
+  'shell.homeIntro': 'Pick a screen to get started.',
+  'table.filters': 'Filters',
+  'table.pageShort': '{page} / {pages}',
+  'table.rows': '{total} rows',
+  'users.intro': 'Accounts that can sign in, their status and last sign-in.',
+  'roles.intro': 'Named sets of permissions given to users per company.',
+  'matrix.intro': 'Which permission each role holds. Changes need your password.',
+  'audit.intro': 'Every change recorded, sealed in a hash chain.',
+  'bin.intro': 'Deleted records, kept until someone restores them.',
+  'people.intro': 'Every person and organisation, stored once and shared by all modules.',
+  'company.intro': 'Legal details, time zone, working week and financial year.',
+  'branches.intro': 'Offices and sites of the company; one is the head office.',
+  'me.intro': 'Your sessions and sign-in history.',
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -4,10 +4,11 @@
  * Depends on: api client, auth state, DataTable, i18n. Used by: App.tsx.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { LogOut, UserRound } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { useI18n } from '../i18n';
-import { Button, ErrorAlert, Skeleton } from '../ui/components';
+import { Button, ErrorAlert, PageHeader, Skeleton } from '../ui/components';
 import { DataTable } from '../ui/DataTable';
 
 interface SessionRow {
@@ -49,12 +50,11 @@ export function MePage() {
   const user = auth.grant?.user;
   return (
     <>
-      <h1>{t('me.title')}</h1>
-      {user === undefined ? null : (
-        <p>
-          <strong>{user.displayName}</strong>
-        </p>
-      )}
+      <PageHeader
+        title={t('me.title')}
+        icon={UserRound}
+        description={user === undefined ? t('me.intro') : `${user.displayName} · ${user.username}`}
+      />
       <ErrorAlert error={error} />
       <h2>{t('users.tab.sessions')}</h2>
       {sessions === null ? (
@@ -80,6 +80,8 @@ export function MePage() {
           actions={(s) =>
             s.current === true ? null : (
               <Button
+                variant="link"
+                icon={LogOut}
                 onClick={() => {
                   api(`/me/sessions/${s.id}`, { method: 'DELETE' })
                     .then(load)

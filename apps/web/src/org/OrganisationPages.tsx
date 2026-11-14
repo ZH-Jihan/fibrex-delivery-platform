@@ -8,11 +8,12 @@
  * Depends on: api client, ui components, shared schemas. Used by: App.tsx routes.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { Building2, MapPin, Pencil, Plus, Trash2 } from 'lucide-react';
 import { branchCreateSchema, branchUpdateSchema, companyFormSchema } from '@fibrex/shared';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { useI18n } from '../i18n';
-import { Button } from '../ui/components';
+import { Button, Field, PageHeader, Pill } from '../ui/components';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { DataTable } from '../ui/DataTable';
 import { EntityForm } from '../ui/EntityForm';
@@ -89,9 +90,7 @@ export function CompanyPage() {
 
   return (
     <>
-      <div className="page-head">
-        <h1>{t('company.title')}</h1>
-      </div>
+      <PageHeader title={t('company.title')} icon={Building2} description={t('company.intro')} />
       {editing !== null ? (
         <section className="card">
           <p>
@@ -139,7 +138,16 @@ export function CompanyPage() {
           { key: 'country', header: t('company.country'), value: (r) => r.countryCode },
           { key: 'currency', header: t('company.baseCurrency'), value: (r) => r.baseCurrency },
           { key: 'timeZone', header: t('company.timeZone'), value: (r) => r.timeZone },
-          { key: 'status', header: t('company.status'), value: (r) => r.status },
+          {
+            key: 'status',
+            header: t('company.status'),
+            value: (r) => r.status,
+            render: (r) => (
+              <Pill tone={r.status === 'active' ? 'success' : 'neutral'}>
+                {r.status === 'active' ? t('company.active') : t('company.inactive')}
+              </Pill>
+            ),
+          },
         ]}
         rows={rows}
         rowKey={(r) => r.id}
@@ -154,6 +162,7 @@ export function CompanyPage() {
           auth.can('platform.company.update') ? (
             <Button
               variant="link"
+              icon={Pencil}
               onClick={() => {
                 setEditing(r);
               }}
@@ -213,19 +222,24 @@ export function BranchesPage() {
 
   return (
     <>
-      <div className="page-head">
-        <h1>{t('branches.title')}</h1>
-        {auth.can('platform.branch.create') ? (
-          <Button
-            variant="primary"
-            onClick={() => {
-              setEditing('new');
-            }}
-          >
-            {t('branches.new')}
-          </Button>
-        ) : null}
-      </div>
+      <PageHeader
+        title={t('branches.title')}
+        icon={MapPin}
+        description={t('branches.intro')}
+        actions={
+          auth.can('platform.branch.create') ? (
+            <Button
+              variant="primary"
+              icon={Plus}
+              onClick={() => {
+                setEditing('new');
+              }}
+            >
+              {t('branches.new')}
+            </Button>
+          ) : null
+        }
+      />
       {editing !== null ? (
         <section className="card">
           <EntityForm
@@ -276,6 +290,14 @@ export function BranchesPage() {
             key: 'head',
             header: t('branches.headOffice'),
             value: (r) => (r.isHeadOffice ? t('common.yes') : t('common.no')),
+            render: (r) =>
+              r.isHeadOffice ? (
+                <Pill tone="accent" icon={Building2}>
+                  {t('branches.headOffice')}
+                </Pill>
+              ) : (
+                '—'
+              ),
           },
         ]}
         rows={data.items}
@@ -292,16 +314,19 @@ export function BranchesPage() {
             {auth.can('platform.branch.update') ? (
               <Button
                 variant="link"
+                icon={Pencil}
                 onClick={() => {
                   setEditing(r);
                 }}
               >
                 {t('common.edit')}
               </Button>
-            ) : null}{' '}
+            ) : null}
             {auth.can('platform.branch.delete') ? (
               <Button
                 variant="link"
+                dangerText
+                icon={Trash2}
                 onClick={() => {
                   setRemoving(r);
                 }}
@@ -337,15 +362,13 @@ export function BranchesPage() {
             });
         }}
       >
-        <label>
-          {t('users.deleteReason')}
-          <input
-            value={reason}
-            onChange={(e) => {
-              setReason(e.target.value);
-            }}
-          />
-        </label>
+        <Field
+          label={t('users.deleteReason')}
+          value={reason}
+          onChange={(e) => {
+            setReason(e.target.value);
+          }}
+        />
       </ConfirmDialog>
     </>
   );

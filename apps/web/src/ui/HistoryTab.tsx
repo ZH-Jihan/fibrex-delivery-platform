@@ -55,7 +55,7 @@ export function HistoryTab({ entityType, entityId }: { entityType: string; entit
   if (items === null) return <Skeleton lines={4} />;
   if (items.length === 0) return <EmptyState title={t('history.empty')} />;
   return (
-    <div className="table-wrap">
+    <div className="table-card table-wrap">
       <table>
         <thead>
           <tr>
@@ -72,9 +72,11 @@ export function HistoryTab({ entityType, entityId }: { entityType: string; entit
               <td>{e.action}</td>
               <td>{e.userId ?? '—'}</td>
               <td>
-                {describeDiff(e.diff).map((line) => (
-                  <div key={line}>{line}</div>
-                ))}
+                <div className="history-diff">
+                  {describeDiff(e.diff).map((line) => (
+                    <div key={line}>{line}</div>
+                  ))}
+                </div>
               </td>
             </tr>
           ))}

@@ -17,7 +17,7 @@ test('sign-in refuses a wrong password and accepts the right one', async ({ page
 
   await signIn(page, ADMIN);
   await expect(page.getByRole('navigation')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Branches' })).toBeVisible();
+  await expect(page.getByRole('navigation').getByRole('link', { name: 'Branches' })).toBeVisible();
 });
 
 test('a read-only user does not see what they cannot do', async ({ page }) => {

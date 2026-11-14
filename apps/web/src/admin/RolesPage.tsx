@@ -6,11 +6,12 @@
  * Depends on: api client, ui components, shared schemas. Used by: App.tsx routes.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import { roleCreateSchema, roleUpdateSchema } from '@fibrex/shared';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { useI18n } from '../i18n';
-import { Button } from '../ui/components';
+import { Button, Field, PageHeader, Pill } from '../ui/components';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { DataTable } from '../ui/DataTable';
 import { EntityForm } from '../ui/EntityForm';
@@ -64,19 +65,24 @@ export function RolesPage() {
 
   return (
     <>
-      <div className="page-head">
-        <h1>{t('roles.title')}</h1>
-        {auth.can('iam.role.create') ? (
-          <Button
-            variant="primary"
-            onClick={() => {
-              setEditing('new');
-            }}
-          >
-            {t('roles.new')}
-          </Button>
-        ) : null}
-      </div>
+      <PageHeader
+        title={t('roles.title')}
+        icon={ShieldCheck}
+        description={t('roles.intro')}
+        actions={
+          auth.can('iam.role.create') ? (
+            <Button
+              variant="primary"
+              icon={Plus}
+              onClick={() => {
+                setEditing('new');
+              }}
+            >
+              {t('roles.new')}
+            </Button>
+          ) : null
+        }
+      />
       {editing !== null ? (
         <section className="card">
           <EntityForm
@@ -126,11 +132,20 @@ export function RolesPage() {
             key: 'builtin',
             header: t('roles.builtin'),
             value: (r) => (r.isBuiltin ? t('common.yes') : t('common.no')),
+            render: (r) => (r.isBuiltin ? <Pill tone="info">{t('roles.builtin')}</Pill> : '—'),
           },
           {
             key: 'mfa',
             header: t('roles.mfaRequired'),
             value: (r) => (r.mfaRequired ? t('common.yes') : t('common.no')),
+            render: (r) =>
+              r.mfaRequired ? (
+                <Pill tone="accent" icon={ShieldCheck}>
+                  {t('common.yes')}
+                </Pill>
+              ) : (
+                '—'
+              ),
           },
         ]}
         rows={data.items}
@@ -147,16 +162,19 @@ export function RolesPage() {
             {auth.can('iam.role.update') ? (
               <Button
                 variant="link"
+                icon={Pencil}
                 onClick={() => {
                   setEditing(r);
                 }}
               >
                 {t('common.edit')}
               </Button>
-            ) : null}{' '}
+            ) : null}
             {auth.can('iam.role.delete') && !r.isBuiltin ? (
               <Button
                 variant="link"
+                dangerText
+                icon={Trash2}
                 onClick={() => {
                   setRemoving(r);
                 }}
@@ -192,15 +210,13 @@ export function RolesPage() {
             });
         }}
       >
-        <label>
-          {t('users.deleteReason')}
-          <input
-            value={reason}
-            onChange={(e) => {
-              setReason(e.target.value);
-            }}
-          />
-        </label>
+        <Field
+          label={t('users.deleteReason')}
+          value={reason}
+          onChange={(e) => {
+            setReason(e.target.value);
+          }}
+        />
       </ConfirmDialog>
     </>
   );

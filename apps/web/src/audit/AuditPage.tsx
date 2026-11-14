@@ -4,10 +4,11 @@
  * Depends on: api client, DataTable, i18n. Used by: App.tsx.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { CircleCheck, CircleX, ScrollText, ShieldCheck } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { useI18n } from '../i18n';
-import { Button, ErrorAlert } from '../ui/components';
+import { Button, ErrorAlert, PageHeader, Pill } from '../ui/components';
 import { DataTable } from '../ui/DataTable';
 import type { Column } from '../ui/DataTable';
 import { describeDiff } from '../ui/HistoryTab';
@@ -103,26 +104,36 @@ export function AuditPage() {
 
   return (
     <>
-      <div className="page-head">
-        <h1>{t('audit.title')}</h1>
-        {auth.can('audit.log.verify') ? (
-          <Button
-            onClick={() => {
-              api<Verification>('/audit-log/verify')
-                .then(setVerified)
-                .catch((e: unknown) => {
-                  setError(e);
-                });
-            }}
-          >
-            {t('audit.verify')}
-          </Button>
-        ) : null}
-      </div>
+      <PageHeader
+        title={t('audit.title')}
+        icon={ScrollText}
+        description={t('audit.intro')}
+        actions={
+          auth.can('audit.log.verify') ? (
+            <Button
+              icon={ShieldCheck}
+              onClick={() => {
+                api<Verification>('/audit-log/verify')
+                  .then(setVerified)
+                  .catch((e: unknown) => {
+                    setError(e);
+                  });
+              }}
+            >
+              {t('audit.verify')}
+            </Button>
+          ) : null
+        }
+      />
       {verified === null ? null : (
         <p role="status">
-          {verified.ok ? t('audit.intact') : t('audit.broken')} ({verified.sealsChecked} /{' '}
-          {verified.rowsChecked})
+          <Pill
+            tone={verified.ok ? 'success' : 'danger'}
+            icon={verified.ok ? CircleCheck : CircleX}
+          >
+            {verified.ok ? t('audit.intact') : t('audit.broken')} ({verified.sealsChecked} /{' '}
+            {verified.rowsChecked})
+          </Pill>
         </p>
       )}
       <ErrorAlert error={error} />

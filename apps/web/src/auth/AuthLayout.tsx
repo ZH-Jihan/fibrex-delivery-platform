@@ -2,9 +2,11 @@
  * AuthLayout: the centred card around every sign-in screen, with the language and theme
  * switches so a user can change them before signing in. Used by: auth screens.
  */
+import { Monitor, Moon, Sun } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { LANGUAGES, isLanguage, useI18n } from '../i18n';
 import { useTheme } from '../theme/theme';
+import { Button } from '../ui/components';
 
 export function AuthLayout({ title, children }: { title: string; children: ReactNode }) {
   const { t, language, setLanguage } = useI18n();
@@ -26,18 +28,26 @@ export function AuthLayout({ title, children }: { title: string; children: React
               </option>
             ))}
           </select>
-          <select
-            aria-label={t('shell.theme')}
-            value={theme}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v === 'light' || v === 'dark' || v === 'system') setTheme(v);
-            }}
-          >
-            <option value="system">{t('shell.theme.system')}</option>
-            <option value="light">{t('shell.theme.light')}</option>
-            <option value="dark">{t('shell.theme.dark')}</option>
-          </select>
+          <div className="segmented" role="group" aria-label={t('shell.theme')}>
+            {(
+              [
+                ['system', Monitor, t('shell.theme.system')],
+                ['light', Sun, t('shell.theme.light')],
+                ['dark', Moon, t('shell.theme.dark')],
+              ] as const
+            ).map(([value, Icon, label]) => (
+              <Button
+                key={value}
+                iconOnly
+                icon={Icon}
+                aria-label={label}
+                aria-pressed={theme === value}
+                onClick={() => {
+                  setTheme(value);
+                }}
+              />
+            ))}
+          </div>
         </div>
         <img className="auth-logo" src="/fibrex-logo.jpeg" alt={t('app.name')} />
         <div className="card">

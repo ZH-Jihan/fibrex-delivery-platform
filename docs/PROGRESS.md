@@ -45,6 +45,8 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 
 | 12d | Web: readable permission labels. Matrix shows the description as the main label with the key below in small muted text; module and permission text through `tOr()` (en, draft bn; falls back to the database text). bn is a draft for native-speaker review; a few long descriptions have no bn text yet and show English | 28 web tests pass (1 new); lint and typecheck clean; API suite not re-run (no API change) |
 
+| 12e | Web: responsive modern redesign. lucide-react icons on every menu entry, button and status; self-hosted Inter and Hind Siliguri (@fontsource); three layouts from `theme/useBreakpoint.ts` (desktop sidebar collapsible, tablet icon rail with hover/pin, mobile top bar + drawer + bottom tab bar); avatar menu (language, theme, sign out on mobile); DataTable rows as cards with an actions menu, filters sheet and short pager on phones; `ui/Modal`, `ui/Menu`, PageHeader, Pill, Select, Checkbox, SearchInput; Vite `strictPort`. Playwright `e2e/responsive.spec.ts` checks Users, Roles, Permission matrix and Branches at 375/768/1280 px for horizontal scroll and saves screenshots to `apps/web/e2e/screenshots/` (git-ignored) | 32 web tests pass (4 new); lint and typecheck clean; Playwright 3 journeys + 3 responsive pass |
+
 ## Deferred (from 12c, to schedule later)
 
 - Ctrl+K party search (Ctrl+K still lists menu screens only).

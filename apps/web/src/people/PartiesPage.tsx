@@ -5,11 +5,12 @@
  * Depends on: api client, DataTable, EntityForm, i18n. Used by: App.tsx.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { Contact, Plus } from 'lucide-react';
 import { partyQuickCreateSchema } from '@fibrex/shared';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { useI18n } from '../i18n';
-import { Button } from '../ui/components';
+import { Button, PageHeader } from '../ui/components';
 import { DataTable } from '../ui/DataTable';
 import { EntityForm } from '../ui/EntityForm';
 
@@ -62,19 +63,24 @@ export function PartiesPage() {
 
   return (
     <>
-      <div className="page-head">
-        <h1>{t('people.title')}</h1>
-        {auth.can('party.party.create') ? (
-          <Button
-            variant="primary"
-            onClick={() => {
-              setCreating(true);
-            }}
-          >
-            {t('people.new')}
-          </Button>
-        ) : null}
-      </div>
+      <PageHeader
+        title={t('people.title')}
+        icon={Contact}
+        description={t('people.intro')}
+        actions={
+          auth.can('party.party.create') ? (
+            <Button
+              variant="primary"
+              icon={Plus}
+              onClick={() => {
+                setCreating(true);
+              }}
+            >
+              {t('people.new')}
+            </Button>
+          ) : null
+        }
+      />
       {creating ? (
         <section className="card">
           <EntityForm

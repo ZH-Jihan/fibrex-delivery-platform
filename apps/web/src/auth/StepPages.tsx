@@ -6,6 +6,7 @@
  */
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
+import { Check } from 'lucide-react';
 import QRCode from 'qrcode';
 import { api } from '../api/client';
 import type { Grant } from '../api/client';
@@ -56,7 +57,7 @@ export function MfaPage() {
           autoFocus
           required
         />
-        <Button type="submit" variant="primary" disabled={busy} style={{ inlineSize: '100%' }}>
+        <Button type="submit" variant="primary" icon={Check} block disabled={busy}>
           {t('auth.verify')}
         </Button>
       </form>
@@ -104,7 +105,7 @@ export function ChangePasswordPage() {
           autoComplete="new-password"
           required
         />
-        <Button type="submit" variant="primary" disabled={busy} style={{ inlineSize: '100%' }}>
+        <Button type="submit" variant="primary" icon={Check} block disabled={busy}>
           {t('auth.changePassword')}
         </Button>
         <div className="auth-links">
@@ -169,7 +170,8 @@ export function TotpSetupPage() {
         </ul>
         <Button
           variant="primary"
-          style={{ inlineSize: '100%' }}
+          icon={Check}
+          block
           onClick={() => void auth.adoptGrant(confirmed)}
         >
           {t('auth.recoverySaved')}
@@ -200,7 +202,7 @@ export function TotpSetupPage() {
             autoComplete="one-time-code"
             required
           />
-          <Button type="submit" variant="primary" disabled={busy} style={{ inlineSize: '100%' }}>
+          <Button type="submit" variant="primary" icon={Check} block disabled={busy}>
             {t('auth.verify')}
           </Button>
         </form>
@@ -249,7 +251,7 @@ export function ForgotPasswordPage() {
             }}
             required
           />
-          <Button type="submit" variant="primary" disabled={busy} style={{ inlineSize: '100%' }}>
+          <Button type="submit" variant="primary" icon={Check} block disabled={busy}>
             {t('auth.sendLink')}
           </Button>
         </form>
@@ -302,7 +304,7 @@ export function ResetPasswordPage({ initialToken }: { initialToken: string }) {
             autoComplete="new-password"
             required
           />
-          <Button type="submit" variant="primary" disabled={busy} style={{ inlineSize: '100%' }}>
+          <Button type="submit" variant="primary" icon={Check} block disabled={busy}>
             {t('auth.changePassword')}
           </Button>
         </form>

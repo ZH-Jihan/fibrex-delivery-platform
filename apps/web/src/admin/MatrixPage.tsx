@@ -7,10 +7,11 @@
  * Depends on: api client, useReauth, i18n. Used by: App.tsx routes.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { LayoutGrid, Save } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { useI18n } from '../i18n';
-import { Button, ErrorAlert, Skeleton, errorText } from '../ui/components';
+import { Button, ErrorAlert, PageHeader, Pill, Skeleton, errorText } from '../ui/components';
 import { useReauth } from '../ui/useReauth';
 import { useToast } from '../ui/toast';
 
@@ -82,18 +83,24 @@ export function MatrixPage() {
   let lastModule = '';
   return (
     <>
-      <div className="page-head">
-        <h1>{t('matrix.title')}</h1>
-        {canEdit ? (
-          <div className="row-actions">
-            {pending.size > 0 ? <span>{t('matrix.pending', { count: pending.size })}</span> : null}
-            <Button variant="primary" disabled={pending.size === 0} onClick={save}>
-              {t('matrix.save')}
-            </Button>
-          </div>
-        ) : null}
-      </div>
-      <div className="table-wrap">
+      <PageHeader
+        title={t('matrix.title')}
+        icon={LayoutGrid}
+        description={t('matrix.intro')}
+        actions={
+          canEdit ? (
+            <>
+              {pending.size > 0 ? (
+                <Pill tone="warning">{t('matrix.pending', { count: pending.size })}</Pill>
+              ) : null}
+              <Button variant="primary" icon={Save} disabled={pending.size === 0} onClick={save}>
+                {t('matrix.save')}
+              </Button>
+            </>
+          ) : null
+        }
+      />
+      <div className="table-card table-wrap">
         <table className="matrix">
           <thead>
             <tr>

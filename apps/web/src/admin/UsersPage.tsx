@@ -7,12 +7,13 @@
  * Depends on: api client, ui components, shared schemas. Used by: App.tsx routes.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { KeyRound, Lock, LockOpen, LogOut, Plus, Trash2, Users } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { userCreateSchema, userUpdateSchema } from '@fibrex/shared';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { useI18n } from '../i18n';
-import { Button, ErrorAlert, Skeleton } from '../ui/components';
+import { Button, ErrorAlert, Field, PageHeader, Pill, Skeleton } from '../ui/components';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { DataTable } from '../ui/DataTable';
 import type { Column } from '../ui/DataTable';
@@ -97,6 +98,14 @@ export function UsersPage() {
         u.lockedUntil !== null && new Date(u.lockedUntil) > new Date()
           ? t('users.locked')
           : u.status,
+      render: (u) => {
+        const locked = u.lockedUntil !== null && new Date(u.lockedUntil) > new Date();
+        return (
+          <Pill tone={locked ? 'danger' : u.status === 'active' ? 'success' : 'neutral'}>
+            {locked ? t('users.locked') : u.status}
+          </Pill>
+        );
+      },
     },
     {
       key: 'last',
@@ -108,19 +117,24 @@ export function UsersPage() {
 
   return (
     <>
-      <div className="page-head">
-        <h1>{t('users.title')}</h1>
-        {auth.can('iam.user.create') ? (
-          <Button
-            variant="primary"
-            onClick={() => {
-              setCreating(true);
-            }}
-          >
-            {t('users.new')}
-          </Button>
-        ) : null}
-      </div>
+      <PageHeader
+        title={t('users.title')}
+        icon={Users}
+        description={t('users.intro')}
+        actions={
+          auth.can('iam.user.create') ? (
+            <Button
+              variant="primary"
+              icon={Plus}
+              onClick={() => {
+                setCreating(true);
+              }}
+            >
+              {t('users.new')}
+            </Button>
+          ) : null
+        }
+      />
       {creating ? (
         <section className="card">
           <EntityForm
@@ -221,48 +235,55 @@ export function UserDetailPage() {
 
   return (
     <>
-      <div className="page-head">
-        <h1>{user.displayName}</h1>
-        <div className="row-actions">
-          {auth.can('iam.user.lock') ? (
-            <Button
-              onClick={() => {
-                act(locked ? 'unlock' : 'lock');
-              }}
-            >
-              {locked ? t('users.unlock') : t('users.lock')}
-            </Button>
-          ) : null}
-          {auth.can('iam.user.lock') ? (
-            <Button
-              onClick={() => {
-                act('force-logout');
-              }}
-            >
-              {t('users.forceLogout')}
-            </Button>
-          ) : null}
-          {auth.can('iam.user.reset_password') ? (
-            <Button
-              onClick={() => {
-                act('reset-password');
-              }}
-            >
-              {t('users.resetPassword')}
-            </Button>
-          ) : null}
-          {auth.can('iam.user.delete') ? (
-            <Button
-              variant="danger"
-              onClick={() => {
-                setDeleting(true);
-              }}
-            >
-              {t('users.delete')}
-            </Button>
-          ) : null}
-        </div>
-      </div>
+      <PageHeader
+        title={user.displayName}
+        description={user.username}
+        actions={
+          <>
+            {auth.can('iam.user.lock') ? (
+              <Button
+                icon={locked ? LockOpen : Lock}
+                onClick={() => {
+                  act(locked ? 'unlock' : 'lock');
+                }}
+              >
+                {locked ? t('users.unlock') : t('users.lock')}
+              </Button>
+            ) : null}
+            {auth.can('iam.user.lock') ? (
+              <Button
+                icon={LogOut}
+                onClick={() => {
+                  act('force-logout');
+                }}
+              >
+                {t('users.forceLogout')}
+              </Button>
+            ) : null}
+            {auth.can('iam.user.reset_password') ? (
+              <Button
+                icon={KeyRound}
+                onClick={() => {
+                  act('reset-password');
+                }}
+              >
+                {t('users.resetPassword')}
+              </Button>
+            ) : null}
+            {auth.can('iam.user.delete') ? (
+              <Button
+                variant="danger"
+                icon={Trash2}
+                onClick={() => {
+                  setDeleting(true);
+                }}
+              >
+                {t('users.delete')}
+              </Button>
+            ) : null}
+          </>
+        }
+      />
       <ErrorAlert error={error} />
       <div role="tablist" className="tabs">
         {(['profile', 'memberships', 'sessions', 'logins', 'history'] as const).map((k) => (
@@ -329,15 +350,13 @@ export function UserDetailPage() {
             });
         }}
       >
-        <label>
-          {t('users.deleteReason')}
-          <input
-            value={reason}
-            onChange={(e) => {
-              setReason(e.target.value);
-            }}
-          />
-        </label>
+        <Field
+          label={t('users.deleteReason')}
+          value={reason}
+          onChange={(e) => {
+            setReason(e.target.value);
+          }}
+        />
       </ConfirmDialog>
     </>
   );

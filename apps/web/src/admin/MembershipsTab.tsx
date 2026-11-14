@@ -8,10 +8,11 @@
  * Depends on: api client, useReauth, i18n, ui. Used by: UsersPage (user detail).
  */
 import { useEffect, useState } from 'react';
+import { Check, Plus, Trash2 } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { useI18n } from '../i18n';
-import { Button, ErrorAlert, Skeleton } from '../ui/components';
+import { Button, Checkbox, ErrorAlert, Select, Skeleton } from '../ui/components';
 import { useReauth } from '../ui/useReauth';
 import { useToast } from '../ui/toast';
 
@@ -111,53 +112,50 @@ export function MembershipsTab({ userId }: { userId: string }) {
       {rows.map((m, i) => (
         <fieldset key={m.companyId} className="card" data-testid="membership">
           <legend>{nameOf(m.companyId)}</legend>
-          <label>
-            {t('memberships.status')}
-            <select
-              value={m.status}
-              disabled={!canEdit}
-              onChange={(e) => {
-                update(i, { status: e.target.value as Membership['status'] });
-              }}
-            >
-              <option value="active">active</option>
-              <option value="suspended">suspended</option>
-            </select>
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="default-company"
-              checked={m.isDefault}
-              disabled={!canEdit}
-              onChange={() => {
-                makeDefault(i);
-              }}
-            />{' '}
-            {t('memberships.default')}
-          </label>
-          <div role="group" aria-label={t('memberships.roles')}>
+          <Select
+            label={t('memberships.status')}
+            value={m.status}
+            disabled={!canEdit}
+            options={[
+              { value: 'active', label: 'active' },
+              { value: 'suspended', label: 'suspended' },
+            ]}
+            onChange={(e) => {
+              update(i, { status: e.target.value as Membership['status'] });
+            }}
+          />
+          <Checkbox
+            type="radio"
+            name="default-company"
+            label={t('memberships.default')}
+            checked={m.isDefault}
+            disabled={!canEdit}
+            onChange={() => {
+              makeDefault(i);
+            }}
+          />
+          <div role="group" aria-label={t('memberships.roles')} className="check-list">
             {roles.map((r) => (
-              <label key={r.id} style={{ display: 'block' }}>
-                <input
-                  type="checkbox"
-                  checked={m.roleIds.includes(r.id)}
-                  disabled={!canEdit}
-                  onChange={(e) => {
-                    update(i, {
-                      roleIds: e.target.checked
-                        ? [...m.roleIds, r.id]
-                        : m.roleIds.filter((x) => x !== r.id),
-                    });
-                  }}
-                />{' '}
-                {r.name}
-              </label>
+              <Checkbox
+                key={r.id}
+                label={r.name}
+                checked={m.roleIds.includes(r.id)}
+                disabled={!canEdit}
+                onChange={(e) => {
+                  update(i, {
+                    roleIds: e.target.checked
+                      ? [...m.roleIds, r.id]
+                      : m.roleIds.filter((x) => x !== r.id),
+                  });
+                }}
+              />
             ))}
           </div>
           {canEdit ? (
             <Button
-              variant="danger"
+              variant="link"
+              dangerText
+              icon={Trash2}
               onClick={() => {
                 remove(i);
               }}
@@ -169,10 +167,10 @@ export function MembershipsTab({ userId }: { userId: string }) {
       ))}
       {canEdit ? (
         <div className="row-actions">
-          <Button onClick={add} disabled={free.length === 0}>
+          <Button icon={Plus} onClick={add} disabled={free.length === 0}>
             {t('memberships.add')}
           </Button>
-          <Button variant="primary" onClick={save}>
+          <Button variant="primary" icon={Check} onClick={save}>
             {t('common.save')}
           </Button>
         </div>
