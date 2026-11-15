@@ -1,0 +1,25 @@
+{
+  "name": "@fibrex/formula",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sandboxed formula engine (CEL with decimal money arithmetic), used by apps/api and the admin preview",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fibrex/shared": "workspace:*",
+    "@marcbachmann/cel-js": "8.0.0",
+    "decimal.js": "10.6.0"
+  },
+  "devDependencies": {
+    "@fibrex/tsconfig": "workspace:*",
+    "@types/node": "24.19.2",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0"
+  }
+}

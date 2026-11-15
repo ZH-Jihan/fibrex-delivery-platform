@@ -41,6 +41,7 @@ model Tenant {
   settings      Setting[]
   lookupTypes   LookupType[]
   templates     Template[]
+  formulas      Formula[]
   importMappings ImportMapping[]
   entityDefinitions EntityDefinition[]
   users         UserAccount[]

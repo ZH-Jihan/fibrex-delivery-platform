@@ -100,6 +100,21 @@ export const KERNEL_PERMISSIONS: readonly PermissionDef[] = [
     'preview',
     'Preview a template version with sample data',
   ),
+  ...crudPermissions('platform', 'platform.formula', 'formulas'),
+  permission(
+    'platform',
+    'platform.formula',
+    'evaluate',
+    'Try a formula with sample inputs and see how it was calculated',
+  ),
+  ...crudPermissions('platform', 'platform.formula_version', 'formula versions'),
+  permission('platform', 'platform.formula_version', 'test', 'Run the test cases of a formula'),
+  permission(
+    'platform',
+    'platform.formula_version',
+    'activate',
+    'Put a formula version in force from its start date',
+  ),
   ...crudPermissions('platform', 'platform.entity_definition', 'record types'),
   permission(
     'platform',

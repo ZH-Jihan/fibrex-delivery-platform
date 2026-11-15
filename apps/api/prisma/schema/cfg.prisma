@@ -286,3 +286,62 @@ model GeneratedDocument {
   @@map("generated_document")
   @@schema("cfg")
 }
+
+// Formulas (row 2.9a). SQL source: migrations/20261116000300_cfg_formulas.
+model Formula {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  key          String
+  name         String
+  description  String?
+  purpose      String
+  returnType   String    @map("return_type")
+  inputSchema  Json      @default("{}") @map("input_schema")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  tenant   Tenant           @relation(fields: [tenantId], references: [id], map: "formula_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+  versions FormulaVersion[]
+
+  @@unique([tenantId, id], map: "formula_tenant_id_uq")
+  @@unique([tenantId, key], map: "formula_key_uq", where: { deletedAt: null })
+  @@map("formula")
+  @@schema("cfg")
+}
+
+model FormulaVersion {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  formulaId    String    @map("formula_id") @db.Uuid
+  versionNo    Int       @map("version_no")
+  language     String    @default("cel")
+  expression   String
+  validFrom    DateTime  @default(dbgenerated("CURRENT_DATE")) @map("valid_from") @db.Date
+  validTo      DateTime? @map("valid_to") @db.Date
+  status       String    @default("draft")
+  testCases    Json      @default("[]") @map("test_cases")
+  checksum     String
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  formula Formula @relation(fields: [tenantId, formulaId], references: [tenantId, id], map: "formula_version_formula_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id], map: "formula_version_tenant_id_uq")
+  @@unique([formulaId, versionNo], map: "formula_version_no_uq")
+  @@unique([formulaId], map: "formula_version_active_uq", where: raw("status = 'active' AND deleted_at IS NULL"))
+  @@index([formulaId, validFrom], map: "formula_version_resolve_idx", where: raw("deleted_at IS NULL"))
+  @@map("formula_version")
+  @@schema("cfg")
+}

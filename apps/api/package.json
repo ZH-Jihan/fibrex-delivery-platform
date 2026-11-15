@@ -22,6 +22,7 @@
     "@asteasolutions/zod-to-openapi": "9.1.0",
     "@aws-sdk/client-s3": "^3.1168.0",
     "@aws-sdk/s3-request-presigner": "^3.1168.0",
+    "@fibrex/formula": "workspace:*",
     "@fibrex/shared": "workspace:*",
     "@opentelemetry/api": "1.10.0",
     "@opentelemetry/exporter-trace-otlp-http": "0.300.0",
