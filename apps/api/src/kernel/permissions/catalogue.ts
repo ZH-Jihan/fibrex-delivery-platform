@@ -9,8 +9,9 @@
  * Key shape: `<resource>.<action>`, where the resource is `<module>.<thing>` and the
  * standard actions are read, create, update, delete and restore (DECISIONS 2026-11-14).
  *
- * The kernel's own keys are declared here. Module manifests add theirs through
- * `crudPermissions` and pass the combined list to the sync (module registry, Phase 2).
+ * The kernel's own keys are declared here. Modules declare theirs (built with
+ * `crudPermissions`) in their manifest; `main.ts` syncs the kernel list plus
+ * `ModuleRegistry.permissions()` (kernel/module-registry).
  * A key that code stops declaring is left in the table: removing it is a deliberate
  * migration, so no deploy can silently drop rows of the matrix.
  *

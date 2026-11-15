@@ -39,19 +39,19 @@ Create, update and item schemas in `packages/shared/src/<area>` (shared by API a
 
 - Repository: `createRepository(...)` from `kernel/db/repository.ts` (soft delete, versioning).
 - `router.ts`: `createCrudRouter({ uow, authorize: permissions.authorize, registry }, { path: '/vehicles', resource: 'fleet.vehicle', tag: 'Vehicles', repository, schemas: { create, update, item }, toItem })`. Extra rules go in handlers through `currentUnit()`; never run SQL outside a unit of work.
-- `index.ts`: the only file other modules may import. Export the router factory, the service interface and `FLEET_PERMISSIONS`.
+- `index.ts`: the only file other modules may import. Export the service interface, `FLEET_PERMISSIONS` and `createFleetModule(deps): ModuleManifest` (type from `kernel/module-registry`), which returns the manifest: `key: 'fleet'`, `label`, `permissions`, `routers`, and when needed `eventTypes`, `nav` (path, i18n keys, permission), `settings`, `reports`, `recycleTypes` (restorable resources) and `attachables` (resources that take files).
 
-Mount the router in `src/main.ts` inside `mountApi` (`api.use(createFleetRouter({ uow, registry, permissions }))`). Add the repository to the recycle bin list there if rows should be restorable.
+Register it in `src/main.ts` inside `mountApi` with one line: `modules.register(createFleetModule({ uow, registry, permissions }))`. The registry mounts the routers, feeds the recycle bin, the attachable registry, the permission catalogue and the event-type catalogue, and serves the manifest on `GET /modules`. It refuses a manifest whose keys carry another module's key or whose menu entries point at an unknown permission.
 
 ## 5. Permissions
 
-In `index.ts`: `export const FLEET_PERMISSIONS = [...crudPermissions('fleet', 'fleet.vehicle', 'vehicles')]` (keys `fleet.vehicle.read|create|update|delete|restore`). Add it to the list passed to `syncPermissionCatalogue` in `main.ts`. Grant keys to roles in the seed (`apps/api/src/seed`) or on the matrix screen; never test a role name in code. For business events, call `NotifyService.emit` after your transaction commits.
+In `index.ts`: `export const FLEET_PERMISSIONS = [...crudPermissions('fleet', 'fleet.vehicle', 'vehicles')]` (keys `fleet.vehicle.read|create|update|delete|restore`) and put it in the manifest; nothing to add in `main.ts`. Grant keys to roles in the seed (`apps/api/src/seed`) or on the matrix screen; never test a role name in code. For business events, declare the event types in the manifest and call `NotifyService.emit` after your transaction commits.
 
 ## 6. Web screen and menu entry
 
 - Screens under `apps/web/src/fleet/` using `ui/DataTable`, `ui/EntityForm` and `ui/HistoryTab`; hide buttons with `can('fleet.vehicle.create')`.
 - Add the route in `apps/web/src/App.tsx`.
-- Add the menu entry in `apps/web/src/shell/nav.ts` (`to`, `label` i18n key, `permission: 'fleet.vehicle.read'`, lucide icon) and the label in `i18n/en.ts` (other languages fall back to English).
+- Add `apps/web/src/fleet/manifest.ts` exporting a `WebModuleManifest` (`key: 'fleet'`, menu groups with `to`, `label` i18n key, `permission: 'fleet.vehicle.read'`, lucide icon), list it in `WEB_MODULES` in `apps/web/src/shell/nav.ts`, and add the labels in `i18n/en.ts` (other languages fall back to English). Use the same path and permission as the API manifest's `nav` entry.
 - Module label for the permission matrix: add it through the i18n keys used by `tOr()`, as done for party, files and notify.
 
 ## 7. Tests

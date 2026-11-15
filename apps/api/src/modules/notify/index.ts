@@ -3,13 +3,20 @@
  *
  * Purpose: notification rules, in-app notifications with realtime push, email through a
  * queue. Other modules announce events with `NotifyService.emit` (after their own
- * transaction commits) and register their event types with `syncEventTypes` at start-up.
+ * transaction commits) and declare their event types in their manifest; `main.ts`
+ * writes the combined list with `syncEventTypes` at start-up.
  *
- * Depends on: ./notify-service.ts, ./router.ts, ./realtime.ts, ./email-queue.ts.
- * Used by: src/main.ts.
+ * Depends on: ./notify-service.ts, ./router.ts, ./realtime.ts, ./email-queue.ts,
+ * kernel/module-registry. Used by: src/main.ts.
  */
 import type { PrismaDb } from '../../kernel/db/prisma.js';
+import type { EventTypeDef, ModuleManifest } from '../../kernel/module-registry/index.js';
 import { crudPermissions, type PermissionDef } from '../../kernel/permissions/catalogue.js';
+import { createNotifyRouter } from './router.js';
+import type { NotifyService } from './notify-service.js';
+import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
+import type { UnitOfWork } from '../../kernel/db/unit-of-work.js';
+import type { PermissionService } from '../../kernel/permissions/permission-service.js';
 
 export { EmailQueue, EMAIL_QUEUE } from './email-queue.js';
 export {
@@ -23,19 +30,13 @@ export {
 } from './notify-service.js';
 export { RealtimeGateway, REALTIME_NAMESPACE } from './realtime.js';
 export { createNotifyRouter } from './router.js';
+export type { EventTypeDef } from '../../kernel/module-registry/index.js';
 
 export const NOTIFY_PERMISSIONS: readonly PermissionDef[] = [
   ...crudPermissions('notify', 'notify.rule', 'notification rules'),
 ];
 
-export interface EventTypeDef {
-  key: string;
-  moduleKey: string;
-  label: string;
-  description?: string;
-}
-
-/** Events the kernel itself announces. Modules add theirs through `syncEventTypes`. */
+/** Events the kernel itself announces. Modules add theirs through their manifest. */
 export const KERNEL_EVENT_TYPES: readonly EventTypeDef[] = [
   {
     key: 'system.test',
@@ -44,6 +45,23 @@ export const KERNEL_EVENT_TYPES: readonly EventTypeDef[] = [
     description: 'Used to try out a notification rule.',
   },
 ];
+
+export interface NotifyModuleDeps {
+  uow: UnitOfWork;
+  registry: OpenAPIRegistry;
+  permissions: PermissionService;
+  notify: NotifyService;
+}
+
+export function createNotifyModule(deps: NotifyModuleDeps): ModuleManifest {
+  return {
+    key: 'notify',
+    label: 'Notifications',
+    permissions: NOTIFY_PERMISSIONS,
+    routers: [createNotifyRouter(deps)],
+    eventTypes: KERNEL_EVENT_TYPES,
+  };
+}
 
 /** Writes the event type catalogue (new keys inserted, changed wording updated). */
 export async function syncEventTypes(

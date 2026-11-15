@@ -5,7 +5,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | Phase | Title | Status | Accepted on | Notes |
 | --- | --- | --- | --- | --- |
 | 1 | Foundation A | Done (13 of 13 commits), awaiting acceptance | | Plan: `docs/phases/phase-01-plan.md` |
-| 2 | Foundation B | Not started | | |
+| 2 | Foundation B | In progress (1 of 20 rows) | | Plan: `docs/phases/phase-02-plan.md` |
 | 3 | People and documents | Not started | | |
 | 4 | Performance and tracking | Not started | | |
 | 5 | Inventory and fleet | Not started | | |
@@ -50,6 +50,12 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | 12f | Web: permission matrix below 768 px shows one role at a time (role selector, switch per permission); module labels for party, files, notify (en, draft bn). Playwright now runs on its own database `fibrex_e2e` (created, migrated and seeded by `pnpm --filter @fibrex/api e2e:serve`; also `pnpm db:e2e`), API on port 3100 and web on 5174, never reusing a running server. Dev database cleaned: 34 "Journey branch" rows soft-deleted (reason "e2e cleanup") | 33 web + 245 API tests pass (1 new web); lint and typecheck clean; Playwright 6 pass |
 
 | 13 | CI (`.github/workflows/ci.yml`: lint, typecheck, `pnpm test`, Playwright on `fibrex_e2e`; artifacts on failure only), disabled `deploy-staging.yml` (hosting not chosen), `docs/ARCHITECTURE.md`, `docs/ADDING_A_MODULE.md`. Secret and ignore checks done | Lint clean; CI result below |
+
+## Phase 2 (2026-11-15)
+
+| Row | What | Verified |
+| --- | --- | --- |
+| 2.1 | Module registry (`kernel/module-registry`): `ModuleManifest` (permissions, routers, event types, nav, settings, reports, recycle-bin types, attachables), `ModuleRegistry` with ownership and permission-reference checks, `GET /modules`; party, files and notify return manifests and `main.ts` registers them; web menu built by `buildNav` from per-feature `manifest.ts` (`shell/nav.ts` `WEB_MODULES`); Phase 2 decisions recorded. Next: row 2.2 Numbering service (S) | 249 API + 35 web + 43 package tests pass (6 new); lint and typecheck clean. Two integration timeouts in the first full run (organisation, schema drift) passed on re-run; they were load right after Docker started |
 
 ## Phase 1 summary
 

@@ -6,16 +6,18 @@
  * Other modules hold `party_id` and ask this module for the rest; a module that keeps a
  * party id registers it with `references` so a merge can move it.
  *
+ * `createPartyModule` returns the module manifest (routes, permissions, recycle-bin
+ * types, the attachable party, the People menu entry) for the kernel module registry.
+ *
  * Depends on: ./party-router.ts, ./identifier-router.ts, ./bank-account-router.ts,
- * ./duplicates.ts, ./merge.ts, ./vault.ts. Used by: src/main.ts.
+ * ./duplicates.ts, ./merge.ts, ./vault.ts, kernel/module-registry. Used by: src/main.ts.
  */
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
-import type { Router } from 'express';
 import type { AuditService } from '../../kernel/audit/audit-service.js';
-import type { Db } from '../../kernel/db/prisma.js';
 import type { RecycleBinType } from '../../kernel/audit/recycle-bin.js';
 import type { BaseRow, Repository } from '../../kernel/db/repository.js';
 import type { UnitOfWork } from '../../kernel/db/unit-of-work.js';
+import type { ModuleManifest } from '../../kernel/module-registry/index.js';
 import {
   crudPermissions,
   permission,
@@ -73,20 +75,7 @@ export interface PartyModuleDeps {
   references: PartyReferenceRegistry;
 }
 
-export interface PartyModule {
-  routers: Router[];
-  /** What the recycle bin should list, one entry per resource. */
-  recycleTypes: RecycleBinType[];
-  /** For the files module: files can be attached to a party. */
-  attachable: {
-    entityType: string;
-    readPermission: string;
-    attachPermission: string;
-    exists(db: Db, id: string): Promise<boolean>;
-  };
-}
-
-export function createPartyModule(deps: PartyModuleDeps): PartyModule {
+export function createPartyModule(deps: PartyModuleDeps): ModuleManifest {
   const { uow, registry, permissions, audit, vault, references } = deps;
   const repositories = createPartyRepositories();
   const identifiers = createIdentifierRepository(vault);
@@ -103,6 +92,9 @@ export function createPartyModule(deps: PartyModuleDeps): PartyModule {
     ({ entityType, moduleKey: 'party', label, repository, describe }) as unknown as RecycleBinType;
 
   return {
+    key: 'party',
+    label: 'People and organisations',
+    permissions: PARTY_PERMISSIONS,
     routers: [
       createPartyRouter({ uow, registry, permissions }),
       createIdentifierRouter({ uow, registry, permissions, audit, vault, repository: identifiers }),
@@ -116,6 +108,14 @@ export function createPartyModule(deps: PartyModuleDeps): PartyModule {
       }),
       createDuplicateRouter({ uow, registry, permissions }),
       createMergeRouter({ uow, registry, merges }),
+    ],
+    nav: [
+      {
+        path: '/people',
+        labelKey: 'nav.people',
+        groupKey: 'nav.people.group',
+        permission: 'party.party.read',
+      },
     ],
     recycleTypes: [
       recycle('party.party', 'Party', repositories.party, (r) => r.displayName),
@@ -146,12 +146,14 @@ export function createPartyModule(deps: PartyModuleDeps): PartyModule {
         (r) => `${r.accountName} ${r.ibanMasked}`,
       ),
     ],
-    attachable: {
-      entityType: 'party.party',
-      readPermission: 'party.party.read',
-      attachPermission: 'party.party.update',
-      exists: async (db, id) =>
-        (await db.party.findFirst({ where: { id }, select: { id: true } })) !== null,
-    },
+    attachables: [
+      {
+        entityType: 'party.party',
+        readPermission: 'party.party.read',
+        attachPermission: 'party.party.update',
+        exists: async (db, id) =>
+          (await db.party.findFirst({ where: { id }, select: { id: true } })) !== null,
+      },
+    ],
   };
 }

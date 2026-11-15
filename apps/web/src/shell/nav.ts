@@ -1,80 +1,33 @@
 /**
- * Navigation manifest: which menu entries exist, which permission shows each one, and
- * which icon it gets. Purpose: the sidebar, the mobile drawer, the bottom tab bar, the
- * Ctrl+K palette and the Home tiles are all built from this list filtered by `can()`, so a
- * user only sees screens they may open (the API still refuses anything else). Each later
- * module adds its own entries here (or, from Phase 2, from its module manifest).
- * Depends on: i18n keys, lucide-react. Used by: shell/*.
+ * Navigation: the menu the sidebar, the mobile drawer, the bottom tab bar, the Ctrl+K
+ * palette and the Home tiles are built from, filtered by `can()` so a user only sees
+ * screens they may open (the API still refuses anything else).
+ *
+ * Since Phase 2 the entries come from the feature manifests listed in `WEB_MODULES`
+ * (SPEC 2.13): a new module adds its `manifest.ts` and one line here, nothing else.
+ * Depends on: shell/manifest.ts and the feature manifests. Used by: shell/*.
  */
-import {
-  Building2,
-  Contact,
-  House,
-  LayoutGrid,
-  MapPin,
-  ScrollText,
-  ShieldCheck,
-  Trash2,
-  Users,
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
-import type { MessageKey } from '../i18n/en';
+import { House } from 'lucide-react';
+import { adminManifest } from '../admin/manifest';
+import { auditManifest } from '../audit/manifest';
+import { orgManifest } from '../org/manifest';
+import { peopleManifest } from '../people/manifest';
+import { buildNav, type NavGroup, type NavItem, type WebModuleManifest } from './manifest';
 
-export interface NavItem {
-  /** Route path. */
-  to: string;
-  label: MessageKey;
-  /** Permission key needed to see the entry. */
-  permission: string;
-  /** Menu icon; a generic one is used when missing (tests). */
-  icon?: LucideIcon;
-}
-export interface NavGroup {
-  label: MessageKey;
-  items: readonly NavItem[];
-}
+export type { NavGroup, NavItem } from './manifest';
 
 /** The Home entry, shown to everyone above the groups. */
 export const HOME: NavItem = { to: '/', label: 'shell.home', permission: '', icon: House };
 
-export const NAV: readonly NavGroup[] = [
-  {
-    label: 'nav.admin',
-    items: [
-      { to: '/users', label: 'nav.users', permission: 'iam.user.read', icon: Users },
-      { to: '/roles', label: 'nav.roles', permission: 'iam.role.read', icon: ShieldCheck },
-      {
-        to: '/permission-matrix',
-        label: 'nav.matrix',
-        permission: 'iam.permission_matrix.read',
-        icon: LayoutGrid,
-      },
-      { to: '/audit', label: 'nav.audit', permission: 'audit.log.read', icon: ScrollText },
-      { to: '/recycle-bin', label: 'nav.bin', permission: 'recycle_bin.view', icon: Trash2 },
-    ],
-  },
-  {
-    label: 'nav.org',
-    items: [
-      {
-        to: '/organisation/company',
-        label: 'nav.company',
-        permission: 'platform.company.read',
-        icon: Building2,
-      },
-      {
-        to: '/organisation/branches',
-        label: 'nav.branches',
-        permission: 'platform.branch.read',
-        icon: MapPin,
-      },
-    ],
-  },
-  {
-    label: 'nav.people.group',
-    items: [{ to: '/people', label: 'nav.people', permission: 'party.party.read', icon: Contact }],
-  },
+/** Every feature manifest, in menu order. */
+export const WEB_MODULES: readonly WebModuleManifest[] = [
+  adminManifest,
+  auditManifest,
+  orgManifest,
+  peopleManifest,
 ];
+
+export const NAV: readonly NavGroup[] = buildNav(WEB_MODULES);
 
 /** The four most used screens, in order, for the mobile bottom tab bar. */
 export const MOBILE_TAB_PATHS: readonly string[] = [

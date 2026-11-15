@@ -42,6 +42,7 @@ import { SecretBox } from './kernel/crypto/secret-box.js';
 import { createPool } from './kernel/db/pool.js';
 import { createPrisma } from './kernel/db/prisma.js';
 import { UnitOfWork } from './kernel/db/unit-of-work.js';
+import { ModuleRegistry, createModuleRouter } from './kernel/module-registry/index.js';
 import { createLogger } from './kernel/observability/logger.js';
 import { createAccessAdminRouter } from './kernel/permissions/access-admin-router.js';
 import { AccessAdminService } from './kernel/permissions/access-admin-service.js';
@@ -52,28 +53,16 @@ import { JobScheduler } from './kernel/jobs/scheduler.js';
 import { sealAuditLog } from './kernel/audit/sealing-job.js';
 import { createRedis } from './kernel/redis/client.js';
 import { S3StorageAdapter } from './adapters/storage/s3.js';
-import {
-  AttachableRegistry,
-  FILES_PERMISSIONS,
-  FilesService,
-  createFilesRouter,
-} from './modules/files/index.js';
+import { AttachableRegistry, FilesService, createFilesModule } from './modules/files/index.js';
 import {
   EmailQueue,
-  KERNEL_EVENT_TYPES,
-  NOTIFY_PERMISSIONS,
   NotifyService,
   RealtimeGateway,
-  createNotifyRouter,
+  createNotifyModule,
   syncEventTypes,
   type NotificationView,
 } from './modules/notify/index.js';
-import {
-  PARTY_PERMISSIONS,
-  PartyReferenceRegistry,
-  PartyVault,
-  createPartyModule,
-} from './modules/party/index.js';
+import { PartyReferenceRegistry, PartyVault, createPartyModule } from './modules/party/index.js';
 
 const rootEnv = path.resolve(import.meta.dirname, '../../../.env');
 if (process.env.DATABASE_URL === undefined && existsSync(rootEnv)) {
@@ -192,6 +181,9 @@ async function main(): Promise<void> {
     where: "entity_type = 'party.party'",
   });
   const apiKeys = new ApiKeyResolver({ prisma, uow, redis, logger });
+  // Business modules register a manifest (SPEC 2.13); the kernel's own permission keys are
+  // given so the registry can check every menu entry and attachable points at a real key.
+  const modules = new ModuleRegistry({ kernelPermissions: [...KERNEL_PERMISSIONS, ...JOB_PERMISSIONS] });
 
   // Notifications: the realtime gateway needs the HTTP server, which exists only after
   // listen(), so the service pushes through a holder that is filled in below.
@@ -245,19 +237,23 @@ async function main(): Promise<void> {
       api.use(createImpersonationRouter({ uow, registry, permissions, admin, auth, tokens, env }));
       api.use(createApiClientRouter({ uow, registry, permissions, auth }));
       api.use(createOrganisationRouter({ uow, registry, permissions }));
-      const party = createPartyModule({
-        uow,
-        registry,
-        permissions,
-        audit,
-        vault: new PartyVault(new SecretBox(env.DATA_ENCRYPTION_KEY), env.DATA_ENCRYPTION_KEY),
-        references: partyReferences,
-      });
-      attachables.register(party.attachable);
-      for (const type of party.recycleTypes) recycleBin.register(type);
-      for (const router of party.routers) api.use(router);
-      api.use(createFilesRouter({ uow, registry, permissions, files, attachables }));
-      api.use(createNotifyRouter({ uow, registry, permissions, notify }));
+      // Module manifests. A new module is one more `modules.register(...)` line here.
+      modules.register(
+        createPartyModule({
+          uow,
+          registry,
+          permissions,
+          audit,
+          vault: new PartyVault(new SecretBox(env.DATA_ENCRYPTION_KEY), env.DATA_ENCRYPTION_KEY),
+          references: partyReferences,
+        }),
+      );
+      modules.register(createFilesModule({ uow, registry, permissions, files, attachables }));
+      modules.register(createNotifyModule({ uow, registry, permissions, notify }));
+      for (const attachable of modules.attachables()) attachables.register(attachable);
+      for (const type of modules.recycleTypes()) recycleBin.register(type);
+      modules.mount(api);
+      api.use(createModuleRouter({ registry, modules }));
       api.use(
         createJobRouter({
           registry,
@@ -295,12 +291,10 @@ async function main(): Promise<void> {
   // never offers fewer permissions than the code checks.
   await syncPermissionCatalogue(prisma, [
     ...KERNEL_PERMISSIONS,
-    ...PARTY_PERMISSIONS,
-    ...FILES_PERMISSIONS,
-    ...NOTIFY_PERMISSIONS,
     ...JOB_PERMISSIONS,
+    ...modules.permissions(),
   ]);
-  await syncEventTypes(prisma, KERNEL_EVENT_TYPES);
+  await syncEventTypes(prisma, modules.eventTypes());
   await scheduler.start();
   emailQueue.startWorker();
 

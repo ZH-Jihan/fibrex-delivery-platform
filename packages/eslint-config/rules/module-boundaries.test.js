@@ -52,5 +52,11 @@ tester.run('module-boundaries', moduleBoundaries, {
       code: "const m = import('../party/service.js');",
       errors: [{ messageId: 'internal' }],
     },
+    // A module's manifest is built by its index.ts; nobody else may reach for its parts.
+    {
+      filename: `${root}/loans/index.ts`,
+      code: "import { createPartyRouter } from '../party/party-router.js';",
+      errors: [{ messageId: 'internal' }],
+    },
   ],
 });

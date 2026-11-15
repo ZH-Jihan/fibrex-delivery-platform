@@ -38,11 +38,12 @@ import {
 } from '../../src/kernel/permissions/catalogue.js';
 import { PermissionService } from '../../src/kernel/permissions/permission-service.js';
 import { createRedis } from '../../src/kernel/redis/client.js';
+import { ModuleRegistry, createModuleRouter } from '../../src/kernel/module-registry/index.js';
 import {
   AttachableRegistry,
   FILES_PERMISSIONS,
   FilesService,
-  createFilesRouter,
+  createFilesModule,
 } from '../../src/modules/files/index.js';
 import {
   PARTY_PERMISSIONS,
@@ -281,18 +282,23 @@ beforeAll(async () => {
           cookiePath: `${API_PREFIX}/auth`,
         }),
       );
-      const party = createPartyModule({
-        uow,
-        registry,
-        permissions,
-        audit,
-        vault: new PartyVault(new SecretBox(env.DATA_ENCRYPTION_KEY), env.DATA_ENCRYPTION_KEY),
-        references,
-      });
-      attachables.register(party.attachable);
-      for (const type of party.recycleTypes) recycleBin.register(type);
-      for (const router of party.routers) api.use(router);
-      api.use(createFilesRouter({ uow, registry, permissions, files, attachables }));
+      // Wired the same way as main.ts: manifests into the registry, registry onto the app.
+      const modules = new ModuleRegistry({ kernelPermissions: KERNEL_PERMISSIONS });
+      modules.register(
+        createPartyModule({
+          uow,
+          registry,
+          permissions,
+          audit,
+          vault: new PartyVault(new SecretBox(env.DATA_ENCRYPTION_KEY), env.DATA_ENCRYPTION_KEY),
+          references,
+        }),
+      );
+      modules.register(createFilesModule({ uow, registry, permissions, files, attachables }));
+      for (const attachable of modules.attachables()) attachables.register(attachable);
+      for (const type of modules.recycleTypes()) recycleBin.register(type);
+      modules.mount(api);
+      api.use(createModuleRouter({ registry, modules }));
       api.use(
         createAuditRouter({
           uow,
@@ -348,6 +354,35 @@ async function uploadFile(token: string, bytes = PDF, name = 'doc.pdf', mime = '
   expect(done.status).toBe(201);
   return body(done);
 }
+
+describe('module registry', () => {
+  it('lists the registered modules with their menu entries, and only to signed-in users', async () => {
+    const res = await get('/modules', bob);
+    expect(res.status).toBe(200);
+    const body = res.body as {
+      items: { key: string; permissions: string[]; nav: { path: string; permission: string }[] }[];
+    };
+    expect(body.items.map((m) => m.key)).toEqual(['party', 'files']);
+    const party = body.items[0];
+    expect(party?.permissions).toContain('party.party.merge');
+    expect(party?.nav).toEqual([
+      {
+        path: '/people',
+        labelKey: 'nav.people',
+        groupKey: 'nav.people.group',
+        permission: 'party.party.read',
+      },
+    ]);
+    expect((await request(app).get(`${API_PREFIX}/modules`)).status).toBe(401);
+    // Routes mounted through the registry are in the OpenAPI document like any other.
+    const doc = (await request(app).get(`${API_PREFIX}/openapi.json`)).body as {
+      paths: Record<string, unknown>;
+    };
+    expect(Object.keys(doc.paths)).toEqual(
+      expect.arrayContaining(['/modules', '/parties', '/attachments']),
+    );
+  });
+});
 
 describe('parties', () => {
   it('creates, finds, updates with version checks, deletes with a reason and restores', async () => {
