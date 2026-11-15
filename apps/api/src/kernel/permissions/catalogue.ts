@@ -91,6 +91,15 @@ export const KERNEL_PERMISSIONS: readonly PermissionDef[] = [
   ...crudPermissions('platform', 'platform.number_sequence', 'numbering sequences'),
   ...crudPermissions('platform', 'platform.lookup_type', 'lookup types'),
   ...crudPermissions('platform', 'platform.lookup_value', 'lookup values'),
+  ...crudPermissions('platform', 'platform.template', 'templates'),
+  ...crudPermissions('platform', 'platform.template_version', 'template versions'),
+  permission('platform', 'platform.template_version', 'publish', 'Publish a template version'),
+  permission(
+    'platform',
+    'platform.template_version',
+    'preview',
+    'Preview a template version with sample data',
+  ),
   ...crudPermissions('platform', 'platform.entity_definition', 'record types'),
   permission(
     'platform',

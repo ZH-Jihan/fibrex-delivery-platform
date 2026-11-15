@@ -204,3 +204,85 @@ model RecordLink {
   @@map("record_link")
   @@schema("cfg")
 }
+
+model Template {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  key          String
+  kind         String
+  entityKey    String?   @map("entity_key")
+  name         String
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], map: "template_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+  versions TemplateVersion[]
+
+  @@unique([tenantId, id], map: "template_tenant_id_uq")
+  @@unique([tenantId, key], map: "template_key_uq", where: { deletedAt: null })
+  @@map("template")
+  @@schema("cfg")
+}
+
+model TemplateVersion {
+  id                 String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  templateId         String    @map("template_id") @db.Uuid
+  companyId          String?   @map("company_id") @db.Uuid
+  language           String
+  versionNo          Int       @map("version_no")
+  subject            String?
+  body               String
+  css                String    @default("")
+  paper              String    @default("A4")
+  status             String    @default("draft")
+  validFrom          DateTime  @default(dbgenerated("CURRENT_DATE")) @map("valid_from") @db.Date
+  providerTemplateId String?   @map("provider_template_id")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy          String?   @map("created_by") @db.Uuid
+  updatedAt          DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy          String?   @map("updated_by") @db.Uuid
+  version            Int       @default(1)
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy          String?   @map("deleted_by") @db.Uuid
+  deleteReason       String?   @map("delete_reason")
+
+  template           Template            @relation(fields: [tenantId, templateId], references: [tenantId, id], map: "template_version_template_fk", onDelete: NoAction, onUpdate: NoAction)
+  company            Company?            @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "template_version_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  generatedDocuments GeneratedDocument[]
+
+  @@unique([tenantId, id], map: "template_version_tenant_id_uq")
+  @@unique([templateId, language, versionNo], map: "template_version_no_uq")
+  @@index([templateId, language, status], map: "template_version_lookup_idx", where: raw("deleted_at IS NULL"))
+  @@map("template_version")
+  @@schema("cfg")
+}
+
+model GeneratedDocument {
+  id                String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  companyId         String   @map("company_id") @db.Uuid
+  templateVersionId String   @map("template_version_id") @db.Uuid
+  entityType        String?  @map("entity_type")
+  entityId          String?  @map("entity_id") @db.Uuid
+  fileObjectId      String?  @map("file_object_id") @db.Uuid
+  dataHash          String   @map("data_hash")
+  mergeData         Json     @default("{}") @map("merge_data")
+  generatedBy       String?  @map("generated_by") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy         String?  @map("created_by") @db.Uuid
+
+  company         Company         @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "generated_document_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  templateVersion TemplateVersion @relation(fields: [tenantId, templateVersionId], references: [tenantId, id], map: "generated_document_version_fk", onDelete: NoAction, onUpdate: NoAction)
+  file            FileObject?     @relation(fields: [companyId, fileObjectId], references: [companyId, id], map: "generated_document_file_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([companyId, entityType, entityId], map: "generated_document_entity_idx")
+  @@map("generated_document")
+  @@schema("cfg")
+}

@@ -18,6 +18,7 @@ model FileObject {
   company     Company          @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "file_object_company_fk", onDelete: NoAction, onUpdate: NoAction)
   attachments FileAttachment[]
   rawInputs   RawInput[]
+  generatedDocuments GeneratedDocument[]
 
   @@unique([companyId, id], map: "file_object_company_id_uq")
   @@unique([bucket, objectKey], map: "file_object_key_uq")

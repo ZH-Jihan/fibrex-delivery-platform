@@ -54,6 +54,11 @@ import {
   createLookupValueRepository,
 } from './kernel/lookups/lookup-router.js';
 import { LookupService } from './kernel/lookups/lookup-service.js';
+import {
+  createTemplateRepository,
+  createTemplateRouter,
+  createTemplateVersionRepository,
+} from './kernel/templates/template-router.js';
 import { ModuleRegistry, createModuleRouter } from './kernel/module-registry/index.js';
 import {
   createNumberSequenceRepository,
@@ -168,6 +173,20 @@ async function main(): Promise<void> {
     label: 'Lookup value',
     repository: createLookupValueRepository(),
     describe: (value) => value.code,
+  });
+  recycleBin.register({
+    entityType: 'platform.template',
+    moduleKey: 'platform',
+    label: 'Template',
+    repository: createTemplateRepository(),
+    describe: (template) => `${template.key} (${template.name})`,
+  });
+  recycleBin.register({
+    entityType: 'platform.template_version',
+    moduleKey: 'platform',
+    label: 'Template version',
+    repository: createTemplateVersionRepository(),
+    describe: (version) => `${version.language} v${String(version.versionNo)}`,
   });
   recycleBin.register({
     entityType: 'iam.api_client',
@@ -325,6 +344,7 @@ async function main(): Promise<void> {
       api.use(createOrganisationRouter({ uow, registry, permissions }));
       api.use(createNumberingRouter({ uow, registry, permissions, numbering }));
       api.use(createLookupRouter({ uow, registry, permissions, lookups }));
+      api.use(createTemplateRouter({ uow, registry, permissions }));
       api.use(createEntityDefinitionRouter({ uow, registry, permissions, entities }));
       api.use(createRecordRouter({ uow, registry, permissions, records }));
       // Module manifests. A new module is one more `modules.register(...)` line here.
