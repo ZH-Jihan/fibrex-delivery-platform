@@ -550,3 +550,36 @@ export function layoutProblems(
   }
   return issues;
 }
+
+/**
+ * Form schemas for the record-type builder screen (phase 2 row 2.6a). The screen edits flat
+ * text boxes; `buildEntityBody` and `buildFieldBody` turn a checked form into the API body.
+ * Used by: apps/web org/EntityBuilderPage.
+ */
+const optionalLabel = z.string().trim().max(200);
+export const entityTypeFormSchema = z.strictObject({
+  key: z.string().trim().regex(entityKeyPattern, 'Use lower-case letters, digits and _'),
+  labelEn: z.string().trim().min(1, 'Required').max(200),
+  labelBn: optionalLabel,
+  numberingKey: z.string().trim().max(60),
+});
+export type EntityTypeForm = z.infer<typeof entityTypeFormSchema>;
+
+export const fieldFormSchema = z.strictObject({
+  key: z.string().trim().regex(fieldKeyPattern, 'Use lower-case letters, digits and _'),
+  labelEn: z.string().trim().min(1, 'Required').max(200),
+  labelBn: optionalLabel,
+  type: z.enum(FIELD_TYPES),
+  required: z.boolean(),
+  sortOrder: z.coerce.number().int().min(-1_000_000).max(1_000_000),
+  lookupTypeId: z.string().trim(),
+  refEntityKey: z.string().trim().max(100),
+});
+export type FieldForm = z.infer<typeof fieldFormSchema>;
+
+/** Labels object from the English and Bengali boxes (empty boxes are left out). */
+export function entityLabels(form: { labelEn: string; labelBn: string }): Record<string, string> {
+  const out: Record<string, string> = { en: form.labelEn.trim() };
+  if (form.labelBn.trim() !== '') out.bn = form.labelBn.trim();
+  return out;
+}

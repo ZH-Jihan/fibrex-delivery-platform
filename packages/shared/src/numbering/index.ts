@@ -42,7 +42,7 @@ export function parsePattern(pattern: string): PatternToken[] {
   const tokens: PatternToken[] = [];
   let text = '';
   let numberTokens = 0;
-  for (let i = 0; i < pattern.length; ) {
+  for (let i = 0; i < pattern.length;) {
     const ch = pattern.charAt(i);
     if (ch === '}') throw new PatternError(`Unexpected "}" at position ${String(i + 1)}`);
     if (ch !== '{') {
@@ -53,7 +53,8 @@ export function parsePattern(pattern: string): PatternToken[] {
     const end = pattern.indexOf('}', i);
     if (end < 0) throw new PatternError(`"{" at position ${String(i + 1)} is never closed`);
     const name = pattern.slice(i + 1, end);
-    if (name.includes('{')) throw new PatternError(`"{" at position ${String(i + 1)} is never closed`);
+    if (name.includes('{'))
+      throw new PatternError(`"{" at position ${String(i + 1)} is never closed`);
     if (text !== '') {
       tokens.push({ kind: 'text', text });
       text = '';

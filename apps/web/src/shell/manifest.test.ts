@@ -42,6 +42,7 @@ describe('buildNav', () => {
           '/organisation/branches',
           '/organisation/numbering',
           '/organisation/lookups',
+          '/organisation/record-types',
         ],
       ],
       ['nav.people.group', ['/people']],

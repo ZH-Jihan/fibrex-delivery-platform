@@ -223,9 +223,7 @@ describe('number sequences API', () => {
     const alice = await signIn('alice');
     const dave = await signIn('dave');
     expect((await get('/number-sequences', dave)).status).toBe(403);
-    expect((await post('/number-sequences/preview', dave, { format: 'L{0000}' })).status).toBe(
-      403,
-    );
+    expect((await post('/number-sequences/preview', dave, { format: 'L{0000}' })).status).toBe(403);
 
     const created = await post('/number-sequences', alice, { key: 'loan', format: 'L{0000}' });
     expect(created.status).toBe(201);
@@ -257,12 +255,12 @@ describe('number sequences API', () => {
       resetPolicy: 'yearly',
     });
     expect(yearly.status).toBe(400);
-    expect((await post('/number-sequences', alice, { key: 'Loan', format: 'L{0000}' })).status).toBe(
-      400,
-    );
-    expect((await post('/number-sequences', alice, { key: 'loan', format: 'L{0000}' })).status).toBe(
-      409,
-    );
+    expect(
+      (await post('/number-sequences', alice, { key: 'Loan', format: 'L{0000}' })).status,
+    ).toBe(400);
+    expect(
+      (await post('/number-sequences', alice, { key: 'loan', format: 'L{0000}' })).status,
+    ).toBe(409);
   });
 
   it('raises but never lowers the next value, and the key cannot change', async () => {
@@ -336,26 +334,30 @@ describe('numbering service', () => {
 
   it('restarts yearly and monthly sequences in a new period', async () => {
     const invoice = (date: string) =>
-      uow.runAs(asAlice, async () =>
-        (
-          await numbering.allocate('invoice', {
-            date: new Date(date),
-            defaults: { format: 'INV-{YYYY}-{00000}', resetPolicy: 'yearly' },
-          })
-        ).number,
+      uow.runAs(
+        asAlice,
+        async () =>
+          (
+            await numbering.allocate('invoice', {
+              date: new Date(date),
+              defaults: { format: 'INV-{YYYY}-{00000}', resetPolicy: 'yearly' },
+            })
+          ).number,
       );
     expect(await invoice('2025-02-01T00:00:00Z')).toBe('INV-2025-00001');
     expect(await invoice('2025-12-31T23:00:00Z')).toBe('INV-2025-00002');
     expect(await invoice('2026-01-01T00:00:00Z')).toBe('INV-2026-00001');
 
     const receipt = (date: string) =>
-      uow.runAs(asAlice, async () =>
-        (
-          await numbering.allocate('cash_receipt', {
-            date: new Date(date),
-            defaults: { format: '{YY}{MM}-{000}', resetPolicy: 'monthly' },
-          })
-        ).number,
+      uow.runAs(
+        asAlice,
+        async () =>
+          (
+            await numbering.allocate('cash_receipt', {
+              date: new Date(date),
+              defaults: { format: '{YY}{MM}-{000}', resetPolicy: 'monthly' },
+            })
+          ).number,
       );
     expect(await receipt('2026-03-05T00:00:00Z')).toBe('2603-001');
     expect(await receipt('2026-03-30T00:00:00Z')).toBe('2603-002');

@@ -137,7 +137,14 @@ export function NumberSequencesPage() {
             schema={numberSequenceFormSchema}
             initial={
               editing === 'new'
-                ? { key: '', prefix: '', format: '{0000}', padding: 4, resetPolicy: 'never', nextValue: 1 }
+                ? {
+                    key: '',
+                    prefix: '',
+                    format: '{0000}',
+                    padding: 4,
+                    resetPolicy: 'never',
+                    nextValue: 1,
+                  }
                 : {
                     key: editing.key,
                     prefix: editing.prefix,

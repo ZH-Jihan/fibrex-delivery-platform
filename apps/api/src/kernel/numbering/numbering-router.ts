@@ -38,9 +38,7 @@ import { problemSchema, registerRoute } from '../http/openapi.js';
 import type { PermissionService } from '../permissions/permission-service.js';
 import type { NumberingService } from './numbering-service.js';
 
-export type NumberSequenceRow = NonNullable<
-  Awaited<ReturnType<Db['numberSequence']['findFirst']>>
->;
+export type NumberSequenceRow = NonNullable<Awaited<ReturnType<Db['numberSequence']['findFirst']>>>;
 
 const fields = {
   prefix: z.string().trim().max(20),

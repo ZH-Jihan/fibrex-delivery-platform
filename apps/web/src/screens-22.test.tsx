@@ -110,14 +110,16 @@ describe('numbering sequences screen', () => {
     await user.click(screen.getByRole('button', { name: /save/i }));
     // Refused by the shared schema before any request: yearly needs a year token.
     expect(await screen.findByText(/needs \{YYYY\} or \{YY\}/)).toBeInTheDocument();
-    expect(calls.filter((c) => c.method === 'POST' && c.path === '/number-sequences')).toHaveLength(0);
+    expect(calls.filter((c) => c.method === 'POST' && c.path === '/number-sequences')).toHaveLength(
+      0,
+    );
     await user.clear(format);
     await user.type(format, 'INV-{{YYYY}-{{00000}');
     await user.click(screen.getByRole('button', { name: /save/i }));
     await waitFor(() => {
-      expect(calls.filter((c) => c.method === 'POST' && c.path === '/number-sequences')).toHaveLength(
-        1,
-      );
+      expect(
+        calls.filter((c) => c.method === 'POST' && c.path === '/number-sequences'),
+      ).toHaveLength(1);
     });
     expect(calls.find((c) => c.method === 'POST' && c.path === '/number-sequences')?.body).toEqual({
       key: 'invoice',
@@ -142,10 +144,22 @@ describe('numbering sequences screen', () => {
   it('renders a live sample from the form values', () => {
     const year = String(new Date().getUTCFullYear());
     expect(
-      liveSample({ prefix: '', format: 'INV-{YYYY}-{00000}', padding: 4, resetPolicy: 'yearly', nextValue: 12 }),
+      liveSample({
+        prefix: '',
+        format: 'INV-{YYYY}-{00000}',
+        padding: 4,
+        resetPolicy: 'yearly',
+        nextValue: 12,
+      }),
     ).toEqual({ sample: `INV-${year}-00012` });
     expect(
-      liveSample({ prefix: 'L', format: '{prefix}{number}', padding: 3, resetPolicy: 'yearly', nextValue: 1 }),
+      liveSample({
+        prefix: 'L',
+        format: '{prefix}{number}',
+        padding: 3,
+        resetPolicy: 'yearly',
+        nextValue: 1,
+      }),
     ).toHaveProperty('problem');
   });
 });

@@ -28,12 +28,7 @@
  * Used by: numbering-router.ts (preview), later modules that number their records
  * (custom records 2.5, loans, payslips, invoices).
  */
-import {
-  patternProblem,
-  renderNumber,
-  resetPeriod,
-  type ResetPolicy,
-} from '@fibrex/shared';
+import { patternProblem, renderNumber, resetPeriod, type ResetPolicy } from '@fibrex/shared';
 import { currentUnit } from '../db/unit-of-work.js';
 import { BadRequestError, UnprocessableError } from '../http/errors.js';
 
