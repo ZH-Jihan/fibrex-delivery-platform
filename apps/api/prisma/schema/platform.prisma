@@ -39,6 +39,7 @@ model Tenant {
   usageCounters UsageCounter[]
   companies     Company[]
   settings      Setting[]
+  lookupTypes   LookupType[]
   users         UserAccount[]
   notificationRules NotificationRule[]
   otpChallenges OtpChallenge[]

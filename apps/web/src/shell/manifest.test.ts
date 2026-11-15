@@ -15,7 +15,9 @@ describe('buildNav', () => {
     };
     const b: WebModuleManifest = {
       key: 'b',
-      nav: [{ label: 'nav.admin', items: [{ to: '/z', label: 'nav.audit', permission: 'z.read' }] }],
+      nav: [
+        { label: 'nav.admin', items: [{ to: '/z', label: 'nav.audit', permission: 'z.read' }] },
+      ],
     };
     expect(buildNav([a, b])).toEqual([
       {
@@ -33,7 +35,15 @@ describe('buildNav', () => {
     expect(WEB_MODULES.map((m) => m.key)).toEqual(['iam', 'audit', 'platform', 'party']);
     expect(NAV.map((g) => [g.label, g.items.map((i) => i.to)])).toEqual([
       ['nav.admin', ['/users', '/roles', '/permission-matrix', '/audit', '/recycle-bin']],
-      ['nav.org', ['/organisation/company', '/organisation/branches', '/organisation/numbering']],
+      [
+        'nav.org',
+        [
+          '/organisation/company',
+          '/organisation/branches',
+          '/organisation/numbering',
+          '/organisation/lookups',
+        ],
+      ],
       ['nav.people.group', ['/people']],
     ]);
     // Every entry has an icon and a permission; the shell relies on both.

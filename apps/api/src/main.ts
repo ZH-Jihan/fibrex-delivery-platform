@@ -42,6 +42,12 @@ import { SecretBox } from './kernel/crypto/secret-box.js';
 import { createPool } from './kernel/db/pool.js';
 import { createPrisma } from './kernel/db/prisma.js';
 import { UnitOfWork } from './kernel/db/unit-of-work.js';
+import {
+  createLookupRouter,
+  createLookupTypeRepository,
+  createLookupValueRepository,
+} from './kernel/lookups/lookup-router.js';
+import { LookupService } from './kernel/lookups/lookup-service.js';
 import { ModuleRegistry, createModuleRouter } from './kernel/module-registry/index.js';
 import {
   createNumberSequenceRepository,
@@ -142,6 +148,20 @@ async function main(): Promise<void> {
     describe: (sequence) => `${sequence.key} (${sequence.format})`,
   });
   recycleBin.register({
+    entityType: 'platform.lookup_type',
+    moduleKey: 'platform',
+    label: 'Lookup list',
+    repository: createLookupTypeRepository(),
+    describe: (type) => `${type.key} (${type.name})`,
+  });
+  recycleBin.register({
+    entityType: 'platform.lookup_value',
+    moduleKey: 'platform',
+    label: 'Lookup value',
+    repository: createLookupValueRepository(),
+    describe: (value) => value.code,
+  });
+  recycleBin.register({
     entityType: 'iam.api_client',
     moduleKey: 'iam',
     label: 'API client',
@@ -195,7 +215,9 @@ async function main(): Promise<void> {
   const apiKeys = new ApiKeyResolver({ prisma, uow, redis, logger });
   // Business modules register a manifest (SPEC 2.13); the kernel's own permission keys are
   // given so the registry can check every menu entry and attachable points at a real key.
-  const modules = new ModuleRegistry({ kernelPermissions: [...KERNEL_PERMISSIONS, ...JOB_PERMISSIONS] });
+  const modules = new ModuleRegistry({
+    kernelPermissions: [...KERNEL_PERMISSIONS, ...JOB_PERMISSIONS],
+  });
 
   // Notifications: the realtime gateway needs the HTTP server, which exists only after
   // listen(), so the service pushes through a holder that is filled in below.
@@ -252,6 +274,7 @@ async function main(): Promise<void> {
       api.use(
         createNumberingRouter({ uow, registry, permissions, numbering: new NumberingService() }),
       );
+      api.use(createLookupRouter({ uow, registry, permissions, lookups: new LookupService() }));
       // Module manifests. A new module is one more `modules.register(...)` line here.
       modules.register(
         createPartyModule({

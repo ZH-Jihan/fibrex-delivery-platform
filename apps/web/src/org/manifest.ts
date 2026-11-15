@@ -2,7 +2,7 @@
  * Menu entries of the organisation screens (company, branches, numbering sequences).
  * Depends on: shell/manifest.ts, lucide-react. Used by: shell/nav.ts.
  */
-import { Building2, Hash, MapPin } from 'lucide-react';
+import { Building2, Hash, ListTree, MapPin } from 'lucide-react';
 import type { WebModuleManifest } from '../shell/manifest';
 
 export const orgManifest: WebModuleManifest = {
@@ -28,6 +28,12 @@ export const orgManifest: WebModuleManifest = {
           label: 'nav.numbering',
           permission: 'platform.number_sequence.read',
           icon: Hash,
+        },
+        {
+          to: '/organisation/lookups',
+          label: 'nav.lookups',
+          permission: 'platform.lookup_type.read',
+          icon: ListTree,
         },
       ],
     },

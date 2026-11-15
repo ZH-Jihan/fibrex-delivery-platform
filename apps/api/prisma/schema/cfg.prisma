@@ -1,0 +1,56 @@
+// Schema `cfg`: configurable engines (PLAN 3.7). Row 2.3 adds the lookups.
+
+model LookupType {
+  id             String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  key            String
+  name           String
+  isSystem       Boolean   @default(false) @map("is_system")
+  allowHierarchy Boolean   @default(false) @map("allow_hierarchy")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy      String?   @map("created_by") @db.Uuid
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  version        Int       @default(1)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy      String?   @map("deleted_by") @db.Uuid
+  deleteReason   String?   @map("delete_reason")
+
+  tenant Tenant        @relation(fields: [tenantId], references: [id], map: "lookup_type_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+  values LookupValue[]
+
+  @@unique([tenantId, id], map: "lookup_type_tenant_id_uq")
+  @@unique([tenantId, key], map: "lookup_type_key_uq", where: { deletedAt: null })
+  @@map("lookup_type")
+  @@schema("cfg")
+}
+
+model LookupValue {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  lookupTypeId String    @map("lookup_type_id") @db.Uuid
+  code         String
+  labels       Json
+  parentId     String?   @map("parent_id") @db.Uuid
+  sortOrder    Int       @default(0) @map("sort_order")
+  active       Boolean   @default(true)
+  meta         Json      @default("{}")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  type     LookupType    @relation(fields: [tenantId, lookupTypeId], references: [tenantId, id], map: "lookup_value_type_fk", onDelete: NoAction, onUpdate: NoAction)
+  parent   LookupValue?  @relation("LookupValueTree", fields: [tenantId, parentId], references: [tenantId, id], map: "lookup_value_parent_fk", onDelete: NoAction, onUpdate: NoAction)
+  children LookupValue[] @relation("LookupValueTree")
+
+  @@unique([tenantId, id], map: "lookup_value_tenant_id_uq")
+  @@unique([lookupTypeId, code], map: "lookup_value_code_uq", where: { deletedAt: null })
+  @@index([lookupTypeId, sortOrder], map: "lookup_value_list_idx", where: raw("deleted_at IS NULL"))
+  @@map("lookup_value")
+  @@schema("cfg")
+}

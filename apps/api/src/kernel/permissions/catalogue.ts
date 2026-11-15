@@ -86,6 +86,8 @@ export const KERNEL_PERMISSIONS: readonly PermissionDef[] = [
   permission('platform', 'platform.company', 'update', 'Change company settings'),
   ...crudPermissions('platform', 'platform.branch', 'branches'),
   ...crudPermissions('platform', 'platform.number_sequence', 'numbering sequences'),
+  ...crudPermissions('platform', 'platform.lookup_type', 'lookup types'),
+  ...crudPermissions('platform', 'platform.lookup_value', 'lookup values'),
   permission('audit', 'audit.log', 'read', 'View the audit log and record history'),
   permission('audit', 'audit.log', 'export', 'Export the audit log'),
   permission('audit', 'audit.log', 'verify', 'Verify the audit log hash chain'),
