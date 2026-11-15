@@ -43,6 +43,7 @@ describe('buildNav', () => {
           '/organisation/numbering',
           '/organisation/lookups',
           '/records',
+          '/organisation/templates',
           '/organisation/record-types',
         ],
       ],

@@ -98,6 +98,9 @@ importers:
       pino-http:
         specifier: 11.0.0
         version: 11.0.0
+      playwright-core:
+        specifier: 1.65.0
+        version: 1.65.0
       socket.io:
         specifier: ^4.8.4
         version: 4.8.4

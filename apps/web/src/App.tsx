@@ -28,6 +28,7 @@ import { MatrixPage } from './admin/MatrixPage';
 import { EntityBuilderPage } from './org/EntityBuilderPage';
 import { LookupsPage } from './org/LookupsPage';
 import { NumberSequencesPage } from './org/NumberSequencesPage';
+import { TemplatesPage } from './org/TemplatesPage';
 import { BranchesPage, CompanyPage } from './org/OrganisationPages';
 import { RolesPage } from './admin/RolesPage';
 import { UserDetailPage, UsersPage } from './admin/UsersPage';
@@ -170,6 +171,14 @@ function Gate() {
           element={
             <Guarded permission="platform.lookup_type.read">
               <LookupsPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="organisation/templates"
+          element={
+            <Guarded permission="platform.template.read">
+              <TemplatesPage />
             </Guarded>
           }
         />

@@ -121,6 +121,9 @@ export const envSchema = z
       .enum(['true', 'false'])
       .default('true')
       .transform((v) => v === 'true'),
+    // Optional path to a Chromium/Chrome binary for PDF documents; empty uses the one that
+    // `playwright install chromium` put in its own folder.
+    PDF_CHROMIUM_PATH: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
     FILES_MAX_BYTES: positiveInt(25 * 1024 * 1024),
     FILES_UPLOAD_TTL_SECONDS: positiveInt(15 * 60),
     FILES_DOWNLOAD_TTL_SECONDS: positiveInt(5 * 60),

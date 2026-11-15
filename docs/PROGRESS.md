@@ -5,7 +5,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | Phase | Title | Status | Accepted on | Notes |
 | --- | --- | --- | --- | --- |
 | 1 | Foundation A | Done (13 of 13 commits), awaiting acceptance | | Plan: `docs/phases/phase-01-plan.md` |
-| 2 | Foundation B | In progress (6 of 20 rows; 2.7a done) | | Plan: `docs/phases/phase-02-plan.md` |
+| 2 | Foundation B | In progress (7 of 20 rows; 2.7 done) | | Plan: `docs/phases/phase-02-plan.md` |
 | 3 | People and documents | Not started | | |
 | 4 | Performance and tracking | Not started | | |
 | 5 | Inventory and fleet | Not started | | |
@@ -64,6 +64,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | 2.6b | Generated record pages (`records/RecordPages.tsx`, routes `/records` and `/records/:key`, menu "Records"): list columns from `listConfig`, create/edit form from the published definition checked by shared `validateRecordData`, detail sections from layouts, delete with reason, dropdown labels from lookups. Not built: custom-field section on system forms, per-type menu entries (one "Records" entry lists types), layout editing in the builder. Next: row 2.7 | 297 API + 49 web + 61 package tests pass (2 new web files' tests: 5); lint and typecheck clean |
 | 2.6c | Fix: optional boxes in record type forms (`entityTypeFormSchema`/`fieldFormSchema` optional fields; `EntityBuilderPage` treats undefined as empty). Next: row 2.7 | 297 API + 51 web + 61 package tests pass (2 new web); lint and typecheck clean |
 | 2.7a | Templates API and rendering (migration `cfg_templates`: `cfg.template`, `template_version`, insert-only `generated_document`; `kernel/templates`): `/templates` and `/template-versions` CRUD (versions numbered per language, draft then `POST .../publish` freezes and retires the replaced one, company-specific or tenant-wide, `valid_from`), `POST .../preview` (sandboxed Handlebars: no partials/prototypes, HTML escaped for pdf/email, A4/A5/Letter), `TemplateService.resolve` (language, company, date), `hashMergeData`. **Remaining for 2.7b:** server-side A4 PDF in a worker (writes `generated_document` + file), editor screen with sample data. Next: row 2.7b | 305 API + 51 web + 61 package tests pass (8 new); lint and typecheck clean |
+| 2.7b | PDF worker and template editor (`adapters/pdf` Chromium via playwright-core with JS and network off + `StubPdfRenderer`; `StorageAdapter.store`; `kernel/templates/pdf-queue.ts` BullMQ queue `template-pdf`: resolve, render, draw PDF outside any transaction, store, then insert `file_object` + insert-only `generated_document`; screen `org/TemplatesPage` at `/organisation/templates` with sample-data preview in a sandboxed frame; `PDF_CHROMIUM_PATH`). Needs Chromium installed (`playwright install chromium`); no HTTP endpoint to request a PDF yet (callers use `PdfQueue.enqueue`). Next: row 2.8 | 310 API + 54 web tests pass (5 API incl. real A4 PDF, 3 web new); lint and typecheck clean |
 
 ## Phase 1 summary
 
@@ -105,6 +106,8 @@ pnpm test
 ## Adapter stubs still to replace
 
 - `apps/api/src/adapters/messaging/stub.ts` (SMS and email): sign-in codes and password-reset links are written to the API log instead of being sent (text hidden in production). Email uses the SMTP adapter (`smtp.ts`) whenever `SMTP_HOST` is set; SMS gets a real provider in Phase 9.
+
+- `apps/api/src/adapters/pdf/stub.ts` (tiny PDF, tests only; development and production use Chromium).
 
 - `apps/api/src/adapters/storage/memory.ts` (in-memory object store): used by tests only; development and production use the S3 adapter (`S3_*` variables, the API will not start without them).
 

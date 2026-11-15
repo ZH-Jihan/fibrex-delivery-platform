@@ -51,6 +51,17 @@ export class S3StorageAdapter implements StorageAdapter {
     });
   }
 
+  async store(key: string, bytes: Buffer, contentType: string): Promise<void> {
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: bytes,
+        ContentType: contentType,
+      }),
+    );
+  }
+
   async presignUpload(request: UploadRequest): Promise<SignedUpload> {
     const url = await getSignedUrl(
       this.client,

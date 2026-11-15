@@ -77,6 +77,8 @@ import { JobScheduler } from './kernel/jobs/scheduler.js';
 import { sealAuditLog } from './kernel/audit/sealing-job.js';
 import { createRedis } from './kernel/redis/client.js';
 import { S3StorageAdapter } from './adapters/storage/s3.js';
+import { ChromiumPdfRenderer } from './adapters/pdf/chromium.js';
+import { PdfQueue } from './kernel/templates/pdf-queue.js';
 import { AttachableRegistry, FilesService, createFilesModule } from './modules/files/index.js';
 import {
   EmailQueue,
@@ -250,6 +252,13 @@ async function main(): Promise<void> {
   // listen(), so the service pushes through a holder that is filled in below.
   const realtimeHolder: { gateway?: RealtimeGateway } = {};
   const emailQueue = new EmailQueue({ redisUrl: env.REDIS_URL, uow, messaging, logger });
+  const pdfQueue = new PdfQueue({
+    redisUrl: env.REDIS_URL,
+    uow,
+    storage,
+    renderer: new ChromiumPdfRenderer({ executablePath: env.PDF_CHROMIUM_PATH }),
+    logger,
+  });
   const notify = new NotifyService({
     uow,
     logger,
@@ -368,7 +377,7 @@ async function main(): Promise<void> {
         createJobRouter({
           registry,
           authorize: permissions.authorize,
-          queues: () => [scheduler.getQueue(), emailQueue.getQueue()],
+          queues: () => [scheduler.getQueue(), emailQueue.getQueue(), pdfQueue.getQueue()],
         }),
       );
       api.use(
@@ -407,6 +416,7 @@ async function main(): Promise<void> {
   await syncEventTypes(prisma, modules.eventTypes());
   await scheduler.start();
   emailQueue.startWorker();
+  pdfQueue.startWorker();
 
   const server = app.listen(env.PORT, () => {
     logger.info({ port: env.PORT }, 'Fibrex API listening');
@@ -429,6 +439,7 @@ async function main(): Promise<void> {
         realtimeHolder.gateway?.close(),
         scheduler.stop(),
         emailQueue.close(),
+        pdfQueue.close(),
       ])
         .then(() => Promise.allSettled([pool.end(), redis.quit()]))
         .then(() => {

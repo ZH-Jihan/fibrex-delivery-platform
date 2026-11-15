@@ -40,6 +40,8 @@ export interface StoredObject {
 
 export interface StorageAdapter {
   readonly bucket: string;
+  /** Stores bytes the server itself produced (a generated PDF), without a browser upload. */
+  store(key: string, bytes: Buffer, contentType: string): Promise<void>;
   presignUpload(request: UploadRequest): Promise<SignedUpload>;
   presignDownload(request: DownloadRequest): Promise<string>;
   /** Reads the object and reports its size, SHA-256 and first bytes; null when absent. */

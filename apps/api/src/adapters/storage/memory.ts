@@ -25,6 +25,11 @@ export class MemoryStorageAdapter implements StorageAdapter {
     this.objects.set(key, bytes);
   }
 
+  store(key: string, bytes: Buffer): Promise<void> {
+    this.objects.set(key, bytes);
+    return Promise.resolve();
+  }
+
   presignUpload(request: UploadRequest): Promise<SignedUpload> {
     return Promise.resolve({
       url: `memory://upload/${request.key}?expires=${String(request.expiresSeconds)}`,
