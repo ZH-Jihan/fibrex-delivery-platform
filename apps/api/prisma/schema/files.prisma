@@ -19,6 +19,7 @@ model FileObject {
   attachments FileAttachment[]
   rawInputs   RawInput[]
   generatedDocuments GeneratedDocument[]
+  exportJobs         ExportJob[]
 
   @@unique([companyId, id], map: "file_object_company_id_uq")
   @@unique([bucket, objectKey], map: "file_object_key_uq")

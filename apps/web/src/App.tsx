@@ -29,6 +29,7 @@ import { EntityBuilderPage } from './org/EntityBuilderPage';
 import { LookupsPage } from './org/LookupsPage';
 import { NumberSequencesPage } from './org/NumberSequencesPage';
 import { TemplatesPage } from './org/TemplatesPage';
+import { DataExchangePage } from './data/DataExchangePage';
 import { BranchesPage, CompanyPage } from './org/OrganisationPages';
 import { RolesPage } from './admin/RolesPage';
 import { UserDetailPage, UsersPage } from './admin/UsersPage';
@@ -187,6 +188,14 @@ function Gate() {
           element={
             <Guarded permission="platform.entity_definition.read">
               <EntityBuilderPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="data"
+          element={
+            <Guarded permission="integration.import_job.create">
+              <DataExchangePage />
             </Guarded>
           }
         />

@@ -109,6 +109,7 @@ export const KERNEL_PERMISSIONS: readonly PermissionDef[] = [
   ),
   ...crudPermissions('platform', 'platform.field_definition', 'fields of record types'),
   ...crudPermissions('integration', 'integration.import_mapping', 'saved import mappings'),
+  ...crudPermissions('integration', 'integration.export_job', 'bulk exports'),
   ...crudPermissions('integration', 'integration.import_job', 'imports'),
   permission(
     'integration',

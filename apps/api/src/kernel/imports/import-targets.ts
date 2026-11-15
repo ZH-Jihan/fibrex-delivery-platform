@@ -39,6 +39,17 @@ export interface ImportTarget {
   create(values: Record<string, ImportValue>, companyId: string): Promise<string>;
   /** Soft-deletes a record this import created (audited, recoverable). */
   remove(id: string, reason: string): Promise<void>;
+  /** The permission needed to read (and so export) records; a target without it cannot be exported. */
+  readonly readPermission?: string;
+  /**
+   * One page of live records for a bulk export, each keyed by the field keys of `fields()`,
+   * filtered by exact field values. Reads through the owning service so scoping applies.
+   */
+  exportRows?(
+    filters: Record<string, string>,
+    page: number,
+    pageSize: number,
+  ): Promise<{ rows: Record<string, ImportValue | null>[]; total: number }>;
 }
 
 export class ImportTargets {
@@ -101,6 +112,32 @@ export async function customRecordTarget(
     remove: async (id, reason) => {
       const row = await repository.get(id);
       await repository.softDelete(id, row.version, reason);
+    },
+    readPermission: `custom.${entityKey}.read`,
+    exportRows: async (filters, page, pageSize) => {
+      const keys = entity.fields.filter((field) => field.status !== 'retired').map((f) => f.key);
+      const result = await repository.list({
+        where: { fields: filters },
+        orderBy: [{ id: 'asc' }],
+        page,
+        pageSize,
+      });
+      const rows = result.items.map((record) => {
+        const data = (record.data ?? {}) as Record<string, unknown>;
+        const row: Record<string, ImportValue | null> = {};
+        for (const key of keys) {
+          const value = data[key];
+          // Lists and nested values (multi-select, references) are written as JSON text.
+          row[key] =
+            value === undefined || value === null
+              ? null
+              : typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+                ? value
+                : JSON.stringify(value);
+        }
+        return row;
+      });
+      return { rows, total: result.total };
     },
   };
 }

@@ -175,6 +175,7 @@ model Company {
   templateVersions    TemplateVersion[]
   generatedDocuments  GeneratedDocument[]
   importJobs          ImportJob[]
+  exportJobs          ExportJob[]
 
   @@unique([tenantId, id], map: "company_tenant_id_uq")
   @@map("company")

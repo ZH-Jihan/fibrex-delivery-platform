@@ -21,7 +21,8 @@ export interface ParsedSheet {
 }
 
 export class SheetError extends Error {
-  readonly code: 'empty' | 'duplicate_column' | 'too_many_rows' | 'unterminated_quote';
+  readonly code:
+    'empty' | 'duplicate_column' | 'too_many_rows' | 'unterminated_quote' | 'unreadable_file';
 
   constructor(code: SheetError['code'], message: string) {
     super(message);
@@ -103,7 +104,15 @@ export function parseCsv(input: string): ParsedSheet {
     throw new SheetError('unterminated_quote', 'A quoted value is never closed.');
   }
   if (fieldStarted || field !== '' || record.length > 0) endRecord();
+  return sheetFromRecords(records);
+}
 
+/**
+ * Turns records of text cells (first record = header) into a sheet. Shared by the CSV reader
+ * and the Excel reader (API), so both apply the same header and row-limit rules.
+ */
+export function sheetFromRecords(input: string[][]): ParsedSheet {
+  const records = [...input];
   // Step 2: the header.
   const header = records.shift();
   if (header === undefined) throw new SheetError('empty', 'The file has no header row.');
@@ -133,6 +142,37 @@ export function parseCsv(input: string): ParsedSheet {
     return row;
   });
   return { columns: columns.filter((name) => name !== ''), rows };
+}
+
+/** Most rows one export holds; larger sets must be filtered (the file is built in memory). */
+export const MAX_EXPORT_ROWS = 20_000;
+
+/**
+ * Cells that a spreadsheet program would run as a formula (CSV/formula injection): a text
+ * starting with = + - @ tab or CR gets a leading apostrophe so it opens as plain text.
+ * Numbers are never touched, so a negative amount stays a number.
+ */
+export function neutraliseFormula(value: string): string {
+  return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+}
+
+/** Writes a sheet as CSV (RFC 4180, CRLF, UTF-8 BOM so Excel opens non-English text correctly). */
+export function buildCsv(
+  columns: string[],
+  rows: Record<string, string | number | boolean | null | undefined>[],
+): string {
+  const cell = (value: string | number | boolean | null | undefined): string => {
+    const text =
+      value === null || value === undefined
+        ? ''
+        : typeof value === 'string'
+          ? neutraliseFormula(value)
+          : String(value);
+    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const lines = [columns.map((name) => cell(name)).join(',')];
+  for (const row of rows) lines.push(columns.map((name) => cell(row[name])).join(','));
+  return `${String.fromCharCode(0xfeff)}${lines.join('\r\n')}\r\n`;
 }
 
 // ---- Mapping --------------------------------------------------------------------------

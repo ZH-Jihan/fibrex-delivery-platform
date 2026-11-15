@@ -65,6 +65,7 @@ import {
   createNumberingRouter,
 } from './kernel/numbering/numbering-router.js';
 import { NumberingService } from './kernel/numbering/numbering-service.js';
+import { ExportService } from './kernel/imports/export-service.js';
 import { ImportQueue } from './kernel/imports/import-queue.js';
 import {
   createImportMappingRepository,
@@ -341,6 +342,7 @@ async function main(): Promise<void> {
   // that wants its own table importable registers a target here.
   const importTargets = new ImportTargets((key) => customRecordTarget({ records, entities }, key));
   const importService = new ImportService({ uow, storage, permissions, targets: importTargets });
+  const exportService = new ExportService({ storage, permissions, targets: importTargets });
   const importQueue = new ImportQueue({ redisUrl: env.REDIS_URL, service: importService, logger });
   recycleBin.register({
     entityType: 'integration.import_mapping',
@@ -382,6 +384,7 @@ async function main(): Promise<void> {
           registry,
           permissions,
           service: importService,
+          exports: exportService,
           queue: importQueue,
           targets: importTargets,
         }),

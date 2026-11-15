@@ -2,7 +2,16 @@
  * Menu entries of the organisation screens (company, branches, numbering sequences).
  * Depends on: shell/manifest.ts, lucide-react. Used by: shell/nav.ts.
  */
-import { Blocks, Boxes, Building2, FileText, Hash, ListTree, MapPin } from 'lucide-react';
+import {
+  ArrowLeftRight,
+  Blocks,
+  Boxes,
+  Building2,
+  FileText,
+  Hash,
+  ListTree,
+  MapPin,
+} from 'lucide-react';
 import type { WebModuleManifest } from '../shell/manifest';
 
 export const orgManifest: WebModuleManifest = {
@@ -46,6 +55,12 @@ export const orgManifest: WebModuleManifest = {
           label: 'nav.templates',
           permission: 'platform.template.read',
           icon: FileText,
+        },
+        {
+          to: '/data',
+          label: 'nav.data',
+          permission: 'integration.import_job.create',
+          icon: ArrowLeftRight,
         },
         {
           to: '/organisation/record-types',

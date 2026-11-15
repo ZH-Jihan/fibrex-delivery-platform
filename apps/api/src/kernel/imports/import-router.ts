@@ -9,6 +9,8 @@
  *   POST /imports/{id}/commit             create the good rows in a background job
  *   POST /imports/{id}/rollback           soft-delete everything the import created
  *   /import-mappings                      CRUD of saved mappings (`integration.import_mapping.*`)
+ *   POST /exports, GET /exports[/{id}]    bulk export to CSV or Excel (row 2.8b, ./export-service)
+ *   Upload may be CSV or Excel (.xlsx); both are read into the same sheet shape.
  *
  * The permission to change a job is `integration.import_job.*`; on top of that the caller
  * must hold the target's own create permission (a custom type's `custom.<key>.create`), so
@@ -28,6 +30,7 @@ import { MAX_PAGE_SIZE } from '../db/repository.js';
 import { ValidationError } from '../http/errors.js';
 import { problemSchema, registerRoute } from '../http/openapi.js';
 import type { PermissionService } from '../permissions/permission-service.js';
+import type { ExportJobRow, ExportService } from './export-service.js';
 import type { ImportQueue } from './import-queue.js';
 import type { ImportJobRow, ImportRowRow, ImportService } from './import-service.js';
 import type { ImportTargets } from './import-targets.js';
@@ -169,17 +172,59 @@ const toRowItem = (row: ImportRowRow) => ({
   errors: row.errors as { path: string; code: string; message: string }[],
 });
 
+const exportCreate = z.strictObject({
+  entityKey,
+  format: z.enum(['csv', 'xlsx']),
+  /** Exact field values to filter by, `field key -> value`. */
+  filters: z.record(z.string().regex(/^[a-z][a-z0-9_]{0,59}$/), z.string().max(500)).default({}),
+  companyId: z.uuid().optional(),
+});
+const exportList = z.object({
+  entityKey: entityKey.optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(50),
+});
+const exportItem = z
+  .object({
+    id: z.uuid(),
+    entityKey: z.string(),
+    format: z.string(),
+    filters: z.record(z.string(), z.unknown()),
+    status: z.string(),
+    rowCount: z.number().int(),
+    fileObjectId: z.uuid().nullable(),
+    error: z.string().nullable(),
+    createdAt: z.iso.datetime(),
+  })
+  .meta({ id: 'ExportJob' });
+
+export function toExportItem(row: ExportJobRow) {
+  return {
+    id: row.id,
+    entityKey: row.entityKey,
+    format: row.format,
+    filters: row.filters as Record<string, unknown>,
+    status: row.status,
+    rowCount: row.rowCount,
+    fileObjectId: row.fileObjectId,
+    error: row.error,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
 export interface ImportRouterDeps {
   uow: UnitOfWork;
   registry: OpenAPIRegistry;
   permissions: PermissionService;
   service: ImportService;
+  exports: ExportService;
   queue: ImportQueue;
   targets: ImportTargets;
 }
 
 export function createImportRouter(deps: ImportRouterDeps): Router {
   const { uow, registry, permissions, service, queue, targets } = deps;
+  const exportService = deps.exports;
   const router = Router();
   const tags = ['Imports'];
 
@@ -298,6 +343,35 @@ export function createImportRouter(deps: ImportRouterDeps): Router {
     res.json(toJobItem(await uow.run(() => service.rollback(id, body.reason))));
   });
 
+  // Bulk export: the file is built in the request and downloaded from `/files/{id}/download-url`.
+  router.post('/exports', async (req, res) => {
+    const body = exportCreate.parse(req.body);
+    const job = await uow.run(() =>
+      exportService.run({
+        entityKey: body.entityKey,
+        format: body.format,
+        filters: body.filters,
+        ...(body.companyId === undefined ? {} : { companyId: body.companyId }),
+      }),
+    );
+    res.status(201).json(toExportItem(job));
+  });
+  router.get('/exports', async (req, res) => {
+    const query = exportList.parse(req.query);
+    const page = await uow.run(() =>
+      exportService.list({
+        page: query.page,
+        pageSize: query.pageSize,
+        ...(query.entityKey === undefined ? {} : { entityKey: query.entityKey }),
+      }),
+    );
+    res.json({ ...page, items: page.items.map(toExportItem) });
+  });
+  router.get('/exports/:id', async (req, res) => {
+    const { id } = idParams.parse(req.params);
+    res.json(toExportItem(await uow.run(() => exportService.get(id))));
+  });
+
   const problem = (description: string) => ({
     description,
     content: { 'application/problem+json': { schema: problemSchema } },
@@ -381,6 +455,43 @@ export function createImportRouter(deps: ImportRouterDeps): Router {
       202: ok(jobItem, 'Queued'),
       422: problem('Rows have errors, nothing to import, or wrong state'),
     },
+  });
+  registerRoute(registry, {
+    method: 'post',
+    path: '/exports',
+    tags,
+    summary: 'Export every record of a type (optionally filtered) to CSV or Excel',
+    request: { body: body(exportCreate) },
+    responses: {
+      201: ok(exportItem, 'The export and its file'),
+      404: problem('This record type cannot be exported'),
+      422: problem('Too many rows: add a filter'),
+    },
+  });
+  registerRoute(registry, {
+    method: 'get',
+    path: '/exports',
+    tags,
+    summary: 'List exports, newest first',
+    request: { query: exportList },
+    responses: {
+      200: ok(
+        z.object({
+          items: z.array(exportItem),
+          total: z.number().int(),
+          page: z.number().int(),
+          pageSize: z.number().int(),
+        }),
+      ),
+    },
+  });
+  registerRoute(registry, {
+    method: 'get',
+    path: '/exports/{id}',
+    tags,
+    summary: 'One export',
+    request: { params: idParams },
+    responses: { 200: ok(exportItem), 404: problem('No such export') },
   });
   registerRoute(registry, {
     method: 'post',

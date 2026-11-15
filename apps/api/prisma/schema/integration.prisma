@@ -94,3 +94,31 @@ model ImportResult {
   @@map("import_result")
   @@schema("integration")
 }
+
+model ExportJob {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  entityKey    String    @map("entity_key")
+  format       String
+  filters      Json      @default("{}")
+  status       String    @default("completed")
+  rowCount     Int       @default(0) @map("row_count")
+  fileObjectId String?   @map("file_object_id") @db.Uuid
+  error        String?
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company Company     @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "export_job_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  file    FileObject? @relation(fields: [companyId, fileObjectId], references: [companyId, id], map: "export_job_file_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([companyId, id(sort: Desc)], map: "export_job_company_idx", where: raw("deleted_at IS NULL"))
+  @@map("export_job")
+  @@schema("integration")
+}

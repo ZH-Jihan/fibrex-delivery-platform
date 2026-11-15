@@ -51,12 +51,14 @@ import {
 } from '../http/errors.js';
 import type { PermissionService } from '../permissions/permission-service.js';
 import type { ImportTargets } from './import-targets.js';
+import { readXlsx } from './xlsx-sheet.js';
 
 export type ImportJobRow = NonNullable<Awaited<ReturnType<Db['importJob']['findFirst']>>>;
 export type ImportRowRow = NonNullable<Awaited<ReturnType<Db['importRow']['findFirst']>>>;
 
-/** File types a sheet may have: CSV, plain text, and what Excel calls a "CSV" upload. */
-const SHEET_MIME_TYPES = new Set(['text/csv', 'text/plain', 'application/vnd.ms-excel']);
+/** File types a sheet may have: CSV, plain text, what Excel calls a "CSV" upload, and .xlsx. */
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const SHEET_MIME_TYPES = new Set(['text/csv', 'text/plain', 'application/vnd.ms-excel', XLSX_MIME]);
 const ROW_CHUNK = 1000;
 
 export interface ImportServiceDeps {
@@ -125,12 +127,13 @@ export class ImportService {
     if (createHash('sha256').update(bytes).digest('hex') !== raw.sha256) {
       throw new UnprocessableError('file_changed', 'The stored file no longer matches its record.');
     }
-    return this.parse(bytes);
+    return this.parse(bytes, file.mimeType);
   }
 
-  private parse(bytes: Buffer) {
+  /** CSV text or an .xlsx workbook (first sheet), by the file's declared type. */
+  private async parse(bytes: Buffer, mimeType: string) {
     try {
-      return parseCsv(bytes.toString('utf8'));
+      return mimeType === XLSX_MIME ? await readXlsx(bytes) : parseCsv(bytes.toString('utf8'));
     } catch (err) {
       if (err instanceof SheetError) {
         throw new ValidationError([{ path: 'file', code: err.code, message: err.message }]);
@@ -167,7 +170,7 @@ export class ImportService {
         {
           path: 'fileObjectId',
           code: 'not_a_csv',
-          message: 'Save the sheet as CSV (comma separated) and upload that.',
+          message: 'Upload the sheet as a CSV or Excel (.xlsx) file.',
         },
       ]);
     }
@@ -177,7 +180,7 @@ export class ImportService {
         { path: 'fileObjectId', code: 'file_missing', message: 'The file is not in storage.' },
       ]);
     }
-    const sheet = this.parse(bytes);
+    const sheet = await this.parse(bytes, file.mimeType);
 
     // The same bytes imported and committed before is probably a double upload: warn, do not block.
     const sha256 = file.sha256;
