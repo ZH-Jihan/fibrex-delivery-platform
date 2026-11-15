@@ -5,7 +5,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | Phase | Title | Status | Accepted on | Notes |
 | --- | --- | --- | --- | --- |
 | 1 | Foundation A | Done (13 of 13 commits), awaiting acceptance | | Plan: `docs/phases/phase-01-plan.md` |
-| 2 | Foundation B | In progress (1 of 20 rows) | | Plan: `docs/phases/phase-02-plan.md` |
+| 2 | Foundation B | In progress (2 of 20 rows) | | Plan: `docs/phases/phase-02-plan.md` |
 | 3 | People and documents | Not started | | |
 | 4 | Performance and tracking | Not started | | |
 | 5 | Inventory and fleet | Not started | | |
@@ -56,6 +56,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | Row | What | Verified |
 | --- | --- | --- |
 | 2.1 | Module registry (`kernel/module-registry`): `ModuleManifest` (permissions, routers, event types, nav, settings, reports, recycle-bin types, attachables), `ModuleRegistry` with ownership and permission-reference checks, `GET /modules`; party, files and notify return manifests and `main.ts` registers them; web menu built by `buildNav` from per-feature `manifest.ts` (`shell/nav.ts` `WEB_MODULES`); Phase 2 decisions recorded. Next: row 2.2 Numbering service (S) | 249 API + 35 web + 43 package tests pass (6 new); lint and typecheck clean. Two integration timeouts in the first full run (organisation, schema drift) passed on re-run; they were load right after Docker started |
+| 2.2 | Numbering service (`kernel/numbering`, `packages/shared/src/numbering`): patterns `L{0000}`, `INV-{YYYY}-{00000}` (tokens in DECISIONS), gapless allocation with `SELECT ... FOR UPDATE` in the caller's transaction, yearly/monthly resets, `next_value` never lowered, module defaults on first use; `/number-sequences` CRUD + preview + next, recycle bin; settings screen `/organisation/numbering`. Next: row 2.3 Lookups (M) | 258 API + 38 web + 48 package tests pass (15 new); lint and typecheck clean |
 
 ## Phase 1 summary
 
@@ -69,7 +70,7 @@ Deferred: the list below, plus audit export to write-once storage, data-scope id
 - Socket.IO push for the notification bell (the bell polls every 30 s).
 - User permission overrides and data-scope screens (the API exists).
 - API clients screens (the API exists).
-- Organisation: zones and teams, number sequences and company module flags (no API yet); company create and logo.
+- Organisation: zones and teams and company module flags (no API yet); company create and logo. (Number sequences: done in 2.2.)
 
 ## Next
 

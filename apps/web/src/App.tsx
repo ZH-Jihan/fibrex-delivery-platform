@@ -25,6 +25,7 @@ import { I18nProvider, useI18n } from './i18n';
 import { HomePage, NotFoundPage } from './shell/pages';
 import { AppShell } from './shell/AppShell';
 import { MatrixPage } from './admin/MatrixPage';
+import { NumberSequencesPage } from './org/NumberSequencesPage';
 import { BranchesPage, CompanyPage } from './org/OrganisationPages';
 import { RolesPage } from './admin/RolesPage';
 import { UserDetailPage, UsersPage } from './admin/UsersPage';
@@ -150,6 +151,14 @@ function Gate() {
           element={
             <Guarded permission="platform.branch.read">
               <BranchesPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="organisation/numbering"
+          element={
+            <Guarded permission="platform.number_sequence.read">
+              <NumberSequencesPage />
             </Guarded>
           }
         />

@@ -1,8 +1,8 @@
 /**
- * Menu entries of the organisation screens (company, branches).
+ * Menu entries of the organisation screens (company, branches, numbering sequences).
  * Depends on: shell/manifest.ts, lucide-react. Used by: shell/nav.ts.
  */
-import { Building2, MapPin } from 'lucide-react';
+import { Building2, Hash, MapPin } from 'lucide-react';
 import type { WebModuleManifest } from '../shell/manifest';
 
 export const orgManifest: WebModuleManifest = {
@@ -22,6 +22,12 @@ export const orgManifest: WebModuleManifest = {
           label: 'nav.branches',
           permission: 'platform.branch.read',
           icon: MapPin,
+        },
+        {
+          to: '/organisation/numbering',
+          label: 'nav.numbering',
+          permission: 'platform.number_sequence.read',
+          icon: Hash,
         },
       ],
     },

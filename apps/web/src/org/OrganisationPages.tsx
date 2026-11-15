@@ -4,7 +4,8 @@
  * financial year start and status (the base currency is shown but cannot change; companies
  * are not created here). Branches: list, create, edit, set head office, delete with a
  * reason (the head office cannot be deleted; the API refuses it and the message is shown).
- * Zones and teams, number sequences and module flags have no API yet (see PROGRESS.md).
+ * Zones and teams and module flags have no API yet (see PROGRESS.md); numbering sequences
+ * are in NumberSequencesPage.tsx.
  * Depends on: api client, ui components, shared schemas. Used by: App.tsx routes.
  */
 import { useCallback, useEffect, useState } from 'react';

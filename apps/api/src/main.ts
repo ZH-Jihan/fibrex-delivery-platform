@@ -43,6 +43,11 @@ import { createPool } from './kernel/db/pool.js';
 import { createPrisma } from './kernel/db/prisma.js';
 import { UnitOfWork } from './kernel/db/unit-of-work.js';
 import { ModuleRegistry, createModuleRouter } from './kernel/module-registry/index.js';
+import {
+  createNumberSequenceRepository,
+  createNumberingRouter,
+} from './kernel/numbering/numbering-router.js';
+import { NumberingService } from './kernel/numbering/numbering-service.js';
 import { createLogger } from './kernel/observability/logger.js';
 import { createAccessAdminRouter } from './kernel/permissions/access-admin-router.js';
 import { AccessAdminService } from './kernel/permissions/access-admin-service.js';
@@ -128,6 +133,13 @@ async function main(): Promise<void> {
     label: 'Branch',
     repository: createBranchRepository(),
     describe: (branch) => `${branch.code} (${branch.name})`,
+  });
+  recycleBin.register({
+    entityType: 'platform.number_sequence',
+    moduleKey: 'platform',
+    label: 'Numbering sequence',
+    repository: createNumberSequenceRepository(),
+    describe: (sequence) => `${sequence.key} (${sequence.format})`,
   });
   recycleBin.register({
     entityType: 'iam.api_client',
@@ -237,6 +249,9 @@ async function main(): Promise<void> {
       api.use(createImpersonationRouter({ uow, registry, permissions, admin, auth, tokens, env }));
       api.use(createApiClientRouter({ uow, registry, permissions, auth }));
       api.use(createOrganisationRouter({ uow, registry, permissions }));
+      api.use(
+        createNumberingRouter({ uow, registry, permissions, numbering: new NumberingService() }),
+      );
       // Module manifests. A new module is one more `modules.register(...)` line here.
       modules.register(
         createPartyModule({

@@ -33,7 +33,7 @@ describe('buildNav', () => {
     expect(WEB_MODULES.map((m) => m.key)).toEqual(['iam', 'audit', 'platform', 'party']);
     expect(NAV.map((g) => [g.label, g.items.map((i) => i.to)])).toEqual([
       ['nav.admin', ['/users', '/roles', '/permission-matrix', '/audit', '/recycle-bin']],
-      ['nav.org', ['/organisation/company', '/organisation/branches']],
+      ['nav.org', ['/organisation/company', '/organisation/branches', '/organisation/numbering']],
       ['nav.people.group', ['/people']],
     ]);
     // Every entry has an icon and a permission; the shell relies on both.
