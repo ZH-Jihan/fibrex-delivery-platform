@@ -556,12 +556,13 @@ export function layoutProblems(
  * text boxes; `buildEntityBody` and `buildFieldBody` turn a checked form into the API body.
  * Used by: apps/web org/EntityBuilderPage.
  */
-const optionalLabel = z.string().trim().max(200);
+// Empty boxes are dropped by the form before validation, so optional boxes arrive as undefined.
+const optionalLabel = z.string().trim().max(200).optional();
 export const entityTypeFormSchema = z.strictObject({
   key: z.string().trim().regex(entityKeyPattern, 'Use lower-case letters, digits and _'),
   labelEn: z.string().trim().min(1, 'Required').max(200),
   labelBn: optionalLabel,
-  numberingKey: z.string().trim().max(60),
+  numberingKey: z.string().trim().max(60).optional(),
 });
 export type EntityTypeForm = z.infer<typeof entityTypeFormSchema>;
 
@@ -572,14 +573,18 @@ export const fieldFormSchema = z.strictObject({
   type: z.enum(FIELD_TYPES),
   required: z.boolean(),
   sortOrder: z.coerce.number().int().min(-1_000_000).max(1_000_000),
-  lookupTypeId: z.string().trim(),
-  refEntityKey: z.string().trim().max(100),
+  lookupTypeId: z.string().trim().optional(),
+  refEntityKey: z.string().trim().max(100).optional(),
 });
 export type FieldForm = z.infer<typeof fieldFormSchema>;
 
 /** Labels object from the English and Bengali boxes (empty boxes are left out). */
-export function entityLabels(form: { labelEn: string; labelBn: string }): Record<string, string> {
+export function entityLabels(form: {
+  labelEn: string;
+  labelBn?: string | undefined;
+}): Record<string, string> {
   const out: Record<string, string> = { en: form.labelEn.trim() };
-  if (form.labelBn.trim() !== '') out.bn = form.labelBn.trim();
+  const bn = (form.labelBn ?? '').trim();
+  if (bn !== '') out.bn = bn;
   return out;
 }

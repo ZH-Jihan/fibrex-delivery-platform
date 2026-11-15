@@ -1,5 +1,5 @@
 // Tests for phase 2 row 2.6a: the record-type builder screen.
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -108,6 +108,64 @@ describe('record-type builder', () => {
     await userEvent.click(await screen.findByRole('button', { name: /publish/i }));
     await waitFor(() => {
       expect(calls.some((c) => c.method === 'POST' && c.path.endsWith('/publish'))).toBe(true);
+    });
+  });
+
+  it('saves a record type with only Key and Name (English) filled in', async () => {
+    const calls = stub({
+      ...signedIn(['platform.entity_definition.read', 'platform.entity_definition.create']),
+      'GET /entity-definitions': () => json(200, { items: [], total: 0 }),
+      'GET /lookup-types': () => json(200, { items: [], total: 0 }),
+      'POST /entity-definitions': () => json(201, entity),
+    });
+    render(wrap(<EntityBuilderPage />));
+    await userEvent.click(await screen.findByRole('button', { name: /new record type/i }));
+    await userEvent.type(await screen.findByLabelText(/^key/i), 'site_visit');
+    await userEvent.type(screen.getByLabelText(/name \(english\)/i), 'Site visit');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => {
+      expect(calls.some((c) => c.method === 'POST' && c.path === '/entity-definitions')).toBe(true);
+    });
+    expect(screen.queryByText(/this field is required/i)).toBeNull();
+    const post = calls.find((c) => c.method === 'POST' && c.path === '/entity-definitions');
+    expect(post?.body).toEqual({
+      key: 'site_visit',
+      name: { en: 'Site visit' },
+      numberingKey: null,
+    });
+  });
+
+  it('saves a plain field with only Key and Name (English) filled in', async () => {
+    const calls = stub({
+      ...signedIn([
+        'platform.entity_definition.read',
+        'platform.field_definition.read',
+        'platform.field_definition.create',
+      ]),
+      'GET /entity-definitions': () => json(200, { items: [entity], total: 1 }),
+      'GET /lookup-types': () => json(200, { items: [], total: 0 }),
+      'GET /field-definitions': () => json(200, { items: [], total: 0 }),
+      'POST /field-definitions': () => json(201, {}),
+    });
+    render(wrap(<EntityBuilderPage />));
+    await screen.findByText('inspection');
+    await userEvent.click(await screen.findByRole('button', { name: /^fields$/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /new field/i }));
+    const form = (await screen.findByLabelText(/^key/i)).closest('form');
+    if (form === null) throw new Error('field form not found');
+    await userEvent.type(within(form).getByLabelText(/^key/i), 'notes');
+    await userEvent.type(within(form).getByLabelText(/name \(english\)/i), 'Notes');
+    await userEvent.click(within(form).getByRole('button', { name: /^save$/i }));
+    await waitFor(() => {
+      expect(calls.some((c) => c.method === 'POST' && c.path === '/field-definitions')).toBe(true);
+    });
+    expect(screen.queryByText(/this field is required/i)).toBeNull();
+    const post = calls.find((c) => c.method === 'POST' && c.path === '/field-definitions');
+    expect(post?.body).toMatchObject({
+      key: 'notes',
+      label: { en: 'Notes' },
+      lookupTypeId: null,
+      refEntityKey: null,
     });
   });
 

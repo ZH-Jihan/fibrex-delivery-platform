@@ -211,7 +211,10 @@ export function EntityBuilderPage() {
             }}
             onSubmit={async (raw) => {
               const form = raw as EntityTypeForm;
-              const numberingKey = form.numberingKey === '' ? null : form.numberingKey;
+              const numberingKey =
+                form.numberingKey === undefined || form.numberingKey === ''
+                  ? null
+                  : form.numberingKey;
               if (editingEntity === 'new') {
                 await api('/entity-definitions', {
                   method: 'POST',
@@ -369,8 +372,14 @@ export function EntityBuilderPage() {
                       type: form.type,
                       required: form.required,
                       sortOrder: form.sortOrder,
-                      lookupTypeId: form.lookupTypeId === '' ? null : form.lookupTypeId,
-                      refEntityKey: form.refEntityKey === '' ? null : form.refEntityKey,
+                      lookupTypeId:
+                        form.lookupTypeId === undefined || form.lookupTypeId === ''
+                          ? null
+                          : form.lookupTypeId,
+                      refEntityKey:
+                        form.refEntityKey === undefined || form.refEntityKey === ''
+                          ? null
+                          : form.refEntityKey,
                     },
                   });
                 } else {
