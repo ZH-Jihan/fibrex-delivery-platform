@@ -42,6 +42,8 @@ export interface StorageAdapter {
   readonly bucket: string;
   /** Stores bytes the server itself produced (a generated PDF), without a browser upload. */
   store(key: string, bytes: Buffer, contentType: string): Promise<void>;
+  /** The whole object, for server-side work such as reading an uploaded sheet; null when absent. */
+  read(key: string): Promise<Buffer | null>;
   presignUpload(request: UploadRequest): Promise<SignedUpload>;
   presignDownload(request: DownloadRequest): Promise<string>;
   /** Reads the object and reports its size, SHA-256 and first bytes; null when absent. */

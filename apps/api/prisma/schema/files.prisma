@@ -75,6 +75,7 @@ model RawInput {
 
   company Company     @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "raw_input_company_fk", onDelete: NoAction, onUpdate: NoAction)
   file    FileObject? @relation(fields: [companyId, fileObjectId], references: [companyId, id], map: "raw_input_file_fk", onDelete: NoAction, onUpdate: NoAction)
+  importJobs ImportJob[]
 
   @@index([companyId, kind, receivedAt(sort: Desc)], map: "raw_input_kind_idx")
   @@map("raw_input")

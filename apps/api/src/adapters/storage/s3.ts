@@ -62,6 +62,18 @@ export class S3StorageAdapter implements StorageAdapter {
     );
   }
 
+  async read(key: string): Promise<Buffer | null> {
+    try {
+      const out = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+      if (out.Body === undefined) return null;
+      return Buffer.from(await out.Body.transformToByteArray());
+    } catch (err) {
+      const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+      if (status === 404 || (err as { name?: string }).name === 'NoSuchKey') return null;
+      throw err;
+    }
+  }
+
   async presignUpload(request: UploadRequest): Promise<SignedUpload> {
     const url = await getSignedUrl(
       this.client,

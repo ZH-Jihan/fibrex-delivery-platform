@@ -1,0 +1,96 @@
+// Schema `integration`: imports (PLAN 3.8). The SQL in
+// migrations/20261116000100_integration_import is the source of truth (see base.prisma).
+
+model ImportMapping {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  entityKey    String    @map("entity_key")
+  name         String
+  columnMap    Json      @map("column_map")
+  transforms   Json      @default("{}")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  tenant Tenant      @relation(fields: [tenantId], references: [id], map: "import_mapping_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+  jobs   ImportJob[]
+
+  @@unique([tenantId, id], map: "import_mapping_tenant_id_uq")
+  @@unique([tenantId, entityKey, name], map: "import_mapping_name_uq", where: { deletedAt: null })
+  @@map("import_mapping")
+  @@schema("integration")
+}
+
+model ImportJob {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  entityKey    String    @map("entity_key")
+  rawInputId   String    @map("raw_input_id") @db.Uuid
+  mappingId    String?   @map("mapping_id") @db.Uuid
+  mapping      Json?
+  status       String    @default("uploaded")
+  previewNo    Int       @default(0) @map("preview_no")
+  stats        Json      @default("{}")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company  Company        @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "import_job_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  rawInput RawInput       @relation(fields: [rawInputId], references: [id], map: "import_job_raw_input_fk", onDelete: NoAction, onUpdate: NoAction)
+  savedMapping ImportMapping? @relation(fields: [tenantId, mappingId], references: [tenantId, id], map: "import_job_mapping_fk", onDelete: NoAction, onUpdate: NoAction)
+  rows     ImportRow[]
+  results  ImportResult[]
+
+  @@unique([companyId, id], map: "import_job_company_id_uq")
+  @@index([companyId, status, id(sort: Desc)], map: "import_job_status_idx", where: raw("deleted_at IS NULL"))
+  @@map("import_job")
+  @@schema("integration")
+}
+
+model ImportRow {
+  id          String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  importJobId String   @map("import_job_id") @db.Uuid
+  previewNo   Int      @map("preview_no")
+  rowNo       Int      @map("row_no")
+  raw         Json
+  normalised  Json     @default("{}")
+  errors      Json     @default("[]")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy   String?  @map("created_by") @db.Uuid
+
+  job ImportJob @relation(fields: [companyId, importJobId], references: [companyId, id], map: "import_row_job_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([importJobId, previewNo, rowNo], map: "import_row_no_uq")
+  @@map("import_row")
+  @@schema("integration")
+}
+
+model ImportResult {
+  id              String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  companyId       String   @map("company_id") @db.Uuid
+  importJobId     String   @map("import_job_id") @db.Uuid
+  rowNo           Int      @map("row_no")
+  createdEntityId String   @map("created_entity_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy       String?  @map("created_by") @db.Uuid
+
+  job ImportJob @relation(fields: [companyId, importJobId], references: [companyId, id], map: "import_result_job_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([importJobId, rowNo], map: "import_result_row_uq")
+  @@map("import_result")
+  @@schema("integration")
+}

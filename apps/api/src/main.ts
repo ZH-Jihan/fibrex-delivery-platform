@@ -65,6 +65,13 @@ import {
   createNumberingRouter,
 } from './kernel/numbering/numbering-router.js';
 import { NumberingService } from './kernel/numbering/numbering-service.js';
+import { ImportQueue } from './kernel/imports/import-queue.js';
+import {
+  createImportMappingRepository,
+  createImportRouter,
+} from './kernel/imports/import-router.js';
+import { ImportService } from './kernel/imports/import-service.js';
+import { customRecordTarget, ImportTargets } from './kernel/imports/import-targets.js';
 import { createRecordRouter } from './kernel/records/record-router.js';
 import { FILE_ENTITY_TYPE, RecordService } from './kernel/records/record-service.js';
 import { createLogger } from './kernel/observability/logger.js';
@@ -330,6 +337,19 @@ async function main(): Promise<void> {
     describe: (record) => record.number ?? record.id,
   });
 
+  // Generic import (row 2.8a): every published custom record type is importable; a module
+  // that wants its own table importable registers a target here.
+  const importTargets = new ImportTargets((key) => customRecordTarget({ records, entities }, key));
+  const importService = new ImportService({ uow, storage, permissions, targets: importTargets });
+  const importQueue = new ImportQueue({ redisUrl: env.REDIS_URL, service: importService, logger });
+  recycleBin.register({
+    entityType: 'integration.import_mapping',
+    moduleKey: 'integration',
+    label: 'Import mapping',
+    repository: createImportMappingRepository(),
+    describe: (mapping) => `${mapping.name} (${mapping.entityKey})`,
+  });
+
   const app = createApp({
     env,
     logger,
@@ -356,6 +376,16 @@ async function main(): Promise<void> {
       api.use(createTemplateRouter({ uow, registry, permissions }));
       api.use(createEntityDefinitionRouter({ uow, registry, permissions, entities }));
       api.use(createRecordRouter({ uow, registry, permissions, records }));
+      api.use(
+        createImportRouter({
+          uow,
+          registry,
+          permissions,
+          service: importService,
+          queue: importQueue,
+          targets: importTargets,
+        }),
+      );
       // Module manifests. A new module is one more `modules.register(...)` line here.
       modules.register(
         createPartyModule({
@@ -377,7 +407,12 @@ async function main(): Promise<void> {
         createJobRouter({
           registry,
           authorize: permissions.authorize,
-          queues: () => [scheduler.getQueue(), emailQueue.getQueue(), pdfQueue.getQueue()],
+          queues: () => [
+            scheduler.getQueue(),
+            emailQueue.getQueue(),
+            pdfQueue.getQueue(),
+            importQueue.getQueue(),
+          ],
         }),
       );
       api.use(
@@ -417,6 +452,7 @@ async function main(): Promise<void> {
   await scheduler.start();
   emailQueue.startWorker();
   pdfQueue.startWorker();
+  importQueue.startWorker();
 
   const server = app.listen(env.PORT, () => {
     logger.info({ port: env.PORT }, 'Fibrex API listening');
@@ -440,6 +476,7 @@ async function main(): Promise<void> {
         scheduler.stop(),
         emailQueue.close(),
         pdfQueue.close(),
+        importQueue.close(),
       ])
         .then(() => Promise.allSettled([pool.end(), redis.quit()]))
         .then(() => {
