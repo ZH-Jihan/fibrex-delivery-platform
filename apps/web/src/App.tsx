@@ -34,6 +34,7 @@ import { UserDetailPage, UsersPage } from './admin/UsersPage';
 import { AuditPage } from './audit/AuditPage';
 import { RecycleBinPage } from './audit/RecycleBinPage';
 import { MePage } from './me/MePage';
+import { RecordsPage, RecordTypesIndexPage } from './records/RecordPages';
 import { PartiesPage } from './people/PartiesPage';
 import type { ReactNode } from 'react';
 import { ThemeProvider } from './theme/theme';
@@ -180,6 +181,8 @@ function Gate() {
             </Guarded>
           }
         />
+        <Route path="records" element={<RecordTypesIndexPage />} />
+        <Route path="records/:key" element={<RecordsPage />} />
         <Route path="login" element={<Navigate to="/" replace />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
