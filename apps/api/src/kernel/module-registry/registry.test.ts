@@ -17,7 +17,12 @@ function loans(extra: Partial<ModuleManifest> = {}): ModuleManifest {
     label: 'Loans',
     permissions: [permission('loans', 'loans.loan', 'read', 'View loans')],
     nav: [
-      { path: '/loans', labelKey: 'nav.loans', groupKey: 'nav.money', permission: 'loans.loan.read' },
+      {
+        path: '/loans',
+        labelKey: 'nav.loans',
+        groupKey: 'nav.money',
+        permission: 'loans.loan.read',
+      },
     ],
     eventTypes: [{ key: 'loans.loan.approved', moduleKey: 'loans', label: 'Loan approved' }],
     ...extra,
@@ -95,6 +100,16 @@ describe('ModuleRegistry', () => {
         ],
       });
     }).toThrow(/twice/);
+  });
+
+  it('collects built-in record types and refuses one outside the module', () => {
+    const registry = new ModuleRegistry({ kernelPermissions: KERNEL });
+    registry.register(loans({ entities: [{ key: 'loans.loan', name: { en: 'Loans' } }] }));
+    expect(registry.entities().map((e) => e.key)).toEqual(['loans.loan']);
+    const other = new ModuleRegistry({ kernelPermissions: KERNEL });
+    expect(() => {
+      other.register(loans({ entities: [{ key: 'party.party', name: { en: 'People' } }] }));
+    }).toThrow(ModuleRegistryError);
   });
 
   it('mounts routers in order, checks permission references, and is sealed afterwards', () => {

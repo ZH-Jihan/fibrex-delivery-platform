@@ -43,6 +43,12 @@ import { createPool } from './kernel/db/pool.js';
 import { createPrisma } from './kernel/db/prisma.js';
 import { UnitOfWork } from './kernel/db/unit-of-work.js';
 import {
+  createEntityDefinitionRepository,
+  createEntityDefinitionRouter,
+  createFieldDefinitionRepository,
+} from './kernel/entities/entity-definition-router.js';
+import { EntityDefinitionService } from './kernel/entities/entity-definition-service.js';
+import {
   createLookupRouter,
   createLookupTypeRepository,
   createLookupValueRepository,
@@ -250,6 +256,28 @@ async function main(): Promise<void> {
     },
   });
 
+  // Entity builder (row 2.4). The built-in record types come from the module manifests,
+  // read when a request needs them, by which time every module is registered.
+  const lookups = new LookupService();
+  const entities = new EntityDefinitionService({
+    lookups,
+    systemEntities: () => modules.entities(),
+  });
+  recycleBin.register({
+    entityType: 'platform.entity_definition',
+    moduleKey: 'platform',
+    label: 'Record type',
+    repository: createEntityDefinitionRepository(entities),
+    describe: (entity) => entity.key,
+  });
+  recycleBin.register({
+    entityType: 'platform.field_definition',
+    moduleKey: 'platform',
+    label: 'Field of a record type',
+    repository: createFieldDefinitionRepository(),
+    describe: (field) => field.key,
+  });
+
   const app = createApp({
     env,
     logger,
@@ -274,7 +302,8 @@ async function main(): Promise<void> {
       api.use(
         createNumberingRouter({ uow, registry, permissions, numbering: new NumberingService() }),
       );
-      api.use(createLookupRouter({ uow, registry, permissions, lookups: new LookupService() }));
+      api.use(createLookupRouter({ uow, registry, permissions, lookups }));
+      api.use(createEntityDefinitionRouter({ uow, registry, permissions, entities }));
       // Module manifests. A new module is one more `modules.register(...)` line here.
       modules.register(
         createPartyModule({

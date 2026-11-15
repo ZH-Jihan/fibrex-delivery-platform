@@ -68,6 +68,17 @@ export interface AttachableDef {
   exists(db: Db, id: string): Promise<boolean>;
 }
 
+/**
+ * A built-in record type that takes custom fields (PLAN 3.7: system entities are registered
+ * in `cfg.entity_definition` too). The entity engine creates the row for each tenant.
+ */
+export interface SystemEntityDef {
+  /** `<schema>.<table>`, e.g. `party.party`; the schema is the module key. */
+  key: string;
+  /** Name per language shown in the builder; English is required. */
+  name: Record<string, string>;
+}
+
 export interface ModuleManifest {
   /** Short unique key, the schema name: `party`, `files`, `notify`, later `loans` ... */
   key: string;
@@ -85,6 +96,8 @@ export interface ModuleManifest {
   recycleTypes?: readonly RecycleBinType[];
   /** Resources files can be attached to. */
   attachables?: readonly AttachableDef[];
+  /** Built-in record types administrators may add custom fields to. */
+  entities?: readonly SystemEntityDef[];
 }
 
 /** What `GET /modules` returns for one module: the manifest without code. */

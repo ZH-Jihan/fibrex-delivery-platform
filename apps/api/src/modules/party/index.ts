@@ -146,6 +146,8 @@ export function createPartyModule(deps: PartyModuleDeps): ModuleManifest {
         (r) => `${r.accountName} ${r.ibanMasked}`,
       ),
     ],
+    // Administrators may add custom fields to people and organisations (phase 2 row 2.4).
+    entities: [{ key: 'party.party', name: { en: 'People and organisations' } }],
     attachables: [
       {
         entityType: 'party.party',

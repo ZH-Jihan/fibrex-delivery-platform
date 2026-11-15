@@ -1,4 +1,4 @@
-// Schema `cfg`: configurable engines (PLAN 3.7). Row 2.3 adds the lookups.
+// Schema `cfg`: configurable engines (PLAN 3.7). Row 2.3 adds the lookups, row 2.4 the entity definitions.
 
 model LookupType {
   id             String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
@@ -18,6 +18,7 @@ model LookupType {
 
   tenant Tenant        @relation(fields: [tenantId], references: [id], map: "lookup_type_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
   values LookupValue[]
+  fieldDefinitions FieldDefinition[]
 
   @@unique([tenantId, id], map: "lookup_type_tenant_id_uq")
   @@unique([tenantId, key], map: "lookup_type_key_uq", where: { deletedAt: null })
@@ -52,5 +53,92 @@ model LookupValue {
   @@unique([lookupTypeId, code], map: "lookup_value_code_uq", where: { deletedAt: null })
   @@index([lookupTypeId, sortOrder], map: "lookup_value_list_idx", where: raw("deleted_at IS NULL"))
   @@map("lookup_value")
+  @@schema("cfg")
+}
+
+// Row 2.4: record types (entity definitions), their fields and the published versions.
+model EntityDefinition {
+  id                    String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId              String    @map("tenant_id") @db.Uuid
+  key                   String
+  name                  Json
+  kind                  String    @default("custom")
+  jsonSchema            Json      @default("{}") @map("json_schema")
+  listConfig            Json      @default("{}") @map("list_config")
+  formLayout            Json      @default("{}") @map("form_layout")
+  detailLayout          Json      @default("{}") @map("detail_layout")
+  numberingKey          String?   @map("numbering_key")
+  stateMachineId        String?   @map("state_machine_id") @db.Uuid
+  permissionModuleKey   String    @map("permission_module_key")
+  status                String    @default("draft")
+  publishedVersion      Int       @default(0) @map("published_version")
+  publishedAt           DateTime? @map("published_at") @db.Timestamptz(6)
+  hasUnpublishedChanges Boolean   @default(false) @map("has_unpublished_changes")
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy             String?   @map("created_by") @db.Uuid
+  updatedAt             DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy             String?   @map("updated_by") @db.Uuid
+  version               Int       @default(1)
+  deletedAt             DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy             String?   @map("deleted_by") @db.Uuid
+  deleteReason          String?   @map("delete_reason")
+
+  tenant   Tenant                    @relation(fields: [tenantId], references: [id], map: "entity_definition_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+  fields   FieldDefinition[]
+  versions EntityDefinitionVersion[]
+
+  @@unique([tenantId, id], map: "entity_definition_tenant_id_uq")
+  @@unique([tenantId, key], map: "entity_definition_key_uq", where: { deletedAt: null })
+  @@map("entity_definition")
+  @@schema("cfg")
+}
+
+model FieldDefinition {
+  id                 String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  entityDefinitionId String    @map("entity_definition_id") @db.Uuid
+  key                String
+  label              Json
+  type               String
+  validations        Json      @default("{}")
+  lookupTypeId       String?   @map("lookup_type_id") @db.Uuid
+  refEntityKey       String?   @map("ref_entity_key")
+  required           Boolean   @default(false)
+  sortOrder          Int       @default(0) @map("sort_order")
+  promotedColumn     String?   @map("promoted_column")
+  status             String    @default("draft")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy          String?   @map("created_by") @db.Uuid
+  updatedAt          DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy          String?   @map("updated_by") @db.Uuid
+  version            Int       @default(1)
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy          String?   @map("deleted_by") @db.Uuid
+  deleteReason       String?   @map("delete_reason")
+
+  entity     EntityDefinition @relation(fields: [tenantId, entityDefinitionId], references: [tenantId, id], map: "field_definition_entity_fk", onDelete: NoAction, onUpdate: NoAction)
+  lookupType LookupType?      @relation(fields: [tenantId, lookupTypeId], references: [tenantId, id], map: "field_definition_lookup_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id], map: "field_definition_tenant_id_uq")
+  @@unique([entityDefinitionId, key], map: "field_definition_key_uq", where: { deletedAt: null })
+  @@index([entityDefinitionId, sortOrder], map: "field_definition_list_idx", where: raw("deleted_at IS NULL"))
+  @@map("field_definition")
+  @@schema("cfg")
+}
+
+model EntityDefinitionVersion {
+  id                 String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  entityDefinitionId String   @map("entity_definition_id") @db.Uuid
+  versionNo          Int      @map("version_no")
+  definition         Json
+  jsonSchema         Json     @map("json_schema")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy          String?  @map("created_by") @db.Uuid
+
+  entity EntityDefinition @relation(fields: [tenantId, entityDefinitionId], references: [tenantId, id], map: "entity_definition_version_entity_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([entityDefinitionId, versionNo], map: "entity_definition_version_uq")
+  @@map("entity_definition_version")
   @@schema("cfg")
 }

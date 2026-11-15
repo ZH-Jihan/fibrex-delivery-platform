@@ -29,6 +29,7 @@ import type {
   ModuleManifest,
   ModuleSummary,
   NavEntryDef,
+  SystemEntityDef,
 } from './manifest.js';
 
 export class ModuleRegistryError extends Error {
@@ -70,6 +71,10 @@ export class ModuleRegistry {
     }
     for (const r of manifest.recycleTypes ?? []) {
       this.ownKey(manifest, 'recycle-bin type', r.entityType, r.moduleKey);
+    }
+    for (const e of manifest.entities ?? []) {
+      // The part before the dot is the owning module, as for every `<schema>.<table>` name.
+      this.ownKey(manifest, 'entity', e.key, e.key.split('.')[0] ?? '');
     }
     const seen = new Set<string>();
     for (const p of manifest.permissions) {
@@ -115,6 +120,10 @@ export class ModuleRegistry {
 
   attachables(): AttachableDef[] {
     return this.all().flatMap((m) => [...(m.attachables ?? [])]);
+  }
+
+  entities(): SystemEntityDef[] {
+    return this.all().flatMap((m) => [...(m.entities ?? [])]);
   }
 
   nav(): NavEntryDef[] {

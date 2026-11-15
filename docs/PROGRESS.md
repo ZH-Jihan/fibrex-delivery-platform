@@ -5,7 +5,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | Phase | Title | Status | Accepted on | Notes |
 | --- | --- | --- | --- | --- |
 | 1 | Foundation A | Done (13 of 13 commits), awaiting acceptance | | Plan: `docs/phases/phase-01-plan.md` |
-| 2 | Foundation B | In progress (3 of 20 rows) | | Plan: `docs/phases/phase-02-plan.md` |
+| 2 | Foundation B | In progress (4 of 20 rows) | | Plan: `docs/phases/phase-02-plan.md` |
 | 3 | People and documents | Not started | | |
 | 4 | Performance and tracking | Not started | | |
 | 5 | Inventory and fleet | Not started | | |
@@ -58,6 +58,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | 2.1 | Module registry (`kernel/module-registry`): `ModuleManifest` (permissions, routers, event types, nav, settings, reports, recycle-bin types, attachables), `ModuleRegistry` with ownership and permission-reference checks, `GET /modules`; party, files and notify return manifests and `main.ts` registers them; web menu built by `buildNav` from per-feature `manifest.ts` (`shell/nav.ts` `WEB_MODULES`); Phase 2 decisions recorded. Next: row 2.2 Numbering service (S) | 249 API + 35 web + 43 package tests pass (6 new); lint and typecheck clean. Two integration timeouts in the first full run (organisation, schema drift) passed on re-run; they were load right after Docker started |
 | 2.2 | Numbering service (`kernel/numbering`, `packages/shared/src/numbering`): patterns `L{0000}`, `INV-{YYYY}-{00000}` (tokens in DECISIONS), gapless allocation with `SELECT ... FOR UPDATE` in the caller's transaction, yearly/monthly resets, `next_value` never lowered, module defaults on first use; `/number-sequences` CRUD + preview + next, recycle bin; settings screen `/organisation/numbering`. Next: row 2.3 Lookups (M) | 258 API + 38 web + 48 package tests pass (15 new); lint and typecheck clean |
 | 2.3 | Lookups (`cfg` schema, migration `cfg_lookups`; `kernel/lookups`, `packages/shared/src/lookups`): `/lookup-types` and `/lookup-values` CRUD (code and key never change, English label required, parents only where allowed, no cycles, system lists undeletable), `GET /lookups/:key` with ETag/304, `LookupService.values/has`, seed of 10 starting lists (`seedLookups`, called by `pnpm db:seed`), screen `/organisation/lookups`. Next: row 2.4 | 272 API + 41 web + 53 package tests pass (14+3+5 new); lint and typecheck clean |
+| 2.4 | Entity and field definitions (migration `cfg_entities`; `kernel/entities`, `packages/shared/src/entities`): `/entity-definitions` and `/field-definitions` CRUD, draft then `POST /entity-definitions/:id/publish` (frozen copy per version in `entity_definition_version`, `GET .../versions`), 10 field types with per-type validations, shared `buildJsonSchema` + `validateRecordData`, `GET /entities/:key`, `POST /entities/:key/validate` (schema, then lookup codes), built-in types from module manifests (`entities`, party registers `party.party`), `docs/PROMOTING_A_FIELD.md`. Not built (row 2.5/2.6): existence checks for party, file and record references; storage of custom values; screens. Next: row 2.5 Custom records API (S) | 283 API + 41 web + 64 package tests pass (11+0+11 new); lint and typecheck clean |
 
 ## Phase 1 summary
 
