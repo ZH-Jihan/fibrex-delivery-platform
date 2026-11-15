@@ -12,13 +12,16 @@
  * The kernel's own keys are declared here. Modules declare theirs (built with
  * `crudPermissions`) in their manifest; `main.ts` syncs the kernel list plus
  * `ModuleRegistry.permissions()` (kernel/module-registry).
+ * The keys of custom record types (`custom.<key>.<action>`) are the one exception to "code
+ * declares": they are written when an administrator first publishes the type
+ * (kernel/entities/entity-definition-service.ts).
  * A key that code stops declaring is left in the table: removing it is a deliberate
  * migration, so no deploy can silently drop rows of the matrix.
  *
  * Depends on: kernel/db/prisma.ts. Used by: src/main.ts, ./permission-service.ts users,
  * integration tests.
  */
-import type { PrismaDb } from '../db/prisma.js';
+import type { Db } from '../db/prisma.js';
 
 export interface PermissionDef {
   key: string;
@@ -106,10 +109,11 @@ export const KERNEL_PERMISSIONS: readonly PermissionDef[] = [
 /**
  * Writes the definitions to `iam.permission`: new keys are inserted, changed wording is
  * updated, unchanged rows are not touched (so their version does not move on every start).
- * Safe to run from several API instances at once.
+ * Safe to run from several API instances at once. Takes the process-wide client (start-up)
+ * or a unit of work's client (publishing a custom record type adds its keys, row 2.5).
  */
 export async function syncPermissionCatalogue(
-  prisma: PrismaDb,
+  prisma: Pick<Db, '$executeRaw'>,
   defs: readonly PermissionDef[] = KERNEL_PERMISSIONS,
 ): Promise<void> {
   const seen = new Set<string>();

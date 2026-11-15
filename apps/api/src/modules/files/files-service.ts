@@ -86,6 +86,15 @@ export class FilesService {
     return companyId;
   }
 
+  /**
+   * True when the file exists and the caller may see it (row-level security applies). Other
+   * code asks this before storing a file id, for example in a custom record's file field.
+   */
+  async exists(id: string): Promise<boolean> {
+    const { db } = currentUnit();
+    return (await db.fileObject.findFirst({ where: { id }, select: { id: true } })) !== null;
+  }
+
   /** Step 1. Runs inside the unit of work the router opens. */
   async requestUpload(input: UploadRequestInput): Promise<{
     uploadToken: string;

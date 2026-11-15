@@ -230,7 +230,16 @@ export class AccessAdminService {
       where: { isActive: true },
       orderBy: [{ moduleKey: 'asc' }, { key: 'asc' }],
     });
-    return rows.map((p) => ({
+    // The catalogue is global, but the keys of custom record types (`custom.<key>.*`) come
+    // from each tenant's own definitions. Only this tenant's are shown, so one tenant never
+    // learns which record types another has defined.
+    const types = await this.db.entityDefinition.findMany({
+      where: { kind: 'custom' },
+      select: { key: true },
+    });
+    const own = new Set(types.map((type) => `custom.${type.key}`));
+    const visible = rows.filter((p) => p.moduleKey !== 'custom' || own.has(p.resource));
+    return visible.map((p) => ({
       key: p.key,
       moduleKey: p.moduleKey,
       resource: p.resource,

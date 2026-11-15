@@ -86,6 +86,7 @@ model EntityDefinition {
   tenant   Tenant                    @relation(fields: [tenantId], references: [id], map: "entity_definition_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
   fields   FieldDefinition[]
   versions EntityDefinitionVersion[]
+  records  CustomRecord[]
 
   @@unique([tenantId, id], map: "entity_definition_tenant_id_uq")
   @@unique([tenantId, key], map: "entity_definition_key_uq", where: { deletedAt: null })
@@ -140,5 +141,66 @@ model EntityDefinitionVersion {
 
   @@unique([entityDefinitionId, versionNo], map: "entity_definition_version_uq")
   @@map("entity_definition_version")
+  @@schema("cfg")
+}
+
+// Row 2.5: records of custom record types, and relations from them to other records.
+model CustomRecord {
+  id                 String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  companyId          String    @map("company_id") @db.Uuid
+  branchId           String?   @map("branch_id") @db.Uuid
+  entityDefinitionId String    @map("entity_definition_id") @db.Uuid
+  definitionVersion  Int       @map("definition_version")
+  number             String?
+  data               Json      @default("{}")
+  stateCode          String?   @map("state_code")
+  partyId            String?   @map("party_id") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy          String?   @map("created_by") @db.Uuid
+  updatedAt          DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy          String?   @map("updated_by") @db.Uuid
+  version            Int       @default(1)
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy          String?   @map("deleted_by") @db.Uuid
+  deleteReason       String?   @map("delete_reason")
+
+  company Company          @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "custom_record_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  branch  Branch?          @relation(fields: [companyId, branchId], references: [companyId, id], map: "custom_record_branch_fk", onDelete: NoAction, onUpdate: NoAction)
+  entity  EntityDefinition @relation(fields: [tenantId, entityDefinitionId], references: [tenantId, id], map: "custom_record_entity_fk", onDelete: NoAction, onUpdate: NoAction)
+  party   Party?           @relation(fields: [companyId, partyId], references: [companyId, id], map: "custom_record_party_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([companyId, id], map: "custom_record_company_id_uq")
+  @@unique([companyId, entityDefinitionId, number], map: "custom_record_number_uq")
+  @@index([companyId, entityDefinitionId, id], map: "custom_record_list_idx", where: raw("deleted_at IS NULL"))
+  @@index([data(ops: JsonbPathOps)], map: "custom_record_data_idx", type: Gin)
+  @@index([companyId, partyId], map: "custom_record_party_idx")
+  @@map("custom_record")
+  @@schema("cfg")
+}
+
+model RecordLink {
+  id             String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  fromEntityType String    @map("from_entity_type")
+  fromId         String    @map("from_id") @db.Uuid
+  toEntityType   String    @map("to_entity_type")
+  toId           String    @map("to_id") @db.Uuid
+  relationKey    String    @map("relation_key")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy      String?   @map("created_by") @db.Uuid
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  version        Int       @default(1)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy      String?   @map("deleted_by") @db.Uuid
+  deleteReason   String?   @map("delete_reason")
+
+  company Company @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "record_link_company_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([companyId, fromEntityType, fromId, relationKey, toEntityType, toId], map: "record_link_uq", where: { deletedAt: null })
+  @@index([companyId, toEntityType, toId], map: "record_link_to_idx")
+  @@map("record_link")
   @@schema("cfg")
 }

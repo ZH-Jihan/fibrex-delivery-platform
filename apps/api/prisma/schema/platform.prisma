@@ -168,6 +168,8 @@ model Company {
   partyBankAccounts   PartyBankAccount[]
   partyDuplicates     PartyDuplicateCandidate[]
   partyMerges         PartyMerge[]
+  customRecords       CustomRecord[]
+  recordLinks         RecordLink[]
 
   @@unique([tenantId, id], map: "company_tenant_id_uq")
   @@map("company")
@@ -193,6 +195,7 @@ model Branch {
 
   company  Company   @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "branch_company_fk", onDelete: NoAction, onUpdate: NoAction)
   orgUnits OrgUnit[]
+  customRecords CustomRecord[]
 
   @@unique([companyId, id], map: "branch_company_id_uq")
   @@unique([companyId, code], map: "branch_code_uq", where: { deletedAt: null })

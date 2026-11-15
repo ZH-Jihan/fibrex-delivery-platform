@@ -36,6 +36,7 @@ model Party {
   mergesAsSurvivor PartyMerge[]              @relation("MergeSurvivor")
   mergesAsMerged   PartyMerge[]              @relation("MergeMerged")
   users            UserAccount[]
+  customRecords    CustomRecord[]
 
   @@unique([companyId, id], map: "party_company_id_uq")
   @@unique([tenantId, id], map: "party_tenant_id_uq")

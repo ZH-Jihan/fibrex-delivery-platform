@@ -28,7 +28,7 @@
  *      and retired.
  *   7. A built-in ("system") record type is created by its module: it cannot be created,
  *      renamed or deleted here. A custom type cannot be deleted while a field of another
- *      type refers to it.
+ *      type refers to it, or while it has records (they would become unreachable).
  *
  * Depends on: express, zod, @fibrex/shared entities and lookups, kernel/db, kernel/http,
  * kernel/permissions, ./entity-definition-service.
@@ -332,6 +332,14 @@ export function createEntityDefinitionRepository(
           'entity_definition_in_use',
           'Fields of other record types refer to this one; remove or retire them first.',
           { fields: referring },
+        );
+      }
+      const records = await db.customRecord.count({ where: { entityDefinitionId: id } });
+      if (records > 0) {
+        throw new ConflictError(
+          'entity_definition_in_use',
+          'This record type has records; delete them first.',
+          { records },
         );
       }
       return base.softDelete(id, version, reason);

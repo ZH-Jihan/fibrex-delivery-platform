@@ -16,7 +16,13 @@
  * the whole definition, generates the schema, raises the version and stores a frozen copy.
  *
  * Not checked here: that a party, a file or a referenced record exists. Those need the
- * owning module and are checked by the records API (row 2.5).
+ * owning module and are checked by the records API (kernel/records).
+ *
+ * Permissions of a custom record type: its records are guarded by `custom.<key>.<action>`
+ * (read, create, update, delete, restore). The keys are written to the catalogue when the
+ * type is published, and on the first publish they are given to every role that may publish
+ * record types, so whoever defined the type can use it at once; everyone else gets access
+ * through the permission matrix.
  *
  * Row-level security applies as to any query: the unit of work has set the tenant context.
  *
@@ -45,6 +51,7 @@ import type { Db } from '../db/prisma.js';
 import { createRepository } from '../db/repository.js';
 import { currentUnit } from '../db/unit-of-work.js';
 import { NotFoundError, UnprocessableError, ValidationError } from '../http/errors.js';
+import { crudPermissions, syncPermissionCatalogue } from '../permissions/catalogue.js';
 import type { LookupService } from '../lookups/lookup-service.js';
 import type { SystemEntityDef } from '../module-registry/manifest.js';
 
@@ -311,6 +318,45 @@ export class EntityDefinitionService {
         createdBy: context.userId ?? null,
       },
     });
+
+    // Step 7: the permission keys of a custom type's records (see the header).
+    if (current.kind === 'custom') await this.grantRecordPermissions(current.key, versionNo === 1);
     return updated;
+  }
+
+  /**
+   * Writes `custom.<key>.*` to the permission catalogue and, on the first publish only,
+   * gives the keys to the roles that hold `platform.entity_definition.publish`.
+   *
+   * Why only the first time: an administrator may later take a key away from a role in the
+   * matrix, and publishing a new version must not quietly hand it back.
+   * The description names the key, not the type's name: the catalogue is shared by all
+   * tenants, and two tenants may use the same key for differently named types.
+   * Row-level security limits the roles read and the rows written to the caller's tenant.
+   */
+  private async grantRecordPermissions(key: string, firstPublish: boolean): Promise<void> {
+    const { db, context } = currentUnit();
+    const defs = crudPermissions('custom', `custom.${key}`, `"${key}" records`);
+    await syncPermissionCatalogue(db, defs);
+    if (!firstPublish) return;
+    await db.$executeRaw`
+      INSERT INTO iam.role_permission (tenant_id, role_id, permission_id)
+      SELECT ${context.tenantId}::uuid, holder.role_id, p.id
+      FROM (
+        SELECT DISTINCT rp.role_id
+        FROM iam.role_permission rp
+        JOIN iam.permission held ON held.id = rp.permission_id
+        JOIN iam.role r ON r.id = rp.role_id
+        WHERE held.key = 'platform.entity_definition.publish'
+          AND rp.deleted_at IS NULL
+          AND r.deleted_at IS NULL
+      ) holder
+      CROSS JOIN iam.permission p
+      WHERE p.key = ANY(${defs.map((d) => d.key)}::text[])
+        AND NOT EXISTS (
+          SELECT 1 FROM iam.role_permission existing
+          WHERE existing.role_id = holder.role_id
+            AND existing.permission_id = p.id
+            AND existing.deleted_at IS NULL)`;
   }
 }

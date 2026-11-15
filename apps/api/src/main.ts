@@ -41,7 +41,7 @@ import { ConfigError, loadEnv } from './kernel/config/env.js';
 import { SecretBox } from './kernel/crypto/secret-box.js';
 import { createPool } from './kernel/db/pool.js';
 import { createPrisma } from './kernel/db/prisma.js';
-import { UnitOfWork } from './kernel/db/unit-of-work.js';
+import { currentUnit, UnitOfWork } from './kernel/db/unit-of-work.js';
 import {
   createEntityDefinitionRepository,
   createEntityDefinitionRouter,
@@ -60,6 +60,8 @@ import {
   createNumberingRouter,
 } from './kernel/numbering/numbering-router.js';
 import { NumberingService } from './kernel/numbering/numbering-service.js';
+import { createRecordRouter } from './kernel/records/record-router.js';
+import { FILE_ENTITY_TYPE, RecordService } from './kernel/records/record-service.js';
 import { createLogger } from './kernel/observability/logger.js';
 import { createAccessAdminRouter } from './kernel/permissions/access-admin-router.js';
 import { AccessAdminService } from './kernel/permissions/access-admin-service.js';
@@ -278,6 +280,28 @@ async function main(): Promise<void> {
     describe: (field) => field.key,
   });
 
+  // Custom records (row 2.5). A field or a link may point at a record of a module (a party,
+  // a file): the owning module answers whether it exists, through what its manifest declares
+  // as attachable, so the kernel never reads a module's tables. Read per request, by which
+  // time every module is registered.
+  const numbering = new NumberingService();
+  const records = new RecordService({
+    entities,
+    numbering,
+    referenceExists: async (entityType, id) => {
+      if (entityType === FILE_ENTITY_TYPE) return files.exists(id);
+      const owner = modules.attachables().find((a) => a.entityType === entityType);
+      return owner?.exists(currentUnit().db, id);
+    },
+  });
+  recycleBin.register({
+    entityType: 'cfg.custom_record',
+    moduleKey: 'custom',
+    label: 'Custom record',
+    repository: records.binRepository(),
+    describe: (record) => record.number ?? record.id,
+  });
+
   const app = createApp({
     env,
     logger,
@@ -299,11 +323,10 @@ async function main(): Promise<void> {
       api.use(createImpersonationRouter({ uow, registry, permissions, admin, auth, tokens, env }));
       api.use(createApiClientRouter({ uow, registry, permissions, auth }));
       api.use(createOrganisationRouter({ uow, registry, permissions }));
-      api.use(
-        createNumberingRouter({ uow, registry, permissions, numbering: new NumberingService() }),
-      );
+      api.use(createNumberingRouter({ uow, registry, permissions, numbering }));
       api.use(createLookupRouter({ uow, registry, permissions, lookups }));
       api.use(createEntityDefinitionRouter({ uow, registry, permissions, entities }));
+      api.use(createRecordRouter({ uow, registry, permissions, records }));
       // Module manifests. A new module is one more `modules.register(...)` line here.
       modules.register(
         createPartyModule({

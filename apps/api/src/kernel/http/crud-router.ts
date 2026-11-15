@@ -23,6 +23,10 @@
  * send it back in `If-Match`. Missing header -> 428. Stale version -> 409 version_conflict
  * with the current record and the conflicting fields.
  *
+ * One router for many resources: when the path has a parameter (`/records/:entityKey`), the
+ * permission prefix and the repository may be functions of the request, so each record type
+ * gets its own permission keys and rules from the same six handlers.
+ *
  * Depends on: express, zod, ./openapi.ts, ./errors.ts, ../db/unit-of-work.ts,
  * ../db/repository.ts, ../db/optimistic-lock.ts. Used by: module routers (from commit 8).
  */
@@ -50,13 +54,16 @@ export interface CrudDeps {
 }
 
 export interface CrudOptions<TRow extends BaseRow> {
-  /** Route path under /api/v1, for example "/branches". */
+  /** Route path under /api/v1, for example "/branches" or "/records/:entityKey". */
   path: string;
-  /** Permission prefix, for example "platform.branch". */
-  resource: string;
+  /** Permission prefix, for example "platform.branch"; a function when it depends on the path. */
+  resource: string | ((req: Request) => string);
   /** OpenAPI tag, for example "Branches". */
   tag: string;
-  repository: Repository<TRow>;
+  /** The repository; a function when it depends on the path (it is called once per request). */
+  repository: Repository<TRow> | ((req: Request) => Repository<TRow>);
+  /** Schema of the path's own parameters (not `id`), for the OpenAPI document. */
+  pathParams?: z.ZodObject;
   schemas: {
     /** Body of POST. */
     create: z.ZodType<Record<string, unknown>>;
@@ -113,15 +120,26 @@ export function createCrudRouter<TRow extends BaseRow>(
   options: CrudOptions<TRow>,
 ): Router {
   const { uow, authorize, registry } = deps;
-  const { path, resource, tag, repository, schemas, toItem } = options;
+  const { path, resource, tag, schemas, toItem } = options;
   const router = Router();
+  const resourceOf = (req: Request): string =>
+    typeof resource === 'function' ? resource(req) : resource;
+  const repositoryOf = (req: Request): Repository<TRow> =>
+    typeof options.repository === 'function' ? options.repository(req) : options.repository;
 
   /** Runs one action inside a unit of work, after the permission check. */
-  async function perform<T>(action: CrudAction, work: () => Promise<T>): Promise<T> {
+  async function perform<T>(
+    action: CrudAction,
+    req: Request,
+    work: (repository: Repository<TRow>) => Promise<T>,
+  ): Promise<T> {
+    // Both are read before the transaction opens: a malformed path is a 400 without one.
+    const permission = `${resourceOf(req)}.${action}`;
+    const repository = repositoryOf(req);
     try {
       return await uow.run(async () => {
-        await authorize(`${resource}.${action}`);
-        return work();
+        await authorize(permission);
+        return work(repository);
       });
     } catch (err) {
       // Show the current record through the module's mapping, not as a raw database row.
@@ -145,39 +163,47 @@ export function createCrudRouter<TRow extends BaseRow>(
     const query = listQuery.parse(req.query);
     const filter = schemas.filter?.parse(req.query);
     const where = filter === undefined ? {} : (options.toWhere?.(filter) ?? {});
-    const result = await perform('read', () => repository.list({ ...query, where }));
+    const result = await perform('read', req, (repository) => repository.list({ ...query, where }));
     res.json({ ...result, items: result.items.map(toItem) });
   });
 
   router.get(`${path}/:id`, async (req, res) => {
     const id = idOf(req);
-    sendItem(res, 200, await perform('read', () => repository.get(id)));
+    sendItem(res, 200, await perform('read', req, (repository) => repository.get(id)));
   });
 
   router.post(path, async (req, res) => {
     const body = schemas.create.parse(req.body);
-    sendItem(res, 201, await perform('create', () => repository.create(body)));
+    sendItem(res, 201, await perform('create', req, (repository) => repository.create(body)));
   });
 
   router.patch(`${path}/:id`, async (req, res) => {
     const id = idOf(req);
     const version = parseIfMatch(req.get('If-Match'));
     const body = schemas.update.parse(req.body);
-    sendItem(res, 200, await perform('update', () => repository.update(id, version, body)));
+    sendItem(
+      res,
+      200,
+      await perform('update', req, (repository) => repository.update(id, version, body)),
+    );
   });
 
   router.delete(`${path}/:id`, async (req, res) => {
     const id = idOf(req);
     const version = parseIfMatch(req.get('If-Match'));
     const { reason } = deleteBody.parse(req.body ?? {});
-    await perform('delete', () => repository.softDelete(id, version, reason));
+    await perform('delete', req, (repository) => repository.softDelete(id, version, reason));
     res.status(204).end();
   });
 
   router.post(`${path}/:id/restore`, async (req, res) => {
     const id = idOf(req);
     const version = parseIfMatch(req.get('If-Match'));
-    sendItem(res, 200, await perform('restore', () => repository.restore(id, version)));
+    sendItem(
+      res,
+      200,
+      await perform('restore', req, (repository) => repository.restore(id, version)),
+    );
   });
 
   // ---- OpenAPI ------------------------------------------------------------------------
@@ -194,14 +220,20 @@ export function createCrudRouter<TRow extends BaseRow>(
   const noVersion = problem('If-Match header missing');
   const jsonBody = (schema: z.ZodType) => ({ content: { 'application/json': { schema } } });
   const tags = [tag];
-  const one = `${path}/{id}`;
+  // Express writes a path parameter as `:name`, OpenAPI as `{name}`.
+  const docPath = path.replace(/:([A-Za-z]+)/g, '{$1}');
+  const one = `${docPath}/{id}`;
+  const own = options.pathParams;
+  const oneParams = own === undefined ? idParams : own.extend(idParams.shape);
+  const listParams = own === undefined ? {} : { params: own };
 
   registerRoute(registry, {
     method: 'get',
-    path,
+    path: docPath,
     tags,
     summary: `List ${tag}`,
     request: {
+      ...listParams,
       query: z.object({
         page: z.coerce.number().int().min(1).optional(),
         pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).optional(),
@@ -229,15 +261,15 @@ export function createCrudRouter<TRow extends BaseRow>(
     path: one,
     tags,
     summary: `Read one of ${tag}`,
-    request: { params: idParams },
+    request: { params: oneParams },
     responses: { 200: item('The record'), 404: notFound },
   });
   registerRoute(registry, {
     method: 'post',
-    path,
+    path: docPath,
     tags,
     summary: `Create in ${tag}`,
-    request: { body: jsonBody(schemas.create) },
+    request: { ...listParams, body: jsonBody(schemas.create) },
     responses: { 201: item('Created'), 409: conflict },
   });
   registerRoute(registry, {
@@ -245,7 +277,7 @@ export function createCrudRouter<TRow extends BaseRow>(
     path: one,
     tags,
     summary: `Update one of ${tag}`,
-    request: { params: idParams, headers: ifMatchHeader, body: jsonBody(schemas.update) },
+    request: { params: oneParams, headers: ifMatchHeader, body: jsonBody(schemas.update) },
     responses: { 200: item('Updated'), 404: notFound, 409: conflict, 428: noVersion },
   });
   registerRoute(registry, {
@@ -253,7 +285,7 @@ export function createCrudRouter<TRow extends BaseRow>(
     path: one,
     tags,
     summary: `Delete one of ${tag} (soft delete; can be restored)`,
-    request: { params: idParams, headers: ifMatchHeader, body: jsonBody(deleteBody) },
+    request: { params: oneParams, headers: ifMatchHeader, body: jsonBody(deleteBody) },
     responses: {
       204: { description: 'Deleted' },
       404: notFound,
@@ -266,7 +298,7 @@ export function createCrudRouter<TRow extends BaseRow>(
     path: `${one}/restore`,
     tags,
     summary: `Restore a deleted one of ${tag}`,
-    request: { params: idParams, headers: ifMatchHeader },
+    request: { params: oneParams, headers: ifMatchHeader },
     responses: { 200: item('Restored'), 404: notFound, 409: conflict, 428: noVersion },
   });
 
