@@ -29,6 +29,8 @@ import { EntityBuilderPage } from './org/EntityBuilderPage';
 import { LookupsPage } from './org/LookupsPage';
 import { NumberSequencesPage } from './org/NumberSequencesPage';
 import { TemplatesPage } from './org/TemplatesPage';
+import { FormulasPage } from './org/FormulasPage';
+import { RateTablesPage } from './org/RateTablesPage';
 import { DataExchangePage } from './data/DataExchangePage';
 import { BranchesPage, CompanyPage } from './org/OrganisationPages';
 import { RolesPage } from './admin/RolesPage';
@@ -180,6 +182,22 @@ function Gate() {
           element={
             <Guarded permission="platform.template.read">
               <TemplatesPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="organisation/formulas"
+          element={
+            <Guarded permission="platform.formula.read">
+              <FormulasPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="organisation/rate-tables"
+          element={
+            <Guarded permission="platform.rate_table.read">
+              <RateTablesPage />
             </Guarded>
           }
         />

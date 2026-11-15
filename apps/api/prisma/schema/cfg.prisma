@@ -345,3 +345,57 @@ model FormulaVersion {
   @@map("formula_version")
   @@schema("cfg")
 }
+
+/// Parameter tables that formulas read (rate()) and `/rate-tables/{key}/resolve` answers.
+model RateTable {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  key          String
+  name         String
+  description  String?
+  dimensions   String[]  @default([])
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  tenant Tenant         @relation(fields: [tenantId], references: [id], map: "rate_table_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+  rows   RateTableRow[]
+
+  @@unique([tenantId, id], map: "rate_table_tenant_id_uq")
+  @@unique([tenantId, key], map: "rate_table_key_uq", where: { deletedAt: null })
+  @@map("rate_table")
+  @@schema("cfg")
+}
+
+/// One value of a rate table for some dimension values, with effective dates. The
+/// no-overlap exclusion constraint lives in the migration only.
+model RateTableRow {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  rateTableId  String    @map("rate_table_id") @db.Uuid
+  dims         Json      @default("{}")
+  value        Decimal   @db.Decimal(18, 4)
+  currency     String
+  validFrom    DateTime  @map("valid_from") @db.Date
+  validTo      DateTime? @map("valid_to") @db.Date
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  rateTable RateTable @relation(fields: [tenantId, rateTableId], references: [tenantId, id], map: "rate_table_row_table_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id], map: "rate_table_row_tenant_id_uq")
+  @@index([rateTableId, validFrom], map: "rate_table_row_resolve_idx", where: raw("deleted_at IS NULL"))
+  @@map("rate_table_row")
+  @@schema("cfg")
+}

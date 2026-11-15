@@ -11,6 +11,8 @@ import {
   Hash,
   ListTree,
   MapPin,
+  Sigma,
+  Table2,
 } from 'lucide-react';
 import type { WebModuleManifest } from '../shell/manifest';
 
@@ -55,6 +57,18 @@ export const orgManifest: WebModuleManifest = {
           label: 'nav.templates',
           permission: 'platform.template.read',
           icon: FileText,
+        },
+        {
+          to: '/organisation/formulas',
+          label: 'nav.formulas',
+          permission: 'platform.formula.read',
+          icon: Sigma,
+        },
+        {
+          to: '/organisation/rate-tables',
+          label: 'nav.rates',
+          permission: 'platform.rate_table.read',
+          icon: Table2,
         },
         {
           to: '/data',

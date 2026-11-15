@@ -36,6 +36,19 @@ describe('seed', () => {
       expect(await count(`SELECT count(*) n FROM platform.branch WHERE tenant_id = $1`)).toBe(1);
       expect(await count(`SELECT count(*) n FROM party.party WHERE tenant_id = $1`)).toBe(6);
       expect(await count(`SELECT count(*) n FROM iam.user_account WHERE tenant_id = $1`)).toBe(1);
+      // Client 18/14 and pay 14/10 QAR per order, once (row 2.9b).
+      const rates = await owner.query<{ key: string; profession: string; value: string }>(
+        `SELECT t.key, r.dims->>'profession' AS profession, r.value::text AS value
+         FROM cfg.rate_table_row r JOIN cfg.rate_table t ON t.id = r.rate_table_id
+         WHERE t.tenant_id = $1 AND r.currency = 'QAR' ORDER BY 1, 2`,
+        [first.tenantId],
+      );
+      expect(rates.rows.map((r) => `${r.key}:${r.profession}:${r.value}`)).toEqual([
+        'client_rate_per_order:driver:18.0000',
+        'client_rate_per_order:rider:14.0000',
+        'pay_rate_per_order:driver:14.0000',
+        'pay_rate_per_order:rider:10.0000',
+      ]);
 
       // Super Admin holds every declared permission; Viewer holds only read/view keys.
       const sa = await owner.query<{ n: string }>(

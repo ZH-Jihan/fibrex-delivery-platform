@@ -115,6 +115,8 @@ export const KERNEL_PERMISSIONS: readonly PermissionDef[] = [
     'activate',
     'Put a formula version in force from its start date',
   ),
+  ...crudPermissions('platform', 'platform.rate_table', 'rate tables'),
+  ...crudPermissions('platform', 'platform.rate_table_row', 'rates in rate tables'),
   ...crudPermissions('platform', 'platform.entity_definition', 'record types'),
   permission(
     'platform',

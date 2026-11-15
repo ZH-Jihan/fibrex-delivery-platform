@@ -10,6 +10,7 @@ import {
   FormulaError,
   runTestCases,
   type InputSchema,
+  type RateLookup,
 } from './index.js';
 
 const pay: InputSchema = {
@@ -214,5 +215,70 @@ describe('test cases', () => {
     expect(results.map((r) => r.passed)).toEqual([true, false, false]);
     expect(results[1]?.actual).toBe('140');
     expect(results[2]?.error?.code).toBe('formula_input');
+  });
+});
+
+describe('rate tables inside a formula', () => {
+  const schema: InputSchema = { orders: { type: 'int' }, profession: { type: 'string' } };
+  const table: Record<string, string> = { driver: '14.0000', rider: '10.0000' };
+  const rates: RateLookup = (key, dims) => {
+    const value = key === 'pay_rate_per_order' ? table[dims.profession ?? ''] : undefined;
+    if (value === undefined) throw new FormulaError('formula_runtime', 'No rate.');
+    return { value, currency: 'QAR', rowId: `row-${dims.profession ?? ''}` };
+  };
+  const text = 'rate("pay_rate_per_order", {"profession": profession}) * orders';
+
+  it('reads the rate through the lookup and lists the tables it needs', () => {
+    const f = compileFormula(text, schema, 'decimal');
+    expect(f.rateTables).toEqual(['pay_rate_per_order']);
+    const result = f.evaluate({ orders: 300, profession: 'driver' }, { rates, explain: true });
+    expect(result.value).toBe('4200');
+    expect(result.rates).toEqual([
+      {
+        table: 'pay_rate_per_order',
+        dims: { profession: 'driver' },
+        value: '14.0000',
+        currency: 'QAR',
+        rowId: 'row-driver',
+      },
+    ]);
+    expect(result.trace?.some((s) => s.expression.startsWith('rate(') && s.value === '14')).toBe(
+      true,
+    );
+  });
+
+  it('works next to an input that is itself called rate', () => {
+    const f = compileFormula('rate * decimal(2)', { rate: { type: 'decimal' } }, 'decimal');
+    expect(f.rateTables).toEqual([]);
+    expect(f.evaluate({ rate: '1.5' }).value).toBe('3');
+  });
+
+  it('needs the table key written as text', () => {
+    expect(errorOf(() => compileFormula('rate(profession, {})', schema, 'decimal')).code).toBe(
+      'formula_not_allowed',
+    );
+  });
+
+  it('dimension values must be text', () => {
+    expect(
+      errorOf(() => compileFormula('rate("t", {"orders": orders})', schema, 'decimal')).code,
+    ).toBe('formula_type');
+  });
+
+  it('fails without a lookup and when nothing matches', () => {
+    const f = compileFormula(text, schema, 'decimal');
+    expect(errorOf(() => f.evaluate({ orders: 1, profession: 'driver' })).code).toBe(
+      'formula_runtime',
+    );
+    expect(errorOf(() => f.evaluate({ orders: 1, profession: 'pilot' }, { rates })).message).toBe(
+      'No rate.',
+    );
+  });
+
+  it('test cases use the lookup they are given', () => {
+    const f = compileFormula(text, schema, 'decimal');
+    const cases = [{ name: 'rider', inputs: { orders: 10, profession: 'rider' }, expected: '100' }];
+    expect(runTestCases(f, cases, rates)[0]?.passed).toBe(true);
+    expect(runTestCases(f, cases)[0]?.passed).toBe(false);
   });
 });

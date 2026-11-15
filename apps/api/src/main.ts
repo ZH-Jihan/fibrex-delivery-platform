@@ -65,6 +65,12 @@ import {
   createFormulaVersionRepository,
 } from './kernel/formulas/formula-router.js';
 import { FormulaService } from './kernel/formulas/formula-service.js';
+import {
+  createRateRouter,
+  createRateRowRepository,
+  createRateTableRepository,
+} from './kernel/rates/rate-router.js';
+import { RateService } from './kernel/rates/rate-service.js';
 import { ModuleRegistry, createModuleRouter } from './kernel/module-registry/index.js';
 import {
   createNumberSequenceRepository,
@@ -217,6 +223,21 @@ async function main(): Promise<void> {
     label: 'Formula version',
     repository: createFormulaVersionRepository(),
     describe: (version) => `v${String(version.versionNo)}`,
+  });
+  recycleBin.register({
+    entityType: 'platform.rate_table',
+    moduleKey: 'platform',
+    label: 'Rate table',
+    repository: createRateTableRepository(),
+    describe: (table) => `${table.key} (${table.name})`,
+  });
+  recycleBin.register({
+    entityType: 'platform.rate_table_row',
+    moduleKey: 'platform',
+    label: 'Rate',
+    repository: createRateRowRepository(),
+    describe: (row) =>
+      `${row.value.toFixed(4)} ${row.currency} from ${row.validFrom.toISOString().slice(0, 10)}`,
   });
   recycleBin.register({
     entityType: 'iam.api_client',
@@ -396,7 +417,11 @@ async function main(): Promise<void> {
       api.use(createNumberingRouter({ uow, registry, permissions, numbering }));
       api.use(createLookupRouter({ uow, registry, permissions, lookups }));
       api.use(createTemplateRouter({ uow, registry, permissions }));
-      api.use(createFormulaRouter({ uow, registry, permissions, formulas: new FormulaService() }));
+      const rates = new RateService();
+      api.use(
+        createFormulaRouter({ uow, registry, permissions, formulas: new FormulaService(rates) }),
+      );
+      api.use(createRateRouter({ uow, registry, permissions, rates }));
       api.use(createEntityDefinitionRouter({ uow, registry, permissions, entities }));
       api.use(createRecordRouter({ uow, registry, permissions, records }));
       api.use(

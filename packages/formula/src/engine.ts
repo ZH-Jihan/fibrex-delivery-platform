@@ -17,7 +17,9 @@
  *      on decimal.js. The `double()` conversion is not allowed, so no float can appear.
  *   2. Sandbox. The environment has no I/O functions at all. On top of that, only the calls
  *      in ALLOWED_CALLS are accepted (no regex `matches`, which could be slow; no `cel.bind`,
- *      which could double a string per step; no timestamps/durations/bytes/dyn).
+ *      which could double a string per step; no timestamps/durations/bytes/dyn). The one
+ *      call that reads data, `rate()`, goes through a lookup the caller hands in for one
+ *      evaluation; its table key must be literal text so the caller can load it beforehand.
  *   3. Limits. Parse-time limits on expression length, AST nodes, depth, list and map
  *      literals; input lists and strings are capped; loops (`map`, `filter`, `all`, `exists`,
  *      `exists_one`) may not be nested, so the work is at most nodes x list length. Every
@@ -66,12 +68,36 @@ export interface TraceStep {
   value: FormulaValue;
 }
 
+/** One value found in a rate table, as the caller's lookup returned it. */
+export interface RateHit {
+  /** Exact decimal text, for example "18.0000". */
+  value: string;
+  currency?: string;
+  /** The rate table row the value came from, so a stored result can name it. */
+  rowId?: string;
+}
+
+/**
+ * Finds the rate for a table and dimension values. Supplied by the caller (the API reads
+ * the rows in force on the evaluation day beforehand), so evaluation stays synchronous and
+ * the engine itself still has no I/O. Throws a FormulaError when nothing matches.
+ */
+export type RateLookup = (table: string, dims: Record<string, string>) => RateHit;
+
+/** A rate the formula read: which table, which dimension values, and what it got. */
+export interface RateUse extends RateHit {
+  table: string;
+  dims: Record<string, string>;
+}
+
 export interface Evaluation {
   value: FormulaValue;
   /** Inputs the formula actually reads, after defaults, as JSON. */
   inputs: Record<string, FormulaValue>;
   /** Present when explain was asked for: every sub-calculation, innermost first. */
   trace?: TraceStep[];
+  /** Present when the formula read rate tables: every distinct lookup it made. */
+  rates?: RateUse[];
 }
 
 export type FormulaErrorCode =
@@ -148,7 +174,41 @@ const ALLOWED_CALLS = new Set([
   'sum',
   'days_between',
   'days_in_month',
+  'rate',
 ]);
+
+/**
+ * The rate lookup of the evaluation that is running, and the lookups it made. Like the
+ * budget, it is set for the length of one synchronous evaluate() call only.
+ */
+let rateContext: { lookup: RateLookup | undefined; used: Map<string, RateUse> } | undefined;
+
+function lookupRate(table: string, dims: Record<string, string>): Decimal {
+  step();
+  const lookup = rateContext?.lookup;
+  if (rateContext === undefined || lookup === undefined) {
+    throw new FormulaError('formula_runtime', `Rate table "${table}" cannot be read here.`);
+  }
+  const hit = lookup(table, dims);
+  // Keyed by table and sorted dimension values, so the same lookup is listed once.
+  const sorted = Object.fromEntries(Object.entries(dims).sort(([a], [b]) => a.localeCompare(b)));
+  rateContext.used.set(`${table}:${JSON.stringify(sorted)}`, { table, dims: sorted, ...hit });
+  return new Decimal(hit.value);
+}
+
+/** CEL hands map arguments over as a Map (or a plain object); dimensions are text only. */
+function dimsOf(raw: unknown): Record<string, string> {
+  const entries: [unknown, unknown][] =
+    raw instanceof Map ? [...(raw as Map<unknown, unknown>).entries()] : Object.entries(raw ?? {});
+  const out: Record<string, string> = {};
+  for (const [key, value] of entries) {
+    if (typeof key !== 'string' || typeof value !== 'string') {
+      throw new FormulaError('formula_runtime', 'Rate dimensions must be text.');
+    }
+    out[key] = value;
+  }
+  return out;
+}
 
 /** Step counter and deadline for the evaluation that is running (evaluation is synchronous). */
 interface Budget {
@@ -307,7 +367,15 @@ function buildEnvironment(): Environment {
       step();
       const d = new Date(parseDay(day));
       return BigInt(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate());
-    });
+    })
+    // Rate tables (PLAN 3.7 `rate_table`): `rate("pay_rate_per_order", {"profession": p})`.
+    // The table name must be written as text in the formula (checked at compile time), so
+    // the caller knows which tables to read before evaluating.
+    .registerFunction(
+      'rate(string, map<string, string>): decimal',
+      (table: string, dims: unknown) => lookupRate(table, dimsOf(dims)),
+    )
+    .registerFunction('rate(string): decimal', (table: string) => lookupRate(table, {}));
   return env;
 }
 
@@ -373,8 +441,14 @@ function rewriteFloats(expression: string): string {
   return out;
 }
 
-/** Steps 2 and 3 of the sandbox: only allowed calls, no nested loops, no floats left. */
-function checkStructure(ast: ASTNode): void {
+const TABLE_KEY = /^[a-z][a-z0-9_.]{0,59}$/;
+
+/**
+ * Steps 2 and 3 of the sandbox: only allowed calls, no nested loops, no floats left.
+ * Returns the rate tables the formula reads (each `rate()` must name its table as text).
+ */
+function checkStructure(ast: ASTNode): string[] {
+  const tables = new Set<string>();
   const walk = (node: ASTNode, inLoop: boolean): void => {
     const name = callName(node);
     if (name !== undefined) {
@@ -384,6 +458,21 @@ function checkStructure(ast: ASTNode): void {
           `"${name}" is not allowed in a formula.`,
           node.range,
         );
+      }
+      if (name === 'rate') {
+        const first = node.op === 'call' ? children(node)[0] : undefined;
+        if (
+          first?.op !== 'value' ||
+          typeof first.args !== 'string' ||
+          !TABLE_KEY.test(first.args)
+        ) {
+          throw new FormulaError(
+            'formula_not_allowed',
+            'rate() needs the table key written as text, for example rate("pay_rate_per_order", {...}).',
+            node.range,
+          );
+        }
+        tables.add(first.args);
       }
       if (LOOP_MACROS.has(name)) {
         if (inLoop) {
@@ -411,6 +500,7 @@ function checkStructure(ast: ASTNode): void {
     });
   };
   walk(ast, false);
+  return [...tables].sort();
 }
 
 /* ------------------------------------------------------------------------------------------
@@ -494,7 +584,15 @@ export interface CompiledFormula {
   readonly returnType: ReturnType;
   /** Names of the inputs the formula reads. */
   readonly references: string[];
-  evaluate(inputs: Record<string, unknown>, options?: { explain?: boolean }): Evaluation;
+  /** Keys of the rate tables the formula reads with rate(); the caller supplies `rates`. */
+  readonly rateTables: string[];
+  evaluate(inputs: Record<string, unknown>, options?: EvaluateOptions): Evaluation;
+}
+
+export interface EvaluateOptions {
+  explain?: boolean;
+  /** Needed when the formula calls rate(); without it rate() is a runtime error. */
+  rates?: RateLookup;
 }
 
 function environmentFor(schema: InputSchema): Environment {
@@ -542,7 +640,7 @@ export function compileFormula(
   } catch (err) {
     throw wrap(err, 'formula_syntax');
   }
-  checkStructure(program.ast);
+  const rateTables = checkStructure(program.ast);
   const checked = program.check();
   if (!checked.valid) throw wrap(checked.error, 'formula_type');
   // An int result is accepted where a decimal is wanted (it is converted exactly).
@@ -582,17 +680,25 @@ export function compileFormula(
     expression,
     returnType,
     references,
+    rateTables,
     evaluate(given, options) {
       const context = convertInputs(schema, given, limits);
-      let value = run(source, context);
-      if (returnType === 'decimal' && typeof value === 'bigint')
-        value = new Decimal(value.toString());
-      const result: Evaluation = {
-        value: toJson(value),
-        inputs: Object.fromEntries(references.map((name) => [name, toJson(context[name])])),
-      };
-      if (options?.explain === true) result.trace = explain(expression, context, run);
-      return result;
+      // The lookup stays set through the explain pass too, which re-runs sub-expressions.
+      rateContext = { lookup: options?.rates, used: new Map() };
+      try {
+        let value = run(source, context);
+        if (returnType === 'decimal' && typeof value === 'bigint')
+          value = new Decimal(value.toString());
+        const result: Evaluation = {
+          value: toJson(value),
+          inputs: Object.fromEntries(references.map((name) => [name, toJson(context[name])])),
+        };
+        if (options?.explain === true) result.trace = explain(expression, context, run);
+        if (rateContext.used.size > 0) result.rates = [...rateContext.used.values()];
+        return result;
+      } finally {
+        rateContext = undefined;
+      }
     },
   };
 }
@@ -649,7 +755,14 @@ function explain(
     } else {
       children(node).forEach(walk);
     }
-    record(node, valueOf(node));
+    const value = valueOf(node);
+    // A map literal (the dimensions given to rate()) is listed under `rates`, not here.
+    if (
+      value instanceof Map ||
+      (typeof value === 'object' && !Array.isArray(value) && !(value instanceof Decimal))
+    )
+      return;
+    record(node, value);
   };
   walk(BASE.parse(expression).ast);
   return steps;
@@ -694,10 +807,14 @@ export function sameValue(
   return expected === actual;
 }
 
-export function runTestCases(formula: CompiledFormula, cases: TestCase[]): TestCaseResult[] {
+export function runTestCases(
+  formula: CompiledFormula,
+  cases: TestCase[],
+  rates?: RateLookup,
+): TestCaseResult[] {
   return cases.map((testCase) => {
     try {
-      const { value } = formula.evaluate(testCase.inputs);
+      const { value } = formula.evaluate(testCase.inputs, rates === undefined ? {} : { rates });
       return {
         name: testCase.name,
         passed: sameValue(formula.returnType, testCase.expected, value),

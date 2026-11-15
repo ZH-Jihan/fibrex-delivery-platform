@@ -24,6 +24,8 @@
  *      version must start after the version now in force; that one is closed the day before
  *      (valid_to) and retired. Date ranges therefore never overlap.
  *   6. A formula with live versions is not deleted until they are.
+ *   7. rate("<table>", {...}) reads the rates in force on the evaluation day (`date`, default
+ *      today); test cases and activation read them on the version's start date.
  *
  * Depends on: express, zod, @fibrex/formula, @fibrex/shared (formula schemas), kernel/db,
  * kernel/http, kernel/permissions, ./formula-service.
@@ -50,13 +52,8 @@ import { createCrudRouter, parseIfMatch } from '../http/crud-router.js';
 import { ConflictError, UnprocessableError, ValidationError } from '../http/errors.js';
 import { problemSchema, registerRoute } from '../http/openapi.js';
 import type { PermissionService } from '../permissions/permission-service.js';
-import type {
-  FormulaService} from './formula-service.js';
-import {
-  formulaProblem,
-  type FormulaRow,
-  type FormulaVersionRow,
-} from './formula-service.js';
+import type { FormulaService } from './formula-service.js';
+import { formulaProblem, type FormulaRow, type FormulaVersionRow } from './formula-service.js';
 
 const day = z.iso.date();
 
@@ -174,6 +171,17 @@ const evaluateResult = z
     value: z.unknown(),
     inputs: z.record(z.string(), z.unknown()),
     trace: z.array(traceStep).optional(),
+    rates: z
+      .array(
+        z.object({
+          table: z.string(),
+          dims: z.record(z.string(), z.string()),
+          value: z.string(),
+          currency: z.string().optional(),
+          rowId: z.string().optional(),
+        }),
+      )
+      .optional(),
     formulaVersionId: z.uuid().nullable(),
     versionNo: z.number().int().nullable(),
     checksum: z.string().nullable(),
@@ -258,11 +266,7 @@ export function createFormulaRepository(): Repository<FormulaRow> {
         // Rule 2: every version must still compile with the new inputs.
         for (const v of versions) {
           try {
-            compileFormula(
-              v.expression,
-              body.inputSchema,
-              current.returnType as FormulaReturnType,
-            );
+            compileFormula(v.expression, body.inputSchema, current.returnType as FormulaReturnType);
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             throw invalid(
@@ -365,16 +369,22 @@ export function createFormulaRouter(deps: FormulaRouterDeps): Router {
     const result = await uow.run(async () => {
       await permissions.require('platform.formula.evaluate');
       const options = { explain: body.explain };
+      // Rates (rate()) are read as they were on this day; versions and drafts use it too.
+      const onDate = new Date(body.date ?? isoDay(new Date()));
       try {
         if (body.formulaKey !== undefined) {
-          const onDate = new Date(body.date ?? isoDay(new Date()));
           return await formulas.evaluate(body.formulaKey, onDate, body.inputs, options);
         }
         if (body.versionId !== undefined) {
           const version = await versions.get(body.versionId);
           const formula = await liveFormula(version.formulaId);
           return {
-            ...formulas.compile(formula, version).evaluate(body.inputs, options),
+            ...(await formulas.run(
+              formulas.compile(formula, version),
+              onDate,
+              body.inputs,
+              options,
+            )),
             formulaVersionId: version.id,
             versionNo: version.versionNo,
             checksum: version.checksum,
@@ -382,11 +392,11 @@ export function createFormulaRouter(deps: FormulaRouterDeps): Router {
         }
         const compiled = compileFormula(
           body.expression ?? '',
-          (body.inputSchema ?? {}),
+          body.inputSchema ?? {},
           body.returnType ?? 'decimal',
         );
         return {
-          ...compiled.evaluate(body.inputs, options),
+          ...(await formulas.run(compiled, onDate, body.inputs, options)),
           formulaVersionId: null,
           versionNo: null,
           checksum: null,
@@ -399,6 +409,7 @@ export function createFormulaRouter(deps: FormulaRouterDeps): Router {
       value: result.value,
       inputs: result.inputs,
       ...(result.trace === undefined ? {} : { trace: result.trace }),
+      ...(result.rates === undefined ? {} : { rates: result.rates }),
       formulaVersionId: result.formulaVersionId,
       versionNo: result.versionNo,
       checksum: result.checksum,
@@ -446,7 +457,9 @@ export function createFormulaRouter(deps: FormulaRouterDeps): Router {
       const version = await versions.get(id);
       const formula = await liveFormula(version.formulaId);
       const cases = (body.testCases ?? (version.testCases as unknown)) as TestCase[];
-      return runTestCases(formulas.compile(formula, version), cases);
+      // Test cases read the rates in force on the version's start date.
+      const compiled = formulas.compile(formula, version);
+      return runTestCases(compiled, cases, await formulas.ratesFor(compiled, version.validFrom));
     });
     res.json({ passed: results.every((r) => r.passed), results });
   });
@@ -473,9 +486,12 @@ export function createFormulaRouter(deps: FormulaRouterDeps): Router {
           );
         }
         const formula = await liveFormula(current.formulaId);
-        const failed = runTestCases(formulas.compile(formula, current), cases).filter(
-          (r) => !r.passed,
-        );
+        const compiled = formulas.compile(formula, current);
+        const failed = runTestCases(
+          compiled,
+          cases,
+          await formulas.ratesFor(compiled, current.validFrom),
+        ).filter((r) => !r.passed);
         if (failed.length > 0) {
           throw new UnprocessableError(
             'formula_tests_failed',

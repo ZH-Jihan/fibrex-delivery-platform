@@ -42,6 +42,7 @@ model Tenant {
   lookupTypes   LookupType[]
   templates     Template[]
   formulas      Formula[]
+  rateTables    RateTable[]
   importMappings ImportMapping[]
   entityDefinitions EntityDefinition[]
   users         UserAccount[]

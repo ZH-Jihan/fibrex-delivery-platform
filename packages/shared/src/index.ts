@@ -14,3 +14,4 @@ export * from './entities/index.js';
 export * from './records/index.js';
 export * from './imports/index.js';
 export * from './formulas/index.js';
+export * from './rates/index.js';

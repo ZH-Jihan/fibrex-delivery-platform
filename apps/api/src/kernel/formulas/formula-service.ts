@@ -13,7 +13,11 @@
  * frozen, so its compiled form never goes stale. Runs inside the caller's unit of work
  * (row-level security applies).
  *
- * Depends on: @fibrex/formula, kernel/db unit of work.
+ * Rate tables (row 2.9b): a formula that calls rate("<table>", {...}) gets the rows of
+ * those tables in force on the same day, read just before evaluation (`run`), and the
+ * result lists every rate it used (`rates`: table, dims, value, currency, row id).
+ *
+ * Depends on: @fibrex/formula, kernel/db unit of work, kernel/rates (RateService).
  * Used by: ./formula-router.ts (evaluate); later the payroll, billing and loan modules.
  */
 import {
@@ -22,11 +26,13 @@ import {
   type CompiledFormula,
   type Evaluation,
   type InputSchema,
+  type RateLookup,
 } from '@fibrex/formula';
 import type { FormulaReturnType } from '@fibrex/shared';
 import type { Db } from '../db/prisma.js';
 import { currentUnit } from '../db/unit-of-work.js';
 import { NotFoundError, ValidationError } from '../http/errors.js';
+import { RateService } from '../rates/rate-service.js';
 
 export type FormulaRow = NonNullable<Awaited<ReturnType<Db['formula']['findFirst']>>>;
 export type FormulaVersionRow = NonNullable<Awaited<ReturnType<Db['formulaVersion']['findFirst']>>>;
@@ -52,6 +58,11 @@ const CACHE_LIMIT = 500;
 
 export class FormulaService {
   readonly #cache = new Map<string, CompiledFormula>();
+  readonly #rates: RateService;
+
+  constructor(rates: RateService = new RateService()) {
+    this.#rates = rates;
+  }
 
   /** Compile (or reuse) the expression of a version against its formula's inputs. */
   compile(formula: FormulaRow, version: Pick<FormulaVersionRow, 'id' | 'checksum' | 'expression'>) {
@@ -98,6 +109,26 @@ export class FormulaService {
   }
 
   /** Evaluate the version of `key` in force on `onDate`. */
+  /**
+   * The `rate()` lookup for a compiled formula on a day, read now because evaluation is
+   * synchronous; undefined when the formula reads no rate table.
+   */
+  async ratesFor(compiled: CompiledFormula, onDate: Date): Promise<RateLookup | undefined> {
+    if (compiled.rateTables.length === 0) return undefined;
+    return this.#rates.lookupFor(compiled.rateTables, onDate);
+  }
+
+  /** Evaluate a compiled formula with the rates in force on `onDate`. */
+  async run(
+    compiled: CompiledFormula,
+    onDate: Date,
+    inputs: Record<string, unknown>,
+    options: { explain?: boolean } = {},
+  ): Promise<Evaluation> {
+    const rates = await this.ratesFor(compiled, onDate);
+    return compiled.evaluate(inputs, rates === undefined ? options : { ...options, rates });
+  }
+
   async evaluate(
     key: string,
     onDate: Date,
@@ -105,7 +136,7 @@ export class FormulaService {
     options: { explain?: boolean } = {},
   ): Promise<FormulaResult> {
     const { formula, version } = await this.resolve(key, onDate);
-    const result = this.compile(formula, version).evaluate(inputs, options);
+    const result = await this.run(this.compile(formula, version), onDate, inputs, options);
     return {
       ...result,
       formulaId: formula.id,

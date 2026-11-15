@@ -19,6 +19,7 @@ import type pg from 'pg';
 import { hashPassword } from '../kernel/auth/password-hasher.js';
 import { createPrisma } from '../kernel/db/prisma.js';
 import { seedLookups } from '../kernel/lookups/lookup-seed.js';
+import { seedRates } from '../kernel/rates/rate-seed.js';
 import { JOB_PERMISSIONS } from '../kernel/jobs/job-router.js';
 import {
   KERNEL_PERMISSIONS,
@@ -247,6 +248,8 @@ export async function runSeed(pool: pg.Pool, opts: SeedOptions): Promise<SeedRes
 
     // Starting dropdown lists (added only where missing; edits are never overwritten).
     await seedLookups(client, tenantId);
+    // Starting client and pay rates per order (only for tables the tenant does not have).
+    await seedRates(client, tenantId);
 
     await client.query('COMMIT');
     return { tenantId, companyId, superAdminId, superAdminCreated };
