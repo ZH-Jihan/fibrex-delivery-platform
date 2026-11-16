@@ -43,6 +43,7 @@ model Tenant {
   templates     Template[]
   formulas      Formula[]
   rateTables    RateTable[]
+  stateMachines StateMachine[]
   importMappings ImportMapping[]
   entityDefinitions EntityDefinition[]
   users         UserAccount[]
@@ -176,7 +177,8 @@ model Company {
   recordLinks         RecordLink[]
   templateVersions    TemplateVersion[]
   generatedDocuments  GeneratedDocument[]
-  importJobs          ImportJob[]
+  stateHistory        StateHistory[]
+  importJobs         ImportJob[]
   exportJobs          ExportJob[]
 
   @@unique([tenantId, id], map: "company_tenant_id_uq")

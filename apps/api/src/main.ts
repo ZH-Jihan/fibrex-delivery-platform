@@ -71,6 +71,13 @@ import {
   createRateTableRepository,
 } from './kernel/rates/rate-router.js';
 import { RateService } from './kernel/rates/rate-service.js';
+import {
+  createStateMachineRepository,
+  createStateRepository,
+  createStateRouter,
+  createStateTransitionRepository,
+} from './kernel/states/state-router.js';
+import { StateService, StateTargets } from './kernel/states/state-service.js';
 import { ModuleRegistry, createModuleRouter } from './kernel/module-registry/index.js';
 import {
   createNumberSequenceRepository,
@@ -362,9 +369,36 @@ async function main(): Promise<void> {
   // as attachable, so the kernel never reads a module's tables. Read per request, by which
   // time every module is registered.
   const numbering = new NumberingService();
-  const records = new RecordService({
+  // State machines (row 2.10). Every custom record type can change state through its
+  // record service; a module registers its own entity types on `stateTargets`. The arrow
+  // function reads `records` only when a request arrives, after it is built below.
+  const stateTargets: StateTargets = new StateTargets((key) => records.stateTarget(key));
+  const states = new StateService({ permissions, targets: stateTargets });
+  recycleBin.register({
+    entityType: 'platform.state_machine',
+    moduleKey: 'platform',
+    label: 'State machine',
+    repository: createStateMachineRepository(),
+    describe: (machine) => `${machine.entityKey} (${machine.name})`,
+  });
+  recycleBin.register({
+    entityType: 'platform.state',
+    moduleKey: 'platform',
+    label: 'State',
+    repository: createStateRepository(),
+    describe: (state) => state.code,
+  });
+  recycleBin.register({
+    entityType: 'platform.state_transition',
+    moduleKey: 'platform',
+    label: 'State transition',
+    repository: createStateTransitionRepository(),
+    describe: (transition) => `${transition.fromCode} -> ${transition.toCode}`,
+  });
+  const records: RecordService = new RecordService({
     entities,
     numbering,
+    states,
     referenceExists: async (entityType, id) => {
       if (entityType === FILE_ENTITY_TYPE) return files.exists(id);
       const owner = modules.attachables().find((a) => a.entityType === entityType);
@@ -424,6 +458,7 @@ async function main(): Promise<void> {
       api.use(createRateRouter({ uow, registry, permissions, rates }));
       api.use(createEntityDefinitionRouter({ uow, registry, permissions, entities }));
       api.use(createRecordRouter({ uow, registry, permissions, records }));
+      api.use(createStateRouter({ uow, registry, permissions, states }));
       api.use(
         createImportRouter({
           uow,

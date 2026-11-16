@@ -117,6 +117,9 @@ export const KERNEL_PERMISSIONS: readonly PermissionDef[] = [
   ),
   ...crudPermissions('platform', 'platform.rate_table', 'rate tables'),
   ...crudPermissions('platform', 'platform.rate_table_row', 'rates in rate tables'),
+  ...crudPermissions('platform', 'platform.state_machine', 'state machines'),
+  ...crudPermissions('platform', 'platform.state', 'states of state machines'),
+  ...crudPermissions('platform', 'platform.state_transition', 'transitions of state machines'),
   ...crudPermissions('platform', 'platform.entity_definition', 'record types'),
   permission(
     'platform',

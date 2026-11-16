@@ -13,6 +13,7 @@ import {
   MapPin,
   Sigma,
   Table2,
+  Workflow,
 } from 'lucide-react';
 import type { WebModuleManifest } from '../shell/manifest';
 
@@ -69,6 +70,12 @@ export const orgManifest: WebModuleManifest = {
           label: 'nav.rates',
           permission: 'platform.rate_table.read',
           icon: Table2,
+        },
+        {
+          to: '/organisation/state-machines',
+          label: 'nav.states',
+          permission: 'platform.state_machine.read',
+          icon: Workflow,
         },
         {
           to: '/data',

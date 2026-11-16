@@ -46,6 +46,7 @@ describe('buildNav', () => {
           '/organisation/templates',
           '/organisation/formulas',
           '/organisation/rate-tables',
+          '/organisation/state-machines',
           '/data',
           '/organisation/record-types',
         ],

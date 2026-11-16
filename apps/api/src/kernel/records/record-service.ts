@@ -25,6 +25,9 @@
  *   6. `definition_version` is the version the data was last checked against.
  *   7. The company comes from the session (or the request, when the session has several)
  *      and never changes; branch and party must belong to that company (foreign keys).
+ *   8. `state_code` is never sent by the client. A new record starts in the initial state
+ *      of its type's state machine (none: no state); afterwards only the state service
+ *      changes it (`stateTarget`), so every change is checked and lands in the history.
  *
  * Audit and soft delete are not written here: the database trigger logs every change of
  * `cfg.custom_record`, and deletes go through the repository's soft delete.
@@ -54,6 +57,7 @@ import type {
 } from '../entities/entity-definition-service.js';
 import { BadRequestError, ForbiddenError, NotFoundError, ValidationError } from '../http/errors.js';
 import type { NumberingService } from '../numbering/numbering-service.js';
+import type { StateService, StateTarget } from '../states/state-service.js';
 
 export type CustomRecordRow = NonNullable<Awaited<ReturnType<Db['customRecord']['findFirst']>>>;
 export type RecordLinkRow = NonNullable<Awaited<ReturnType<Db['recordLink']['findFirst']>>>;
@@ -71,6 +75,12 @@ export interface RecordServiceDeps {
    * kernel never reads a module's tables. `undefined` means no module answers for the type.
    */
   referenceExists: (entityType: string, id: string) => Promise<boolean | undefined>;
+  /**
+   * State machines (row 2.10): the state a new record of a type starts in, and the first
+   * row of its state history. Left out where no state machines are wired (records then
+   * have no state).
+   */
+  states?: Pick<StateService, 'initialCode' | 'recordStart'>;
 }
 
 /** The list filters of one record type, as the router hands them over. */
@@ -293,9 +303,11 @@ export class RecordService {
                   },
                 })
               ).number;
-        // Step 3: the row. A branch or party of another company fails its foreign key and
+        // Step 3: the first state, when the type has a state machine (rule 8).
+        const stateCode = (await this.deps.states?.initialCode(key)) ?? null;
+        // Step 4: the row. A branch or party of another company fails its foreign key and
         // comes back as 409 reference_conflict.
-        return this.rows.create({
+        const row = await this.rows.create({
           companyId,
           branchId: body.branchId ?? null,
           partyId: body.partyId ?? null,
@@ -303,7 +315,13 @@ export class RecordService {
           definitionVersion: entity.version,
           number,
           data,
+          stateCode,
         });
+        // Step 5: the state history starts with the record, in the same transaction.
+        if (stateCode !== null) {
+          await this.deps.states?.recordStart(key, row.id, companyId, stateCode);
+        }
+        return row;
       },
 
       update: async (id, expectedVersion, changes) => {
@@ -335,6 +353,31 @@ export class RecordService {
       restore: async (id, expectedVersion) => {
         await this.ofType(await this.customEntity(key), id, DELETED);
         return this.rows.restore(id, expectedVersion);
+      },
+    };
+  }
+
+  /**
+   * How the state service reads a record of type `key` and stores its state (rule 8). The
+   * version read with the record is the version the write expects, so a record changed in
+   * between is a 409 and never a silent overwrite.
+   */
+  stateTarget(key: string): StateTarget {
+    return {
+      load: async (id) => {
+        const row = await this.ofType(await this.customEntity(key), id);
+        return {
+          id: row.id,
+          companyId: row.companyId,
+          stateCode: row.stateCode,
+          version: row.version,
+          fields: row.data as Record<string, unknown>,
+          readPermission: `custom.${key}.read`,
+          updatePermission: `custom.${key}.update`,
+        };
+      },
+      setState: async (subject, toCode) => {
+        await this.rows.update(subject.id, subject.version, { stateCode: toCode });
       },
     };
   }

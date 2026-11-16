@@ -31,6 +31,7 @@ import { NumberSequencesPage } from './org/NumberSequencesPage';
 import { TemplatesPage } from './org/TemplatesPage';
 import { FormulasPage } from './org/FormulasPage';
 import { RateTablesPage } from './org/RateTablesPage';
+import { StateMachinesPage } from './org/StateMachinesPage';
 import { DataExchangePage } from './data/DataExchangePage';
 import { BranchesPage, CompanyPage } from './org/OrganisationPages';
 import { RolesPage } from './admin/RolesPage';
@@ -198,6 +199,14 @@ function Gate() {
           element={
             <Guarded permission="platform.rate_table.read">
               <RateTablesPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="organisation/state-machines"
+          element={
+            <Guarded permission="platform.state_machine.read">
+              <StateMachinesPage />
             </Guarded>
           }
         />

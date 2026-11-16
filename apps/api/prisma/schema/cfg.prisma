@@ -19,6 +19,7 @@ model LookupType {
   tenant Tenant        @relation(fields: [tenantId], references: [id], map: "lookup_type_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
   values LookupValue[]
   fieldDefinitions FieldDefinition[]
+  stateTransitions StateTransition[]
 
   @@unique([tenantId, id], map: "lookup_type_tenant_id_uq")
   @@unique([tenantId, key], map: "lookup_type_key_uq", where: { deletedAt: null })
@@ -48,6 +49,7 @@ model LookupValue {
   type     LookupType    @relation(fields: [tenantId, lookupTypeId], references: [tenantId, id], map: "lookup_value_type_fk", onDelete: NoAction, onUpdate: NoAction)
   parent   LookupValue?  @relation("LookupValueTree", fields: [tenantId, parentId], references: [tenantId, id], map: "lookup_value_parent_fk", onDelete: NoAction, onUpdate: NoAction)
   children LookupValue[] @relation("LookupValueTree")
+  stateHistory StateHistory[]
 
   @@unique([tenantId, id], map: "lookup_value_tenant_id_uq")
   @@unique([lookupTypeId, code], map: "lookup_value_code_uq", where: { deletedAt: null })
@@ -397,5 +399,115 @@ model RateTableRow {
   @@unique([tenantId, id], map: "rate_table_row_tenant_id_uq")
   @@index([rateTableId, validFrom], map: "rate_table_row_resolve_idx", where: raw("deleted_at IS NULL"))
   @@map("rate_table_row")
+  @@schema("cfg")
+}
+
+// State machines (row 2.10). SQL source: migrations/20261116000500_cfg_states.
+/// The statuses of one entity type and the moves between them; found by `entityKey`.
+model StateMachine {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  entityKey    String    @map("entity_key")
+  name         String
+  description  String?
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], map: "state_machine_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+  states      State[]
+  transitions StateTransition[]
+
+  @@unique([tenantId, id], map: "state_machine_tenant_id_uq")
+  @@unique([tenantId, entityKey], map: "state_machine_entity_uq", where: { deletedAt: null })
+  @@map("state_machine")
+  @@schema("cfg")
+}
+
+model State {
+  id             String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  stateMachineId String    @map("state_machine_id") @db.Uuid
+  code           String
+  labels         Json
+  category       String    @default("open")
+  isInitial      Boolean   @default(false) @map("is_initial")
+  isFinal        Boolean   @default(false) @map("is_final")
+  colour         String?
+  sortOrder      Int       @default(0) @map("sort_order")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy      String?   @map("created_by") @db.Uuid
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  version        Int       @default(1)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy      String?   @map("deleted_by") @db.Uuid
+  deleteReason   String?   @map("delete_reason")
+
+  machine StateMachine @relation(fields: [tenantId, stateMachineId], references: [tenantId, id], map: "state_machine_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id], map: "state_tenant_id_uq")
+  @@unique([stateMachineId, code], map: "state_code_uq", where: { deletedAt: null })
+  @@unique([stateMachineId], map: "state_initial_uq", where: raw("is_initial AND deleted_at IS NULL"))
+  @@map("state")
+  @@schema("cfg")
+}
+
+/// One allowed move. `workflowDefinitionId` gets its relation with workflows (row 2.11).
+model StateTransition {
+  id                   String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
+  stateMachineId       String    @map("state_machine_id") @db.Uuid
+  fromCode             String    @map("from_code")
+  toCode               String    @map("to_code")
+  permissionKey        String?   @map("permission_key")
+  requiredFields       String[]  @default([]) @map("required_fields")
+  reasonLookupTypeId   String?   @map("reason_lookup_type_id") @db.Uuid
+  reasonRequired       Boolean   @default(false) @map("reason_required")
+  workflowDefinitionId String?   @map("workflow_definition_id") @db.Uuid
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy            String?   @map("created_by") @db.Uuid
+  updatedAt            DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy            String?   @map("updated_by") @db.Uuid
+  version              Int       @default(1)
+  deletedAt            DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy            String?   @map("deleted_by") @db.Uuid
+  deleteReason         String?   @map("delete_reason")
+
+  machine    StateMachine @relation(fields: [tenantId, stateMachineId], references: [tenantId, id], map: "state_transition_machine_fk", onDelete: NoAction, onUpdate: NoAction)
+  reasonList LookupType?  @relation(fields: [tenantId, reasonLookupTypeId], references: [tenantId, id], map: "state_transition_reason_list_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id], map: "state_transition_tenant_id_uq")
+  @@unique([stateMachineId, fromCode, toCode], map: "state_transition_move_uq", where: { deletedAt: null })
+  @@map("state_transition")
+  @@schema("cfg")
+}
+
+/// Insert-only: every change of state of any record, with the day it counts from.
+model StateHistory {
+  id            String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  entityType    String   @map("entity_type")
+  entityId      String   @map("entity_id") @db.Uuid
+  fromCode      String?  @map("from_code")
+  toCode        String   @map("to_code")
+  effectiveDate DateTime @default(dbgenerated("CURRENT_DATE")) @map("effective_date") @db.Date
+  reasonId      String?  @map("reason_id") @db.Uuid
+  note          String?
+  actorId       String?  @map("actor_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy     String?  @map("created_by") @db.Uuid
+
+  company Company      @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "state_history_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  reason  LookupValue? @relation(fields: [tenantId, reasonId], references: [tenantId, id], map: "state_history_reason_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([companyId, entityType, entityId, id], map: "state_history_entity_idx")
+  @@map("state_history")
   @@schema("cfg")
 }
