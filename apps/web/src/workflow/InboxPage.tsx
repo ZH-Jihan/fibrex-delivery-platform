@@ -12,11 +12,19 @@
  * Used by: App.tsx route /tasks.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Check, History, Inbox, MessageSquare, Undo2, X } from 'lucide-react';
+import { Check, History, Inbox, MessageSquare, Undo2, UserRoundPlus, X } from 'lucide-react';
 import { taskApproveSchema, taskCommentSchema } from '@fibrex/shared';
 import { api } from '../api/client';
 import { useI18n } from '../i18n';
-import { Button, EmptyState, ErrorAlert, PageHeader, Skeleton, Textarea } from '../ui/components';
+import {
+  Button,
+  EmptyState,
+  ErrorAlert,
+  PageHeader,
+  Select,
+  Skeleton,
+  Textarea,
+} from '../ui/components';
 import { InstanceTimeline } from './WorkflowTimeline';
 
 export interface InboxEntry {
@@ -25,6 +33,8 @@ export interface InboxEntry {
     instanceId: string;
     dueAt: string | null;
     escalatedFromTaskId: string | null;
+    /** Null for a task given to a role: it cannot be passed on, whoever holds the role takes it. */
+    assigneeUserId?: string | null;
   };
   instance: { entityType: string; entityId: string };
   definition: { name: string };
@@ -52,6 +62,10 @@ export function InboxPage() {
   const [problem, setProblem] = useState<{ id: string; text: string } | null>(null);
   const [comments, setComments] = useState<Record<string, string>>({});
   const [open, setOpen] = useState<string | null>(null);
+  // Passing a task on: which task has its picker open, who is on offer, and who is chosen.
+  const [passing, setPassing] = useState<string | null>(null);
+  const [people, setPeople] = useState<{ id: string; displayName: string }[]>([]);
+  const [target, setTarget] = useState('');
 
   const load = useCallback(() => {
     api<{ items: InboxEntry[] }>('/tasks')
@@ -75,6 +89,43 @@ export function InboxPage() {
     api(`/tasks/${entry.task.id}/${action}`, { method: 'POST', body: checked.body })
       .then(() => {
         setComments((c) => ({ ...c, [entry.task.id]: '' }));
+        load();
+      })
+      .catch((e: unknown) => {
+        setError(e);
+      });
+  };
+
+  /** Opens or closes the "pass on" picker of one task; the people load on first use. */
+  const togglePass = (entry: InboxEntry) => {
+    const id = entry.task.id;
+    setTarget('');
+    if (passing === id) {
+      setPassing(null);
+      return;
+    }
+    setPassing(id);
+    if (people.length === 0) {
+      api<{ items: { id: string; displayName: string }[] }>('/workflow-people')
+        .then((r) => {
+          setPeople(r.items);
+        })
+        .catch((e: unknown) => {
+          setError(e);
+        });
+    }
+  };
+
+  const pass = (entry: InboxEntry) => {
+    if (target === '') return;
+    const note = (comments[entry.task.id] ?? '').trim();
+    api(`/tasks/${entry.task.id}/delegate`, {
+      method: 'POST',
+      body: note === '' ? { toUserId: target } : { toUserId: target, comment: note },
+    })
+      .then(() => {
+        setPassing(null);
+        setTarget('');
         load();
       })
       .catch((e: unknown) => {
@@ -151,6 +202,17 @@ export function InboxPage() {
             >
               {t('wf.addComment')}
             </Button>
+            {entry.task.assigneeUserId === null ? null : (
+              <Button
+                variant="link"
+                icon={UserRoundPlus}
+                onClick={() => {
+                  togglePass(entry);
+                }}
+              >
+                {t('wf.delegate')}
+              </Button>
+            )}
             <Button
               variant="link"
               icon={History}
@@ -160,6 +222,28 @@ export function InboxPage() {
             >
               {t('wf.timeline')}
             </Button>
+            {passing === id ? (
+              <div role="region" aria-label={t('wf.delegate')}>
+                <Select
+                  label={t('wf.delegateTo')}
+                  placeholder={t('wf.choosePerson')}
+                  value={target}
+                  options={people.map((p) => ({ value: p.id, label: p.displayName }))}
+                  onChange={(e) => {
+                    setTarget(e.target.value);
+                  }}
+                />
+                <Button
+                  variant="primary"
+                  disabled={target === ''}
+                  onClick={() => {
+                    pass(entry);
+                  }}
+                >
+                  {t('wf.delegateConfirm')}
+                </Button>
+              </div>
+            ) : null}
             {open === id ? <InstanceTimeline instanceId={entry.task.instanceId} /> : null}
           </section>
         );

@@ -1128,6 +1128,22 @@ export class WorkflowService {
    * Reading
    * -------------------------------------------------------------------------------- */
 
+  /** Active people of the session's company (id, name), for the pass-on and stand-in pickers. */
+  async people(): Promise<{ id: string; displayName: string }[]> {
+    const { db, context } = currentUnit();
+    const companyId = context.companyIds[0];
+    if (companyId === undefined) return [];
+    const rows = await db.$queryRaw<{ id: string; display_name: string }[]>`
+      SELECT DISTINCT u.id::text AS id, u.display_name
+        FROM iam.user_account u
+        JOIN iam.company_membership m ON m.user_id = u.id
+       WHERE u.status = 'active' AND u.deleted_at IS NULL
+         AND m.company_id = ${companyId}::uuid AND m.deleted_at IS NULL
+       ORDER BY u.display_name
+       LIMIT 500`;
+    return rows.map((r) => ({ id: r.id, displayName: r.display_name }));
+  }
+
   /** The caller's open tasks: theirs, their roles' in the session's companies, and delegated ones. */
   async inbox(): Promise<InboxEntry[]> {
     const { db, context } = currentUnit();

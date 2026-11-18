@@ -35,7 +35,7 @@ describe('buildNav', () => {
     expect(WEB_MODULES.map((m) => m.key)).toEqual(['iam', 'audit', 'platform', 'party']);
     expect(NAV.map((g) => [g.label, g.items.map((i) => i.to)])).toEqual([
       ['nav.admin', ['/users', '/roles', '/permission-matrix', '/audit', '/recycle-bin']],
-      ['nav.work', ['/tasks']],
+      ['nav.work', ['/tasks', '/delegations']],
       [
         'nav.org',
         [
@@ -49,6 +49,7 @@ describe('buildNav', () => {
           '/organisation/rate-tables',
           '/organisation/state-machines',
           '/organisation/workflows',
+          '/organisation/workflow-bindings',
           '/data',
           '/organisation/record-types',
         ],

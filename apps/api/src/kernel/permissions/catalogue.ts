@@ -125,6 +125,12 @@ export const KERNEL_PERMISSIONS: readonly PermissionDef[] = [
   ...crudPermissions('platform', 'platform.workflow_version', 'draft workflow versions'),
   ...crudPermissions('platform', 'platform.workflow_binding', 'workflow bindings'),
   ...crudPermissions('platform', 'platform.workflow_delegation', 'workflow delegations'),
+  permission(
+    'platform',
+    'platform.workflow_delegation',
+    'manage_all',
+    "See and change anyone's workflow delegations (without it, only your own)",
+  ),
   permission('platform', 'platform.workflow_instance', 'cancel', 'Stop any running workflow'),
   permission(
     'platform',

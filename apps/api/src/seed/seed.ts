@@ -20,6 +20,7 @@ import { hashPassword } from '../kernel/auth/password-hasher.js';
 import { createPrisma } from '../kernel/db/prisma.js';
 import { seedLookups } from '../kernel/lookups/lookup-seed.js';
 import { seedRates } from '../kernel/rates/rate-seed.js';
+import { seedWorkflowNotificationRules } from '../kernel/workflows/workflow-notify-seed.js';
 import { JOB_PERMISSIONS } from '../kernel/jobs/job-router.js';
 import {
   KERNEL_PERMISSIONS,
@@ -66,6 +67,11 @@ interface RoleDef {
 // Keys only Super Admin keeps: they let a holder change who can do what, or act as someone else.
 const SUPER_ONLY = new Set(['iam.role.assign_any', 'iam.user.impersonate']);
 const isReadKey = (k: string) => /\.(read|view)$/.test(k);
+// Self-service delegation: every ordinary role may arrange its own stand-in. The API limits
+// these keys to the person's own delegations unless they also hold `manage_all` (admins).
+const OWN_DELEGATION_KEYS = new Set(
+  ['read', 'create', 'update', 'delete'].map((a) => `platform.workflow_delegation.${a}`),
+);
 
 const ROLES: RoleDef[] = [
   {
@@ -86,14 +92,17 @@ const ROLES: RoleDef[] = [
     key: 'manager',
     name: 'Manager',
     description: 'Works with people and documents; reads everything else.',
-    holds: (k) => isReadKey(k) || /^(party|files)\..*\.(create|update|delete|restore)$/.test(k),
+    holds: (k) =>
+      isReadKey(k) ||
+      OWN_DELEGATION_KEYS.has(k) ||
+      /^(party|files)\..*\.(create|update|delete|restore)$/.test(k),
     mayGrant: ['viewer'],
   },
   {
     key: 'viewer',
     name: 'Viewer',
     description: 'Read-only access.',
-    holds: isReadKey,
+    holds: (k) => isReadKey(k) || OWN_DELEGATION_KEYS.has(k),
     mayGrant: [],
   },
 ];
@@ -177,8 +186,23 @@ export async function runSeed(pool: pg.Pool, opts: SeedOptions): Promise<SeedRes
         roleId = one(ins.rows).id;
       }
       roleIds.set(role.key, roleId);
-      if (isNew || role.key === 'super_admin') {
-        const ids = perms.rows.filter((p) => role.holds(p.key)).map((p) => p.id);
+      // Existing roles are left as the administrator set them, except that the built-in
+      // manager and viewer receive the own-delegation keys (added in Phase 2.11c).
+      // Only once: when the role has never had any of those rows (even a removed one), so an
+      // administrator who later takes them away is not overruled by the next seed run.
+      let topUp = false;
+      if (!isNew && (role.key === 'manager' || role.key === 'viewer')) {
+        const had = await client.query(
+          `SELECT 1 FROM iam.role_permission rp JOIN iam.permission p ON p.id = rp.permission_id
+            WHERE rp.role_id = $1 AND p.key = ANY($2::text[]) LIMIT 1`,
+          [roleId, [...OWN_DELEGATION_KEYS]],
+        );
+        topUp = had.rowCount === 0;
+      }
+      if (isNew || role.key === 'super_admin' || topUp) {
+        const ids = perms.rows
+          .filter((p) => role.holds(p.key) && (!topUp || OWN_DELEGATION_KEYS.has(p.key)))
+          .map((p) => p.id);
         await client.query(
           `INSERT INTO iam.role_permission (tenant_id, role_id, permission_id)
            SELECT $1, $2, unnest($3::uuid[])
@@ -250,6 +274,8 @@ export async function runSeed(pool: pg.Pool, opts: SeedOptions): Promise<SeedRes
     await seedLookups(client, tenantId);
     // Starting client and pay rates per order (only for tables the tenant does not have).
     await seedRates(client, tenantId);
+    // Starting notification rules for the workflow events (only those missing by name).
+    await seedWorkflowNotificationRules(client, tenantId);
 
     await client.query('COMMIT');
     return { tenantId, companyId, superAdminId, superAdminCreated };

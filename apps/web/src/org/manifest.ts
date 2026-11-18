@@ -11,10 +11,12 @@ import {
   GitBranch,
   Hash,
   Inbox,
+  Link2,
   ListTree,
   MapPin,
   Sigma,
   Table2,
+  UserRoundCheck,
   Workflow,
 } from 'lucide-react';
 import type { WebModuleManifest } from '../shell/manifest';
@@ -25,7 +27,15 @@ export const orgManifest: WebModuleManifest = {
     {
       // The inbox lists only tasks given to the user, so the menu entry needs no permission.
       label: 'nav.work',
-      items: [{ to: '/tasks', label: 'nav.inbox', permission: '', icon: Inbox }],
+      items: [
+        { to: '/tasks', label: 'nav.inbox', permission: '', icon: Inbox },
+        {
+          to: '/delegations',
+          label: 'nav.delegations',
+          permission: 'platform.workflow_delegation.read',
+          icon: UserRoundCheck,
+        },
+      ],
     },
     {
       label: 'nav.org',
@@ -89,6 +99,12 @@ export const orgManifest: WebModuleManifest = {
           label: 'nav.workflows',
           permission: 'platform.workflow_definition.read',
           icon: GitBranch,
+        },
+        {
+          to: '/organisation/workflow-bindings',
+          label: 'nav.bindings',
+          permission: 'platform.workflow_binding.read',
+          icon: Link2,
         },
         {
           to: '/data',

@@ -50,7 +50,16 @@ describe('seed', () => {
         'pay_rate_per_order:rider:10.0000',
       ]);
 
-      // Super Admin holds every declared permission; Viewer holds only read/view keys.
+      // Six starting rules for the workflow events, once (row 2.11c).
+      expect(
+        await count(
+          `SELECT count(*) n FROM notify.notification_rule
+           WHERE tenant_id = $1 AND event_type_key LIKE 'workflow.%'`,
+        ),
+      ).toBe(6);
+
+      // Super Admin holds every declared permission; Viewer holds only read/view keys, plus the
+      // own-delegation keys (the API limits those to the viewer's own stand-ins).
       const sa = await owner.query<{ n: string }>(
         `SELECT count(*) n FROM iam.role_permission rp JOIN iam.role r ON r.id = rp.role_id
          WHERE r.tenant_id = $1 AND r.key = 'super_admin'`,
@@ -60,7 +69,10 @@ describe('seed', () => {
       const bad = await owner.query(
         `SELECT 1 FROM iam.role_permission rp JOIN iam.role r ON r.id = rp.role_id
          JOIN iam.permission p ON p.id = rp.permission_id
-         WHERE r.tenant_id = $1 AND r.key = 'viewer' AND p.action NOT IN ('read', 'view')`,
+         WHERE r.tenant_id = $1 AND r.key = 'viewer' AND p.action NOT IN ('read', 'view')
+           AND p.key NOT IN ('platform.workflow_delegation.create',
+                             'platform.workflow_delegation.update',
+                             'platform.workflow_delegation.delete')`,
         [first.tenantId],
       );
       expect(bad.rowCount).toBe(0);

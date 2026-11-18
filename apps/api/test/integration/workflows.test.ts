@@ -794,3 +794,84 @@ describe('SLA', () => {
     expect(view.instance.status).toBe('approved');
   });
 });
+
+describe('self-service delegation (row 2.11c)', () => {
+  const own = ['read', 'create', 'update', 'delete'].map(
+    (a) => `platform.workflow_delegation.${a}`,
+  );
+  const del = (path: string, who: string, version: number, reason: string) =>
+    auth(request(app).delete(`${API_PREFIX}${path}`), who)
+      .set('Idempotency-Key', randomUUID())
+      .set('If-Match', `"${String(version)}"`)
+      .send({ reason });
+
+  it('lets an ordinary user manage only their own stand-ins', async () => {
+    // Role "user" (oscar, dan, eve) gets the four own-delegation keys, as the seed gives the
+    // built-in manager and viewer; none holds manage_all.
+    await owner.query(
+      `INSERT INTO iam.role_permission (tenant_id, role_id, permission_id)
+       SELECT $1, $2, id FROM iam.permission WHERE key = ANY($3::text[])
+       ON CONFLICT DO NOTHING`,
+      [f.tenantA, ids.user, own],
+    );
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    // oscar names dan for his own tasks.
+    const made = await post('/delegations', 'oscar', {
+      userId: ids.oscar,
+      delegateUserId: ids.dan,
+      validFrom: today(),
+      validTo: tomorrow,
+    });
+    expect(made.status).toBe(201);
+    const mine = made.body as Item;
+    // ... but not for someone else's tasks.
+    const forged = await post('/delegations', 'oscar', {
+      userId: ids.eve,
+      delegateUserId: ids.dan,
+      validFrom: today(),
+      validTo: tomorrow,
+    });
+    expect(forged.status).toBe(403);
+    // The stand-in must be a person of the company.
+    const stranger = await post('/delegations', 'oscar', {
+      userId: ids.oscar,
+      delegateUserId: randomUUID(),
+      validFrom: today(),
+      validTo: tomorrow,
+    });
+    expect(stranger.status).toBe(400);
+
+    const seen = async (who: string) =>
+      ((await get('/delegations?pageSize=200', who)).body as { items: Item[] }).items.map(
+        (i) => i.id,
+      );
+    expect(await seen('oscar')).toContain(mine.id);
+    expect(await seen('dan')).toContain(mine.id); // given to dan: he can see it
+    expect(await seen('eve')).not.toContain(mine.id); // unrelated: not listed
+    expect(await seen('alice')).toContain(mine.id); // manage_all sees everyone's
+
+    // eve cannot change or delete it; dan (the stand-in) cannot either; oscar can.
+    expect(
+      (await patch(`/delegations/${mine.id}`, 'eve', mine.version, { note: 'x' })).status,
+    ).toBe(403);
+    expect((await del(`/delegations/${mine.id}`, 'dan', mine.version, 'no')).status).toBe(403);
+    expect((await del(`/delegations/${mine.id}`, 'oscar', mine.version, 'back early')).status).toBe(
+      204,
+    );
+    // alice, with manage_all, names a stand-in for someone else.
+    const byAdmin = await post('/delegations', 'alice', {
+      userId: ids.eve,
+      delegateUserId: ids.dan,
+      validFrom: today(),
+      validTo: tomorrow,
+    });
+    expect(byAdmin.status).toBe(201);
+  });
+
+  it('lists the people of the company for any signed-in user', async () => {
+    const res = await get('/workflow-people', 'eve');
+    expect(res.status).toBe(200);
+    const items = (res.body as { items: { id: string; displayName: string }[] }).items;
+    expect(items.map((p) => p.id)).toEqual(expect.arrayContaining([ids.oscar, ids.dan, ids.eve]));
+  });
+});

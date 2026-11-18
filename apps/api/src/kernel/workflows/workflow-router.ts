@@ -45,7 +45,7 @@ import { z } from 'zod';
 import { createRepository, type Repository } from '../db/repository.js';
 import { currentUnit, type UnitOfWork } from '../db/unit-of-work.js';
 import { createCrudRouter } from '../http/crud-router.js';
-import { ConflictError, ValidationError } from '../http/errors.js';
+import { ConflictError, ForbiddenError, ValidationError } from '../http/errors.js';
 import { problemSchema, registerRoute } from '../http/openapi.js';
 import type { PermissionService } from '../permissions/permission-service.js';
 import type {
@@ -385,8 +385,16 @@ export function toDelegationItem(row: WorkflowDelegationRow) {
   };
 }
 
-/** The repository behind `/delegations`: dates in order, two different people. */
-export function createWorkflowDelegationRepository(): Repository<WorkflowDelegationRow> {
+/**
+ * The repository behind `/delegations`: dates in order, two different people, and the stand-in
+ * works in the session's company. With `permissions` (the API router) a person without
+ * `platform.workflow_delegation.manage_all` sees the delegations they gave or received, and
+ * creates, changes or deletes only their own (self-service: nobody else's tasks can be
+ * redirected by an ordinary user). Without it (the recycle bin) no extra rule applies.
+ */
+export function createWorkflowDelegationRepository(
+  permissions?: Pick<PermissionService, 'current'>,
+): Repository<WorkflowDelegationRow> {
   const base = createRepository<WorkflowDelegationRow>({
     model: 'workflowDelegation',
     scope: 'tenant',
@@ -394,14 +402,65 @@ export function createWorkflowDelegationRepository(): Repository<WorkflowDelegat
   const checkDates = (from: string, to: string) => {
     if (to < from) throw invalid('validTo', 'The end is before the start.', 'invalid');
   };
+  /** Who the caller is, and whether they may manage everyone's delegations. */
+  const caller = async (): Promise<{ me: string | undefined; all: boolean }> => {
+    if (permissions === undefined) return { me: undefined, all: true };
+    const access = await permissions.current();
+    return {
+      me: access.userId,
+      all: access.permissions.includes('platform.workflow_delegation.manage_all'),
+    };
+  };
+  /** Rule: only the person who delegates may change or delete it (403 for anyone else). */
+  const ownOnly = async (id: string): Promise<void> => {
+    const { me, all } = await caller();
+    if (all) return;
+    const current = await base.get(id);
+    if (current.userId !== me)
+      throw new ForbiddenError('You can only change your own delegations.');
+  };
+  const checkMember = async (userId: string): Promise<void> => {
+    const { db, context } = currentUnit();
+    const companyId = context.companyIds[0];
+    if (companyId === undefined) return;
+    const found = await db.$queryRaw<{ id: string }[]>`
+      SELECT u.id::text AS id
+        FROM iam.user_account u
+        JOIN iam.company_membership m ON m.user_id = u.id
+       WHERE u.id = ${userId}::uuid AND u.status = 'active' AND u.deleted_at IS NULL
+         AND m.company_id = ${companyId}::uuid AND m.deleted_at IS NULL
+       LIMIT 1`;
+    if (found.length === 0) {
+      throw invalid('delegateUserId', 'This person cannot act in this company.', 'unknown_user');
+    }
+  };
   return {
     ...base,
+    list: async (options) => {
+      const { me, all } = await caller();
+      if (all) return base.list(options);
+      return base.list({
+        ...options,
+        where: {
+          AND: [options.where ?? {}, { OR: [{ userId: me }, { delegateUserId: me }] }],
+        },
+      });
+    },
+    softDelete: async (id, version, reason) => {
+      await ownOnly(id);
+      return base.softDelete(id, version, reason);
+    },
     create: async (data) => {
       const body = data as z.infer<typeof delegationCreate>;
+      const { me, all } = await caller();
+      if (!all && body.userId !== me) {
+        throw new ForbiddenError('You can only delegate your own tasks.');
+      }
       if (body.userId === body.delegateUserId) {
         throw invalid('delegateUserId', 'Someone cannot stand in for themselves.', 'invalid');
       }
       checkDates(body.validFrom, body.validTo);
+      if (permissions !== undefined) await checkMember(body.delegateUserId);
       return base.create({
         ...body,
         validFrom: toDay(body.validFrom),
@@ -410,6 +469,7 @@ export function createWorkflowDelegationRepository(): Repository<WorkflowDelegat
     },
     update: async (id, version, changes) => {
       const body = changes as z.infer<typeof delegationUpdate>;
+      await ownOnly(id);
       const current = await base.get(id);
       checkDates(
         body.validFrom ?? isoDay(current.validFrom),
@@ -627,6 +687,13 @@ export function createWorkflowRouter(deps: WorkflowRouterDeps): Router {
     });
   });
 
+  // The people of the session's company, for the "pass to" and "stand-in" pickers. Open to
+  // every signed-in person (names only): passing on a task you hold needs no permission.
+  router.get('/workflow-people', async (_req, res) => {
+    const people = await uow.run(() => workflows.people());
+    res.json({ items: people });
+  });
+
   for (const { path, action, body } of ACTIONS) {
     router.post(`/tasks/:id/${path}`, async (req, res) => {
       const { id } = idParams.parse(req.params);
@@ -721,7 +788,7 @@ export function createWorkflowRouter(deps: WorkflowRouterDeps): Router {
       path: '/delegations',
       resource: 'platform.workflow_delegation',
       tag: 'Workflows',
-      repository: createWorkflowDelegationRepository(),
+      repository: createWorkflowDelegationRepository(permissions),
       schemas: {
         create: delegationCreate,
         update: delegationUpdate,
@@ -760,6 +827,18 @@ export function createWorkflowRouter(deps: WorkflowRouterDeps): Router {
     tags,
     summary: 'My open workflow tasks',
     responses: { 200: json('Open tasks, soonest deadline first', inboxList) },
+  });
+  registerRoute(registry, {
+    method: 'get',
+    path: '/workflow-people',
+    tags,
+    summary: 'People of my company who can take workflow tasks (id and name)',
+    responses: {
+      200: json(
+        'People',
+        z.object({ items: z.array(z.object({ id: z.uuid(), displayName: z.string() })) }),
+      ),
+    },
   });
   for (const { path, body, summary } of ACTIONS) {
     registerRoute(registry, {

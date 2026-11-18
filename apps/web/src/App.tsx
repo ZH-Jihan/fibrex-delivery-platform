@@ -33,6 +33,8 @@ import { FormulasPage } from './org/FormulasPage';
 import { RateTablesPage } from './org/RateTablesPage';
 import { StateMachinesPage } from './org/StateMachinesPage';
 import { WorkflowBuilderPage } from './org/WorkflowBuilderPage';
+import { WorkflowBindingsPage } from './org/WorkflowBindingsPage';
+import { DelegationsPage } from './workflow/DelegationsPage';
 import { InboxPage } from './workflow/InboxPage';
 import { DataExchangePage } from './data/DataExchangePage';
 import { BranchesPage, CompanyPage } from './org/OrganisationPages';
@@ -221,6 +223,22 @@ function Gate() {
           }
         />
         <Route path="tasks" element={<InboxPage />} />
+        <Route
+          path="delegations"
+          element={
+            <Guarded permission="platform.workflow_delegation.read">
+              <DelegationsPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="organisation/workflow-bindings"
+          element={
+            <Guarded permission="platform.workflow_binding.read">
+              <WorkflowBindingsPage />
+            </Guarded>
+          }
+        />
         <Route
           path="organisation/record-types"
           element={

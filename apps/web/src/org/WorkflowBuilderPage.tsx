@@ -13,7 +13,7 @@
  * Used by: App.tsx route /organisation/workflows.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowDown, ArrowUp, GitBranch, Plus, Save, Send, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, GitBranch, Pencil, Plus, Save, Send, Trash2 } from 'lucide-react';
 import { checkWorkflowGraph, workflowGraphSchema, type WorkflowStep } from '@fibrex/shared';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
@@ -35,7 +35,9 @@ interface VersionRow {
   version: number;
 }
 export interface StepForm {
-  kind: 'approval' | 'condition' | 'notify';
+  kind: 'approval' | 'condition' | 'notify' | 'parallel_group';
+  /** Parallel group only: its approval branches (each a StepForm of kind "approval"). */
+  branches: StepForm[];
   key: string;
   name: string;
   roles: string;
@@ -53,6 +55,7 @@ export interface StepForm {
 const ifMatch = (version: number) => ({ 'If-Match': `"${String(version)}"` });
 export const emptyStep = (): StepForm => ({
   kind: 'approval',
+  branches: [],
   key: '',
   name: '',
   roles: '',
@@ -81,6 +84,14 @@ export function stepFromForm(f: StepForm): unknown {
     return { ...base, formulaKey: f.formulaKey.trim(), onFalse: f.onFalse.trim() || 'end' };
   }
   if (f.kind === 'notify') return { ...base, eventType: f.eventType.trim() };
+  // A group asks all its branches at once; each branch is an ordinary approval (rule: the
+  // shared schema wants at least two, and unique keys across the whole workflow).
+  if (f.kind === 'parallel_group') {
+    return {
+      ...base,
+      branches: f.branches.map((b) => stepFromForm({ ...b, kind: 'approval', branches: [] })),
+    };
+  }
   const roles = list(f.roles);
   const users = list(f.users);
   return {
@@ -95,6 +106,50 @@ export function stepFromForm(f: StepForm): unknown {
     ...(f.reminderHours.trim() === '' ? {} : { reminderHours: hours(f.reminderHours).v }),
     allowSelfApproval: f.allowSelfApproval,
   };
+}
+
+/** The form that describes a saved step, so it can be edited (the reverse of `stepFromForm`). */
+export function formFromStep(step: WorkflowStep): StepForm {
+  const f: StepForm = { ...emptyStep(), kind: step.kind, key: step.key, name: step.name };
+  if (step.kind === 'condition')
+    return { ...f, formulaKey: step.formulaKey, onFalse: step.onFalse };
+  if (step.kind === 'notify') return { ...f, eventType: step.eventType };
+  if (step.kind === 'parallel_group') {
+    return { ...f, branches: step.branches.map((b) => formFromStep(b)) };
+  }
+  return {
+    ...f,
+    roles: (step.assignee.roles ?? []).join(', '),
+    users: (step.assignee.users ?? []).join(', '),
+    userField: step.assignee.userField ?? '',
+    quorum: step.quorum,
+    slaHours: step.slaHours === undefined ? '' : String(step.slaHours),
+    reminderHours: step.reminderHours === undefined ? '' : String(step.reminderHours),
+    allowSelfApproval: step.allowSelfApproval,
+  };
+}
+
+/**
+ * An edited step keeps what the form cannot show: the escalation target of an approval (and of
+ * each branch, matched by key), so editing never silently drops a deadline rule.
+ */
+export function keepEscalation(old: WorkflowStep | undefined, fresh: WorkflowStep): WorkflowStep {
+  if (old?.kind === 'approval' && fresh.kind === 'approval' && old.escalateTo !== undefined) {
+    return { ...fresh, escalateTo: old.escalateTo };
+  }
+  if (old?.kind === 'parallel_group' && fresh.kind === 'parallel_group') {
+    return {
+      ...fresh,
+      branches: fresh.branches.map((b) => {
+        const kept = keepEscalation(
+          old.branches.find((o) => o.key === b.key),
+          b,
+        );
+        return kept.kind === 'approval' ? kept : b;
+      }),
+    };
+  }
+  return fresh;
 }
 
 /** The first problem of a graph (shape or rule), or null when it can be saved. */
@@ -122,6 +177,8 @@ export function WorkflowBuilderPage() {
   const [onApproved, setOnApproved] = useState('');
   const [onRejected, setOnRejected] = useState('');
   const [form, setForm] = useState<StepForm | null>(null);
+  // Index of the step being edited, or null when the form adds a new one.
+  const [editing, setEditing] = useState<number | null>(null);
 
   const loadDefs = useCallback(() => {
     setLoading(true);
@@ -195,9 +252,31 @@ export function WorkflowBuilderPage() {
       setProblem(issue ? `${issue.path.slice(1).join('.')}: ${issue.message}` : 'invalid');
       return;
     }
+    // Keys must stay unique across the workflow, branch keys included, also while editing.
+    const next =
+      editing === null
+        ? [...steps, ...checked.data.steps]
+        : steps.map((s, i) => {
+            const edited = checked.data.steps[0];
+            return i === editing && edited !== undefined ? keepEscalation(s, edited) : s;
+          });
+    const found = checkWorkflowGraph({ steps: next }).find((i) => i.code === 'duplicate_step');
+    if (found !== undefined) {
+      setProblem(found.message);
+      return;
+    }
     setProblem(null);
-    setSteps([...steps, ...checked.data.steps]);
+    setSteps(next);
     setForm(null);
+    setEditing(null);
+  };
+
+  const setBranch = (index: number, change: Partial<StepForm>) => {
+    if (form === null) return;
+    setForm({
+      ...form,
+      branches: form.branches.map((b, i) => (i === index ? { ...b, ...change } : b)),
+    });
   };
 
   const move = (index: number, by: -1 | 1) => {
@@ -254,7 +333,7 @@ export function WorkflowBuilderPage() {
         ? `${t('wf.kind.condition')} · ${s.formulaKey} → ${s.onFalse}`
         : s.kind === 'notify'
           ? `${t('wf.kind.notify')} · ${s.eventType}`
-          : `${t('wf.kind.parallel_group')} · ${String(s.branches.length)}`;
+          : `${t('wf.kind.parallel_group')} · ${s.branches.map((b) => b.name).join(' + ')}`;
 
   return (
     <>
@@ -357,6 +436,16 @@ export function WorkflowBuilderPage() {
                   <>
                     <Button
                       variant="link"
+                      icon={Pencil}
+                      aria-label={`${t('common.edit')} ${s.key}`}
+                      onClick={() => {
+                        setForm(formFromStep(s));
+                        setEditing(i);
+                        setProblem(null);
+                      }}
+                    />
+                    <Button
+                      variant="link"
                       icon={ArrowUp}
                       aria-label={`${t('wf.moveUp')} ${s.key}`}
                       disabled={i === 0}
@@ -408,6 +497,7 @@ export function WorkflowBuilderPage() {
                 icon={Plus}
                 onClick={() => {
                   setForm(emptyStep());
+                  setEditing(null);
                   setProblem(null);
                 }}
               >
@@ -420,12 +510,20 @@ export function WorkflowBuilderPage() {
               <Select
                 label={t('wf.kind')}
                 value={form.kind}
-                options={(['approval', 'condition', 'notify'] as const).map((k) => ({
-                  value: k,
-                  label: t(`wf.kind.${k}`),
-                }))}
+                options={(['approval', 'parallel_group', 'condition', 'notify'] as const).map(
+                  (k) => ({
+                    value: k,
+                    label: t(`wf.kind.${k}`),
+                  }),
+                )}
                 onChange={(e) => {
-                  setForm({ ...form, kind: e.target.value as StepForm['kind'] });
+                  const kind = e.target.value as StepForm['kind'];
+                  // A new group starts with two branches (the least the rules allow).
+                  const branches =
+                    kind === 'parallel_group' && form.branches.length === 0
+                      ? [emptyStep(), emptyStep()]
+                      : form.branches;
+                  setForm({ ...form, kind, branches });
                 }}
               />
               <Field
@@ -501,6 +599,75 @@ export function WorkflowBuilderPage() {
                   />
                 </>
               ) : null}
+              {form.kind === 'parallel_group' ? (
+                <>
+                  <p>{t('wf.groupHint')}</p>
+                  {form.branches.map((b, bi) => (
+                    <fieldset key={bi} aria-label={`${t('wf.branches')} ${String(bi + 1)}`}>
+                      <legend>{`${t('wf.branches')} ${String(bi + 1)}`}</legend>
+                      <Field
+                        label={`${t('wf.branchKey')} ${String(bi + 1)}`}
+                        value={b.key}
+                        onChange={(e) => {
+                          setBranch(bi, { key: e.target.value });
+                        }}
+                      />
+                      <Field
+                        label={`${t('wf.name')} ${String(bi + 1)}`}
+                        value={b.name}
+                        onChange={(e) => {
+                          setBranch(bi, { name: e.target.value });
+                        }}
+                      />
+                      <Field
+                        label={`${t('wf.roles')} ${String(bi + 1)}`}
+                        hint={t('wf.listHint')}
+                        value={b.roles}
+                        onChange={(e) => {
+                          setBranch(bi, { roles: e.target.value });
+                        }}
+                      />
+                      <Field
+                        label={`${t('wf.users')} ${String(bi + 1)}`}
+                        hint={t('wf.listHint')}
+                        value={b.users}
+                        onChange={(e) => {
+                          setBranch(bi, { users: e.target.value });
+                        }}
+                      />
+                      <Select
+                        label={`${t('wf.quorum')} ${String(bi + 1)}`}
+                        value={b.quorum}
+                        options={[
+                          { value: 'any', label: t('wf.quorum.any') },
+                          { value: 'all', label: t('wf.quorum.all') },
+                        ]}
+                        onChange={(e) => {
+                          setBranch(bi, { quorum: e.target.value as 'any' | 'all' });
+                        }}
+                      />
+                      <Button
+                        variant="link"
+                        dangerText
+                        icon={Trash2}
+                        disabled={form.branches.length <= 2}
+                        aria-label={`${t('wf.removeBranch')} ${String(bi + 1)}`}
+                        onClick={() => {
+                          setForm({ ...form, branches: form.branches.filter((_, i) => i !== bi) });
+                        }}
+                      />
+                    </fieldset>
+                  ))}
+                  <Button
+                    icon={Plus}
+                    onClick={() => {
+                      setForm({ ...form, branches: [...form.branches, emptyStep()] });
+                    }}
+                  >
+                    {t('wf.addBranch')}
+                  </Button>
+                </>
+              ) : null}
               {form.kind === 'condition' ? (
                 <>
                   <Field
@@ -530,11 +697,12 @@ export function WorkflowBuilderPage() {
                 />
               ) : null}
               <Button variant="primary" onClick={addStep}>
-                {t('wf.addStep')}
+                {editing === null ? t('wf.addStep') : t('common.save')}
               </Button>
               <Button
                 onClick={() => {
                   setForm(null);
+                  setEditing(null);
                 }}
               >
                 {t('common.cancel')}
