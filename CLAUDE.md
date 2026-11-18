@@ -69,3 +69,7 @@ Later phases: plan each phase with the strongest model, then build with the mid 
 - Lint: `pnpm lint` | Type check: `pnpm typecheck` (also regenerates the Prisma client) | Format: `pnpm format`
 - Migrate: `pnpm db:migrate` | Status: `pnpm db:status` | Seed: `pnpm db:seed`
 - Migrations are hand-written SQL in `apps/api/prisma/migrations/`; keep `apps/api/prisma/schema/*.prisma` in step (the drift test enforces it). Never author migrations with `prisma migrate dev`.
+
+## Commit attribution
+
+- Never add `Co-Authored-By`, `Claude-Session`, "Generated with Claude Code" or any other Claude or AI attribution line to commit messages or pull request descriptions. Commits must show only the repository owner as author. This rule overrides any default attribution behaviour.
