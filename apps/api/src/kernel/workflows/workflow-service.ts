@@ -38,8 +38,9 @@
  *      once; a task past its deadline is escalated once: replaced by tasks for the step's
  *      `escalateTo` (the old task expires), or, with no one to escalate to, announced as
  *      overdue.
- *   9. Notifications are announced only after the transaction commits
- *      (`currentUnit().afterCommit`), so nobody is told about a task a rollback removed.
+ *   9. Events (task assigned, completed ...) are written to the event outbox in the same
+ *      transaction (row 2.12), so a rollback removes them with the task; the outbox relay
+ *      hands them to the notification rules and webhooks only after the commit.
  *
  * Depends on: @fibrex/shared (workflow graph, quorum), kernel/db unit of work,
  * kernel/http/errors, kernel/permissions, kernel/states (records and outcome moves),
@@ -95,17 +96,17 @@ export type WorkflowDelegationRow = NonNullable<
   Awaited<ReturnType<Db['workflowDelegation']['findFirst']>>
 >;
 
-/** An event for the notification rules, announced after commit. */
+/** A workflow event, written to the outbox inside the open transaction. */
 export interface WorkflowAnnouncement {
-  tenantId: string;
   companyId: string;
+  instanceId: string;
   eventType: string;
   payload: Record<string, unknown>;
 }
 
-/** Where announcements go (the notification service in src/main.ts). */
+/** Where announcements go: the event outbox (kernel/events) in src/main.ts. */
 export interface WorkflowEventSink {
-  emit(event: WorkflowAnnouncement): Promise<unknown>;
+  record(event: WorkflowAnnouncement): Promise<unknown>;
 }
 
 /** Event types the engine announces; registered in the notification catalogue. */
@@ -615,7 +616,7 @@ export class WorkflowService {
           stepKey: step.key,
           detail: { eventType: step.eventType },
         });
-        this.#announce(instance, step.eventType, {
+        await this.#announce(instance, step.eventType, {
           ...this.#about(instance, definition),
           stepKey: step.key,
           stepName: step.name,
@@ -751,7 +752,7 @@ export class WorkflowService {
         escalatedFromTaskId: escalatedFrom,
       },
     });
-    this.#announce(instance, 'workflow.task_assigned', {
+    await this.#announce(instance, 'workflow.task_assigned', {
       ...this.#about(instance, definition),
       taskId: task.id,
       stepKey: step.key,
@@ -873,7 +874,7 @@ export class WorkflowService {
         await this.#log(done, 'state_moved', { detail: { toCode: move.toStateCode } });
       }
     }
-    this.#announce(done, 'workflow.completed', {
+    await this.#announce(done, 'workflow.completed', {
       ...this.#about(done, definition),
       outcome,
       starterId: done.startedBy,
@@ -1135,7 +1136,7 @@ export class WorkflowService {
         comment: input.comment ?? null,
       },
     });
-    this.#announce(instance, 'workflow.task_assigned', {
+    await this.#announce(instance, 'workflow.task_assigned', {
       ...this.#about(instance, definition),
       taskId: task.id,
       stepKey: step.key,
@@ -1319,7 +1320,7 @@ export class WorkflowService {
       });
       await db.workflowTask.update({ where: { id: task.id }, data: { remindedAt: now } });
       await this.#log(instance, 'reminded', { stepKey: task.stepKey, taskId: task.id });
-      this.#announce(instance, 'workflow.task_reminder', {
+      await this.#announce(instance, 'workflow.task_reminder', {
         ...this.#about(instance, definition),
         taskId: task.id,
         stepKey: task.stepKey,
@@ -1343,7 +1344,7 @@ export class WorkflowService {
       if (step === undefined || targets.length === 0) {
         await db.workflowTask.update({ where: { id: task.id }, data: { escalatedAt: now } });
         await this.#log(instance, 'overdue', { stepKey: task.stepKey, taskId: task.id });
-        this.#announce(instance, 'workflow.task_overdue', {
+        await this.#announce(instance, 'workflow.task_overdue', {
           ...this.#about(instance, definition),
           taskId: task.id,
           stepKey: task.stepKey,
@@ -1364,7 +1365,7 @@ export class WorkflowService {
             target,
             task.id,
           );
-          this.#announce(instance, 'workflow.task_escalated', {
+          await this.#announce(instance, 'workflow.task_escalated', {
             ...this.#about(instance, definition),
             taskId: opened.id,
             stepKey: step.key,
@@ -1414,22 +1415,22 @@ export class WorkflowService {
     };
   }
 
-  /** Step 9 of the header: queued until the transaction commits. */
-  #announce(
+  /**
+   * Step 9 of the header: the event joins the open transaction. A failure to write it
+   * fails the whole change, so a task never exists without its announcement.
+   */
+  async #announce(
     instance: WorkflowInstanceRow,
     eventType: string,
     payload: Record<string, unknown>,
-  ): void {
+  ): Promise<void> {
     const sink = this.#deps.events;
     if (sink === undefined) return;
-    const { context, afterCommit } = currentUnit();
-    const event = { tenantId: context.tenantId, companyId: instance.companyId, eventType, payload };
-    afterCommit(async () => {
-      try {
-        await sink.emit(event);
-      } catch (err) {
-        this.#deps.logger?.error({ err, eventType }, 'workflow notification failed');
-      }
+    await sink.record({
+      companyId: instance.companyId,
+      instanceId: instance.id,
+      eventType,
+      payload,
     });
   }
 }

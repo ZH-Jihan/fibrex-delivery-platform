@@ -3,46 +3,46 @@
 
 model UserAccount {
   notificationPreferences NotificationPreference[]
-  id                 String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
-  tenantId           String    @map("tenant_id") @db.Uuid
-  partyId            String?   @map("party_id") @db.Uuid
-  username           String
-  email              String?
-  phone              String?
-  displayName        String    @map("display_name")
-  status             String    @default("active")
-  mustChangePassword Boolean   @default(true) @map("must_change_password")
-  failedAttempts     Int       @default(0) @map("failed_attempts")
-  lockedUntil        DateTime? @map("locked_until") @db.Timestamptz(6)
-  lastLoginAt        DateTime? @map("last_login_at") @db.Timestamptz(6)
-  preferredLanguage  String    @default("en") @map("preferred_language")
-  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  createdBy          String?   @map("created_by") @db.Uuid
-  updatedAt          DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
-  updatedBy          String?   @map("updated_by") @db.Uuid
-  version            Int       @default(1)
-  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
-  deletedBy          String?   @map("deleted_by") @db.Uuid
-  deleteReason       String?   @map("delete_reason")
+  id                      String                   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId                String                   @map("tenant_id") @db.Uuid
+  partyId                 String?                  @map("party_id") @db.Uuid
+  username                String
+  email                   String?
+  phone                   String?
+  displayName             String                   @map("display_name")
+  status                  String                   @default("active")
+  mustChangePassword      Boolean                  @default(true) @map("must_change_password")
+  failedAttempts          Int                      @default(0) @map("failed_attempts")
+  lockedUntil             DateTime?                @map("locked_until") @db.Timestamptz(6)
+  lastLoginAt             DateTime?                @map("last_login_at") @db.Timestamptz(6)
+  preferredLanguage       String                   @default("en") @map("preferred_language")
+  createdAt               DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy               String?                  @map("created_by") @db.Uuid
+  updatedAt               DateTime                 @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy               String?                  @map("updated_by") @db.Uuid
+  version                 Int                      @default(1)
+  deletedAt               DateTime?                @map("deleted_at") @db.Timestamptz(6)
+  deletedBy               String?                  @map("deleted_by") @db.Uuid
+  deleteReason            String?                  @map("delete_reason")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  credentials          Credential[]
-  mfaFactors           MfaFactor[]
-  recoveryCodes        MfaRecoveryCode[]
-  otpChallenges        OtpChallenge[]
-  memberships          CompanyMembership[]
-  permissionOverrides  UserPermissionOverride[]
-  impersonationsActor  Impersonation[]          @relation("ImpersonationActor")
-  impersonationsTarget Impersonation[]          @relation("ImpersonationTarget")
-  sessions             Session[]
-  passwordResetTokens  PasswordResetToken[]
-  workflowsStarted     WorkflowInstance[]       @relation("WorkflowInstanceStarter")
-  workflowTasks        WorkflowTask[]           @relation("WorkflowTaskAssignee")
-  workflowTasksDelegated WorkflowTask[]         @relation("WorkflowTaskDelegatedFrom")
-  delegationsGiven     WorkflowDelegation[]     @relation("WorkflowDelegationUser")
-  delegationsReceived  WorkflowDelegation[]     @relation("WorkflowDelegationDelegate")
-  party              Party?                   @relation(fields: [tenantId, partyId], references: [tenantId, id], map: "user_account_party_fk", onDelete: NoAction, onUpdate: NoAction)
+  credentials            Credential[]
+  mfaFactors             MfaFactor[]
+  recoveryCodes          MfaRecoveryCode[]
+  otpChallenges          OtpChallenge[]
+  memberships            CompanyMembership[]
+  permissionOverrides    UserPermissionOverride[]
+  impersonationsActor    Impersonation[]          @relation("ImpersonationActor")
+  impersonationsTarget   Impersonation[]          @relation("ImpersonationTarget")
+  sessions               Session[]
+  passwordResetTokens    PasswordResetToken[]
+  workflowsStarted       WorkflowInstance[]       @relation("WorkflowInstanceStarter")
+  workflowTasks          WorkflowTask[]           @relation("WorkflowTaskAssignee")
+  workflowTasksDelegated WorkflowTask[]           @relation("WorkflowTaskDelegatedFrom")
+  delegationsGiven       WorkflowDelegation[]     @relation("WorkflowDelegationUser")
+  delegationsReceived    WorkflowDelegation[]     @relation("WorkflowDelegationDelegate")
+  party                  Party?                   @relation(fields: [tenantId, partyId], references: [tenantId, id], map: "user_account_party_fk", onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([tenantId, id], map: "user_account_tenant_id_uq")
   @@unique([tenantId, username], map: "user_account_username_uq", where: { deletedAt: null })
@@ -499,8 +499,9 @@ model ApiClient {
   deletedBy          String?   @map("deleted_by") @db.Uuid
   deleteReason       String?   @map("delete_reason")
 
-  company Company  @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "api_client_company_fk", onDelete: NoAction, onUpdate: NoAction)
-  keys    ApiKey[]
+  company              Company               @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "api_client_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  keys                 ApiKey[]
+  webhookSubscriptions WebhookSubscription[]
 
   @@unique([companyId, id], map: "api_client_company_id_uq")
   @@map("api_client")

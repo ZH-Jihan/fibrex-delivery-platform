@@ -50,6 +50,8 @@ describe('buildNav', () => {
           '/organisation/state-machines',
           '/organisation/workflows',
           '/organisation/workflow-bindings',
+          '/organisation/webhooks',
+          '/organisation/events',
           '/data',
           '/organisation/record-types',
         ],

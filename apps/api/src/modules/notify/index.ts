@@ -2,14 +2,16 @@
  * Notify module: public entry point (SPEC 2.13: other modules import only this file).
  *
  * Purpose: notification rules, in-app notifications with realtime push, email through a
- * queue. Other modules announce events with `NotifyService.emit` (after their own
- * transaction commits) and declare their event types in their manifest; `main.ts`
- * writes the combined list with `syncEventTypes` at start-up.
+ * queue. Other modules write events to the outbox (kernel/events, row 2.12) and declare
+ * their event types in their manifest; the "notify.rules" consumer below turns every
+ * event into notifications. `main.ts` writes the combined type list with `syncEventTypes`
+ * at start-up and registers the consumer with the outbox relay.
  *
  * Depends on: ./notify-service.ts, ./router.ts, ./realtime.ts, ./email-queue.ts,
- * kernel/module-registry. Used by: src/main.ts.
+ * kernel/module-registry, kernel/events (consumer type). Used by: src/main.ts.
  */
 import type { PrismaDb } from '../../kernel/db/prisma.js';
+import type { EventConsumer } from '../../kernel/events/relay.js';
 import type { EventTypeDef, ModuleManifest } from '../../kernel/module-registry/index.js';
 import { crudPermissions, type PermissionDef } from '../../kernel/permissions/catalogue.js';
 import { createNotifyRouter } from './router.js';
@@ -60,6 +62,28 @@ export function createNotifyModule(deps: NotifyModuleDeps): ModuleManifest {
     permissions: NOTIFY_PERMISSIONS,
     routers: [createNotifyRouter(deps)],
     eventTypes: KERNEL_EVENT_TYPES,
+  };
+}
+
+export const NOTIFY_CONSUMER = 'notify.rules';
+
+/**
+ * Outbox consumer: runs the notification rules for every event. It runs inside the relay's
+ * unit of work for the event's tenant and company, so the notifications and the
+ * "consumed" mark commit together (an event never notifies twice).
+ */
+export function createNotifyConsumer(notify: NotifyService): EventConsumer {
+  return {
+    key: NOTIFY_CONSUMER,
+    eventTypes: '*',
+    handle: async (event) => {
+      await notify.emit({
+        tenantId: event.tenantId,
+        ...(event.companyId === null ? {} : { companyId: event.companyId }),
+        eventType: event.eventType,
+        payload: event.payload,
+      });
+    },
   };
 }
 

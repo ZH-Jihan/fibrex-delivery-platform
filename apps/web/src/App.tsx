@@ -34,6 +34,8 @@ import { RateTablesPage } from './org/RateTablesPage';
 import { StateMachinesPage } from './org/StateMachinesPage';
 import { WorkflowBuilderPage } from './org/WorkflowBuilderPage';
 import { WorkflowBindingsPage } from './org/WorkflowBindingsPage';
+import { EventsPage } from './org/EventsPage';
+import { WebhooksPage } from './org/WebhooksPage';
 import { DelegationsPage } from './workflow/DelegationsPage';
 import { InboxPage } from './workflow/InboxPage';
 import { DataExchangePage } from './data/DataExchangePage';
@@ -236,6 +238,22 @@ function Gate() {
           element={
             <Guarded permission="platform.workflow_binding.read">
               <WorkflowBindingsPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="organisation/webhooks"
+          element={
+            <Guarded permission="integration.webhook_subscription.read">
+              <WebhooksPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="organisation/events"
+          element={
+            <Guarded permission="integration.event.read">
+              <EventsPage />
             </Guarded>
           }
         />

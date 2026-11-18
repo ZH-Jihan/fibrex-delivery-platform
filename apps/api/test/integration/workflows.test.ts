@@ -29,7 +29,7 @@ import { loadEnv } from '../../src/kernel/config/env.js';
 import { SecretBox } from '../../src/kernel/crypto/secret-box.js';
 import { createPool, type Pool } from '../../src/kernel/db/pool.js';
 import { createPrisma, type PrismaDb } from '../../src/kernel/db/prisma.js';
-import { UnitOfWork } from '../../src/kernel/db/unit-of-work.js';
+import { currentUnit, UnitOfWork } from '../../src/kernel/db/unit-of-work.js';
 import { createEntityDefinitionRouter } from '../../src/kernel/entities/entity-definition-router.js';
 import { EntityDefinitionService } from '../../src/kernel/entities/entity-definition-service.js';
 import { createFormulaRouter } from '../../src/kernel/formulas/formula-router.js';
@@ -207,9 +207,14 @@ beforeAll(async () => {
     targets,
     states,
     evaluate: (key, onDate, inputs) => formulas.evaluate(key, onDate, inputs),
+    // Stands in for the event outbox: kept only when the transaction commits, as the
+    // outbox row would be.
     events: {
-      emit: (event) => {
-        sent.push(event);
+      record: (event) => {
+        currentUnit().afterCommit(() => {
+          sent.push(event);
+          return Promise.resolve();
+        });
         return Promise.resolve();
       },
     },

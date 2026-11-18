@@ -14,9 +14,11 @@ import {
   Link2,
   ListTree,
   MapPin,
+  Radio,
   Sigma,
   Table2,
   UserRoundCheck,
+  Webhook,
   Workflow,
 } from 'lucide-react';
 import type { WebModuleManifest } from '../shell/manifest';
@@ -105,6 +107,18 @@ export const orgManifest: WebModuleManifest = {
           label: 'nav.bindings',
           permission: 'platform.workflow_binding.read',
           icon: Link2,
+        },
+        {
+          to: '/organisation/webhooks',
+          label: 'nav.webhooks',
+          permission: 'integration.webhook_subscription.read',
+          icon: Webhook,
+        },
+        {
+          to: '/organisation/events',
+          label: 'nav.events',
+          permission: 'integration.event.read',
+          icon: Radio,
         },
         {
           to: '/data',

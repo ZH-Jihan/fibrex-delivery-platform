@@ -16,8 +16,11 @@
  *   3. If queueing an email fails, the failure is recorded as a delivery row; the
  *      notification itself stays valid (the person still sees it in the app).
  *
- * `emit` opens its own transaction for the given tenant, so call it after the business
- * transaction has committed (publish events post-commit), not from inside it.
+ * Since row 2.12 modules do not call `emit` themselves: they write an event to the outbox
+ * and the outbox relay calls `emit` from the "notify.rules" consumer, inside the
+ * consumer's transaction (which also records the event as consumed). `emit` therefore
+ * joins an open unit of work for the same tenant, and queues step 2 with `afterCommit`, so
+ * pushes and emails still go out only once everything is committed.
  *
  * Depends on: kernel/db (UnitOfWork), ./template.ts, ports for realtime and the email
  * queue (interfaces below, so tests and other transports can stand in).
@@ -25,7 +28,7 @@
  */
 import type { Prisma } from '../../generated/prisma/client.js';
 import type { Db } from '../../kernel/db/prisma.js';
-import type { UnitOfWork } from '../../kernel/db/unit-of-work.js';
+import { currentUnit, type UnitOfWork } from '../../kernel/db/unit-of-work.js';
 import type { Logger } from '../../kernel/observability/logger.js';
 import { renderTemplate } from './template.js';
 
@@ -121,10 +124,9 @@ export class NotifyService {
         const channels = rule.channels.filter((c): c is Channel => c === 'in_app' || c === 'email');
         created += await this.deliverRule(db, event, rule, recipients, channels, outbox);
       }
+      currentUnit().afterCommit(() => this.dispatch(context, outbox));
       return created;
     });
-
-    await this.dispatch(context, outbox);
     return count;
   }
 
@@ -149,9 +151,17 @@ export class NotifyService {
         eventType: rule.eventTypeKey,
         payload: options.payload,
       };
-      return this.deliverRule(db, event, rule, { userIds: [options.userId] }, channels, outbox);
+      const sent = await this.deliverRule(
+        db,
+        event,
+        rule,
+        { userIds: [options.userId] },
+        channels,
+        outbox,
+      );
+      currentUnit().afterCommit(() => this.dispatch(context, outbox));
+      return sent;
     });
-    if (count >= 0) await this.dispatch(context, outbox);
     return count;
   }
 

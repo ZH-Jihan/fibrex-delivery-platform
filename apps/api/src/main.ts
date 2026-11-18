@@ -87,6 +87,13 @@ import {
 import { WORKFLOW_EVENT_TYPES, WorkflowService } from './kernel/workflows/workflow-service.js';
 import { ModuleRegistry, createModuleRouter } from './kernel/module-registry/index.js';
 import {
+  createEventRouter,
+  createWebhookSubscriptionRepository,
+} from './kernel/events/event-router.js';
+import { EventOutbox } from './kernel/events/outbox.js';
+import { OutboxRelay } from './kernel/events/relay.js';
+import { WebhookDispatcher } from './kernel/events/webhooks.js';
+import {
   createNumberSequenceRepository,
   createNumberingRouter,
 } from './kernel/numbering/numbering-router.js';
@@ -118,6 +125,7 @@ import {
   EmailQueue,
   NotifyService,
   RealtimeGateway,
+  createNotifyConsumer,
   createNotifyModule,
   syncEventTypes,
   type NotificationView,
@@ -332,8 +340,41 @@ async function main(): Promise<void> {
       },
     },
   });
+  // Event outbox (row 2.12): services write events in their own transaction; the relay
+  // hands them to the notification rules and to webhooks after the commit (a nudge per
+  // commit, plus a recurring run that catches anything left over).
+  const outbox = new EventOutbox();
+  const relay = new OutboxRelay({ prisma, uow, redisUrl: env.REDIS_URL, logger });
+  const webhooks = new WebhookDispatcher({
+    uow,
+    redisUrl: env.REDIS_URL,
+    box: new SecretBox(env.DATA_ENCRYPTION_KEY),
+    logger,
+    // http and internal hosts only outside production (local receivers, tests).
+    allowInsecure: env.NODE_ENV !== 'production',
+  });
+  relay.register(createNotifyConsumer(notify));
+  relay.register(webhooks.consumer());
+  outbox.onCommitted(() => {
+    relay.nudge();
+  });
+  recycleBin.register({
+    entityType: 'integration.webhook_subscription',
+    moduleKey: 'integration',
+    label: 'Webhook subscription',
+    repository: createWebhookSubscriptionRepository(),
+    describe: (sub) => `${sub.name} (${sub.url})`,
+  });
+
   // Recurring background jobs (SPEC 2.12): audit sealing and monthly partition creation.
   const scheduler = new JobScheduler(env.REDIS_URL, logger);
+  scheduler.register({
+    name: 'outbox-relay',
+    everyMs: 5_000,
+    run: async () => {
+      await relay.publishPending();
+    },
+  });
   scheduler.register({
     name: 'audit-seal',
     everyMs: 60_000,
@@ -394,7 +435,16 @@ async function main(): Promise<void> {
     targets: stateTargets,
     states,
     evaluate: (key, onDate, inputs) => formulas.evaluate(key, onDate, inputs),
-    events: notify,
+    events: {
+      record: (e) =>
+        outbox.record({
+          eventType: e.eventType,
+          companyId: e.companyId,
+          aggregateType: 'platform.workflow_instance',
+          aggregateId: e.instanceId,
+          payload: e.payload,
+        }),
+    },
     logger,
   });
   recycleBin.register({
@@ -539,6 +589,16 @@ async function main(): Promise<void> {
       modules.mount(api);
       api.use(createModuleRouter({ registry, modules }));
       api.use(
+        createEventRouter({
+          uow,
+          registry,
+          permissions,
+          box: new SecretBox(env.DATA_ENCRYPTION_KEY),
+          webhooks,
+          eventTypes: () => [...modules.eventTypes(), ...WORKFLOW_EVENT_TYPES],
+        }),
+      );
+      api.use(
         createJobRouter({
           registry,
           authorize: permissions.authorize,
@@ -547,6 +607,8 @@ async function main(): Promise<void> {
             emailQueue.getQueue(),
             pdfQueue.getQueue(),
             importQueue.getQueue(),
+            relay.getQueue(),
+            webhooks.getQueue(),
           ],
         }),
       );
@@ -588,6 +650,8 @@ async function main(): Promise<void> {
   emailQueue.startWorker();
   pdfQueue.startWorker();
   importQueue.startWorker();
+  relay.startWorker();
+  webhooks.startWorker();
 
   const server = app.listen(env.PORT, () => {
     logger.info({ port: env.PORT }, 'Fibrex API listening');
@@ -612,6 +676,8 @@ async function main(): Promise<void> {
         emailQueue.close(),
         pdfQueue.close(),
         importQueue.close(),
+        relay.close(),
+        webhooks.close(),
       ])
         .then(() => Promise.allSettled([pool.end(), redis.quit()]))
         .then(() => {
