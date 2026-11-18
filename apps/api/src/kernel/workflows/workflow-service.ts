@@ -978,6 +978,24 @@ export class WorkflowService {
     if (action === 'approve' && instance.startedBy === me && !located.step.allowSelfApproval) {
       throw new ForbiddenError('You started this workflow; someone else must approve it.');
     }
+    // One person, one vote per step round. A stand-in may hold their own task and the task of
+    // someone who delegated to them (a delegation made after the tasks were created, or a task
+    // passed on). Approving both would let one person satisfy an "all" quorum alone.
+    if (action === 'approve') {
+      const already = await db.workflowTask.count({
+        where: {
+          instanceId: instance.id,
+          stepKey: task.stepKey,
+          activationNo: task.activationNo,
+          actedBy: me,
+          action: 'approve',
+          id: { not: taskId },
+        },
+      });
+      if (already > 0) {
+        throw new ForbiddenError('You have already approved this step; someone else must.');
+      }
+    }
     const closed = await db.workflowTask.update({
       where: { id: taskId },
       data: {
@@ -1080,6 +1098,26 @@ export class WorkflowService {
           path: 'toUserId',
           code: 'unknown_user',
           message: 'This person cannot act in this company.',
+        },
+      ]);
+    }
+    // Not to someone who already holds or answered a task of this step round: they would get
+    // two votes (and `act` refuses their second approval, so the task would be stuck).
+    const holds = await db.workflowTask.count({
+      where: {
+        instanceId: instance.id,
+        stepKey: task.stepKey,
+        activationNo: task.activationNo,
+        id: { not: task.id },
+        OR: [{ assigneeUserId: to, status: 'open' }, { actedBy: to }],
+      },
+    });
+    if (holds > 0) {
+      throw new ValidationError([
+        {
+          path: 'toUserId',
+          code: 'already_on_step',
+          message: 'This person already has a task on this step.',
         },
       ]);
     }

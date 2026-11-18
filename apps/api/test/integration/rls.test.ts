@@ -173,6 +173,40 @@ describe('grants: no physical deletes and no RLS bypass for the app role', () =>
     ]);
   });
 
+  it('every table in the cfg and integration schemas has RLS enabled and a policy', async () => {
+    const r = await owner.query<{ table: string }>(
+      `SELECT n.nspname || '.' || c.relname AS table
+         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname IN ('cfg', 'integration') AND c.relkind IN ('r', 'p')
+          AND (NOT c.relrowsecurity
+               OR NOT EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid = c.oid))
+        ORDER BY 1`,
+    );
+    expect(r.rows.map((x) => x.table)).toEqual([]);
+  });
+
+  it('workflow delegations of tenant A are invisible to tenant B, even by id', async () => {
+    const standIn = await owner.query<{ id: string }>(
+      `INSERT INTO iam.user_account (tenant_id, username, email, display_name)
+       VALUES ($1, 'rls_standin', 'rls_standin@example.test', 'RLS stand-in') RETURNING id`,
+      [f.tenantA],
+    );
+    const made = await owner.query<{ id: string }>(
+      `INSERT INTO cfg.workflow_delegation (tenant_id, user_id, delegate_user_id, valid_from, valid_to)
+       VALUES ($1, $2, $3, current_date, current_date) RETURNING id`,
+      [f.tenantA, f.userA, standIn.rows[0]?.id],
+    );
+    const id = made.rows[0]?.id;
+    const asB = await inContext(app, { tenantId: f.tenantB, companyIds: [f.companyB1] }, (c) =>
+      c.query('SELECT id FROM cfg.workflow_delegation WHERE id = $1', [id]),
+    );
+    expect(asB.rowCount).toBe(0);
+    const asA = await inContext(app, { tenantId: f.tenantA, companyIds: [f.companyA1] }, (c) =>
+      c.query('SELECT id FROM cfg.workflow_delegation WHERE id = $1', [id]),
+    );
+    expect(asA.rowCount).toBe(1);
+  });
+
   it('every non-global table has a tenant_id column', async () => {
     const r = await owner.query<{ table: string }>(
       `SELECT n.nspname || '.' || c.relname AS table

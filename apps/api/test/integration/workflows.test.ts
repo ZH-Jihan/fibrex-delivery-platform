@@ -850,12 +850,34 @@ describe('self-service delegation (row 2.11c)', () => {
     expect(await seen('eve')).not.toContain(mine.id); // unrelated: not listed
     expect(await seen('alice')).toContain(mine.id); // manage_all sees everyone's
 
-    // eve cannot change or delete it; dan (the stand-in) cannot either; oscar can.
+    // Reading one by id follows the same rule as the list: eve gets 404, the two parties 200.
+    expect((await get(`/delegations/${mine.id}`, 'eve')).status).toBe(404);
+    expect((await get(`/delegations/${mine.id}`, 'dan')).status).toBe(200);
+    expect((await get(`/delegations/${mine.id}`, 'oscar')).status).toBe(200);
+
+    // eve cannot change or cancel it; dan (the stand-in) cannot change it; oscar can.
     expect(
       (await patch(`/delegations/${mine.id}`, 'eve', mine.version, { note: 'x' })).status,
     ).toBe(403);
-    expect((await del(`/delegations/${mine.id}`, 'dan', mine.version, 'no')).status).toBe(403);
+    expect((await del(`/delegations/${mine.id}`, 'eve', mine.version, 'no')).status).toBe(403);
+    expect(
+      (await patch(`/delegations/${mine.id}`, 'dan', mine.version, { validTo: '2099-12-31' }))
+        .status,
+    ).toBe(403);
     expect((await del(`/delegations/${mine.id}`, 'oscar', mine.version, 'back early')).status).toBe(
+      204,
+    );
+
+    // The stand-in may decline (cancel) a delegation given to him.
+    const second = (
+      await post('/delegations', 'oscar', {
+        userId: ids.oscar,
+        delegateUserId: ids.dan,
+        validFrom: today(),
+        validTo: tomorrow,
+      })
+    ).body as Item;
+    expect((await del(`/delegations/${second.id}`, 'dan', second.version, 'cannot')).status).toBe(
       204,
     );
     // alice, with manage_all, names a stand-in for someone else.
@@ -866,6 +888,58 @@ describe('self-service delegation (row 2.11c)', () => {
       validTo: tomorrow,
     });
     expect(byAdmin.status).toBe(201);
+  });
+
+  it('one person approves a step once, even when standing in for another approver', async () => {
+    const entityKey = await makeType();
+    const wf = await makeWorkflow(
+      entityKey,
+      {
+        steps: [
+          {
+            key: 'both',
+            kind: 'approval',
+            name: 'Both',
+            assignee: { users: [ids.oscar, ids.dan] },
+            quorum: 'all',
+          },
+        ],
+      },
+      { trigger: 'on_create' },
+    );
+    const record = (await post(`/records/${entityKey}`, 'alice', { data: { seats: 3 } }))
+      .body as Item;
+    let view = await instanceOf(entityKey, record.id);
+    const taskOf = (u: string) =>
+      view.tasks.find((t) => t.stepKey === 'both' && t.assigneeUserId === u)?.id ?? '';
+    const oscarTask = taskOf(ids.oscar);
+    const danTask = taskOf(ids.dan);
+
+    // Passing oscar's task to dan, who already holds one on this step, is refused.
+    const passOn = await act(oscarTask, 'delegate', 'oscar', { toUserId: ids.dan });
+    expect(passOn.status).toBe(400);
+    expect(JSON.stringify(passOn.body)).toContain('already_on_step');
+
+    // oscar goes on leave after the tasks exist: dan now stands in for him.
+    const leave = (
+      await post('/delegations', 'alice', {
+        userId: ids.oscar,
+        delegateUserId: ids.dan,
+        validFrom: today(),
+        validTo: today(),
+        scope: { definitionKeys: [wf.key] },
+      })
+    ).body as Item;
+    expect((await act(danTask, 'approve', 'dan')).status).toBe(200);
+    // dan cannot cast a second vote on the same step with oscar's task.
+    expect((await act(oscarTask, 'approve', 'dan')).status).toBe(403);
+    view = await instanceOf(entityKey, record.id);
+    expect(view.instance.status).toBe('running');
+    // oscar himself still can.
+    expect((await act(oscarTask, 'approve', 'oscar')).status).toBe(200);
+    view = await instanceOf(entityKey, record.id);
+    expect(view.instance.status).toBe('approved');
+    await del(`/delegations/${leave.id}`, 'alice', leave.version, 'test done');
   });
 
   it('lists the people of the company for any signed-in user', async () => {

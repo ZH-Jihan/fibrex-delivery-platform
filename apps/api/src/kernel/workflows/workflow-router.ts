@@ -45,7 +45,7 @@ import { z } from 'zod';
 import { createRepository, type Repository } from '../db/repository.js';
 import { currentUnit, type UnitOfWork } from '../db/unit-of-work.js';
 import { createCrudRouter } from '../http/crud-router.js';
-import { ConflictError, ForbiddenError, ValidationError } from '../http/errors.js';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../http/errors.js';
 import { problemSchema, registerRoute } from '../http/openapi.js';
 import type { PermissionService } from '../permissions/permission-service.js';
 import type {
@@ -388,9 +388,11 @@ export function toDelegationItem(row: WorkflowDelegationRow) {
 /**
  * The repository behind `/delegations`: dates in order, two different people, and the stand-in
  * works in the session's company. With `permissions` (the API router) a person without
- * `platform.workflow_delegation.manage_all` sees the delegations they gave or received, and
- * creates, changes or deletes only their own (self-service: nobody else's tasks can be
- * redirected by an ordinary user). Without it (the recycle bin) no extra rule applies.
+ * `platform.workflow_delegation.manage_all` lists and reads only the delegations they gave or
+ * received, creates and changes only their own, and may cancel (delete) one they gave or one
+ * given to them (a stand-in may decline; that only sends tasks back to their owner). Nobody
+ * else's tasks can be redirected by an ordinary user. Without `permissions` (the recycle bin)
+ * no extra rule applies.
  */
 export function createWorkflowDelegationRepository(
   permissions?: Pick<PermissionService, 'current'>,
@@ -411,12 +413,19 @@ export function createWorkflowDelegationRepository(
       all: access.permissions.includes('platform.workflow_delegation.manage_all'),
     };
   };
-  /** Rule: only the person who delegates may change or delete it (403 for anyone else). */
-  const ownOnly = async (id: string): Promise<void> => {
+  /**
+   * Rule: only the person who delegates may change it; the giver or the stand-in may read or
+   * cancel it. Anyone else gets 404 on read (its existence is not revealed) and 403 otherwise.
+   */
+  const ownOnly = async (id: string, mode: 'read' | 'change' | 'cancel'): Promise<void> => {
     const { me, all } = await caller();
     if (all) return;
     const current = await base.get(id);
-    if (current.userId !== me)
+    const party = current.userId === me || current.delegateUserId === me;
+    if (mode === 'read' && !party) throw new NotFoundError('No such delegation.');
+    if (mode === 'cancel' && !party)
+      throw new ForbiddenError('You can only cancel delegations you gave or received.');
+    if (mode === 'change' && current.userId !== me)
       throw new ForbiddenError('You can only change your own delegations.');
   };
   const checkMember = async (userId: string): Promise<void> => {
@@ -446,8 +455,12 @@ export function createWorkflowDelegationRepository(
         },
       });
     },
+    get: async (id) => {
+      await ownOnly(id, 'read');
+      return base.get(id);
+    },
     softDelete: async (id, version, reason) => {
-      await ownOnly(id);
+      await ownOnly(id, 'cancel');
       return base.softDelete(id, version, reason);
     },
     create: async (data) => {
@@ -469,7 +482,7 @@ export function createWorkflowDelegationRepository(
     },
     update: async (id, version, changes) => {
       const body = changes as z.infer<typeof delegationUpdate>;
-      await ownOnly(id);
+      await ownOnly(id, 'change');
       const current = await base.get(id);
       checkDates(
         body.validFrom ?? isoDay(current.validFrom),
