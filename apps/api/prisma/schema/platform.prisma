@@ -13,10 +13,11 @@ model Currency {
   updatedBy  String?  @map("updated_by") @db.Uuid
   version    Int      @default(1)
 
-  companies       Company[]
-  glAccounts      GlAccount[]
-  glRatesFrom     GlExchangeRate[] @relation("GlExchangeRateFrom")
-  glRatesTo       GlExchangeRate[] @relation("GlExchangeRateTo")
+  companies      Company[]
+  glAccounts     GlAccount[]
+  glRatesFrom    GlExchangeRate[] @relation("GlExchangeRateFrom")
+  glRatesTo      GlExchangeRate[] @relation("GlExchangeRateTo")
+  glJournalLines GlJournalLine[]
 
   @@map("currency")
   @@schema("platform")
@@ -195,6 +196,8 @@ model Company {
   glExchangeRates      GlExchangeRate[]
   glFiscalYears        GlFiscalYear[]
   glFiscalPeriods      GlFiscalPeriod[]
+  glPostingRules       GlPostingRule[]
+  glJournals           GlJournal[]
 
   @@unique([tenantId, id], map: "company_tenant_id_uq")
   @@map("company")
@@ -218,9 +221,10 @@ model Branch {
   deletedBy    String?   @map("deleted_by") @db.Uuid
   deleteReason String?   @map("delete_reason")
 
-  company       Company        @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "branch_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  company       Company         @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "branch_company_fk", onDelete: NoAction, onUpdate: NoAction)
   orgUnits      OrgUnit[]
   customRecords CustomRecord[]
+  glLines       GlJournalLine[]
 
   @@unique([companyId, id], map: "branch_company_id_uq")
   @@unique([companyId, code], map: "branch_code_uq", where: { deletedAt: null })

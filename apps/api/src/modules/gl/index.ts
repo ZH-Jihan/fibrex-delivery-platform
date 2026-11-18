@@ -3,10 +3,12 @@
  * this file).
  *
  * Purpose (row 2.14, ledger set-up): chart of accounts, cost centres, tax codes, exchange
- * rates, fiscal years and periods with close, lock and reopen. Row 2.15 adds posting rules,
- * journals and the posting service here; row 2.16 the ledger reports and screens.
+ * rates, fiscal years and periods with close, lock and reopen. Row 2.15a: posting rules,
+ * journals and the posting service (`PostingService`, the only writer of the ledger);
+ * row 2.16 the ledger reports and screens.
  *
  * Depends on: ./setup-router.ts, ./fiscal-router.ts, ./setup-service.ts, ./chart-seed.ts,
+ * ./posting-service.ts, ./posting-rule-router.ts, ./journal-router.ts,
  * kernel/module-registry, kernel/permissions. Used by: src/main.ts, src/seed/seed.ts.
  */
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
@@ -21,6 +23,9 @@ import {
 } from '../../kernel/permissions/catalogue.js';
 import type { PermissionService } from '../../kernel/permissions/permission-service.js';
 import { createFiscalRouter, createFiscalYearRepository } from './fiscal-router.js';
+import { createJournalRouter } from './journal-router.js';
+import { createPostingRuleRepository, createPostingRuleRouter } from './posting-rule-router.js';
+import { PostingService } from './posting-service.js';
 import {
   createAccountRepository,
   createCostCentreRepository,
@@ -33,6 +38,13 @@ export { seedLedger, STANDARD_CHART, type LedgerSeedResult } from './chart-seed.
 export { LedgerSetupService, type RateOnDay } from './setup-service.js';
 export type { FiscalPeriodRecord, FiscalYearRecord } from './fiscal-router.js';
 export type { AccountRecord, TaxCodeRecord } from './setup-router.js';
+export {
+  PostingService,
+  type EventPostingInput,
+  type JournalInput,
+  type PostedJournal,
+  type PostingLineInput,
+} from './posting-service.js';
 
 export const GL_PERMISSIONS: readonly PermissionDef[] = [
   ...crudPermissions('gl', 'gl.account', 'the chart of accounts'),
@@ -50,12 +62,18 @@ export const GL_PERMISSIONS: readonly PermissionDef[] = [
     'unlock',
     'Reopen a locked fiscal period (also needs the reopen permission)',
   ),
+  ...crudPermissions('gl', 'gl.posting_rule', 'posting rules'),
+  permission('gl', 'gl.posting_rule', 'activate', 'Put a posting rule version in force'),
+  permission('gl', 'gl.journal', 'read', 'View posted journals'),
+  permission('gl', 'gl.journal', 'reverse', 'Reverse a posted journal'),
 ];
 
 export interface GlModuleDeps {
   uow: UnitOfWork;
   registry: OpenAPIRegistry;
   permissions: PermissionService;
+  /** The posting service the module's routes use; one is made when not given. */
+  posting?: PostingService;
 }
 
 export function createGlModule(deps: GlModuleDeps): ModuleManifest {
@@ -72,7 +90,12 @@ export function createGlModule(deps: GlModuleDeps): ModuleManifest {
     key: 'gl',
     label: 'General ledger',
     permissions: GL_PERMISSIONS,
-    routers: [createSetupRouter(deps), createFiscalRouter(deps)],
+    routers: [
+      createSetupRouter(deps),
+      createFiscalRouter(deps),
+      createPostingRuleRouter(deps),
+      createJournalRouter({ ...deps, posting: deps.posting ?? new PostingService() }),
+    ],
     recycleTypes: [
       recycle('gl.account', 'Account', createAccountRepository(), (r) => r.code),
       recycle(
@@ -89,6 +112,12 @@ export function createGlModule(deps: GlModuleDeps): ModuleManifest {
         (r) => `${r.fromCurrency}/${r.toCurrency} ${r.rateDate.toISOString().slice(0, 10)}`,
       ),
       recycle('gl.fiscal_year', 'Fiscal year', createFiscalYearRepository(), (r) => r.name),
+      recycle(
+        'gl.posting_rule',
+        'Posting rule (draft)',
+        createPostingRuleRepository(),
+        (r) => `${r.eventKey} v${String(r.versionNo)}`,
+      ),
     ],
   };
 }

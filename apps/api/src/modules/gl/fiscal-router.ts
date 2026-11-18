@@ -27,8 +27,8 @@
  *      A reason is required and kept on the period (and in the audit log).
  *   4. A year is `closed` when none of its periods is open, `open` otherwise; kept in step
  *      by every move.
- *   5. A year is deleted only while all its periods are open; its periods go to the recycle
- *      bin and come back with it. (Row 2.15 adds: not when it has journals.)
+ *   5. A year is deleted only while all its periods are open and nothing is posted in it
+ *      (row 2.15a); its periods go to the recycle bin and come back with it.
  *   6. Every move carries If-Match (the period's version), so two people closing the same
  *      period at once get one success and one 409.
  *
@@ -230,6 +230,14 @@ export function createFiscalYearRepository(): Repository<FiscalYearRecord> {
         throw new UnprocessableError(
           'gl_fiscal_year_in_use',
           'A period of this year is closed or locked; only a year whose periods are all open can be deleted.',
+        );
+      }
+      // Journals point at the year's periods and are never removed, so the year stays.
+      const posted = await db.glJournal.count({ where: { fiscalPeriod: { fiscalYearId: id } } });
+      if (posted > 0) {
+        throw new UnprocessableError(
+          'gl_fiscal_year_in_use',
+          'Journals are posted in this year; a year with postings cannot be deleted.',
         );
       }
       const deleted = await base.softDelete(id, version, reason);

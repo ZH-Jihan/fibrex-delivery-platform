@@ -37,6 +37,8 @@ model Party {
   mergesAsMerged   PartyMerge[]              @relation("MergeMerged")
   users            UserAccount[]
   customRecords    CustomRecord[]
+  glLines          GlJournalLine[]           @relation("GlLineParty")
+  glEmployeeLines  GlJournalLine[]           @relation("GlLineEmployee")
 
   @@unique([companyId, id], map: "party_company_id_uq")
   @@unique([tenantId, id], map: "party_tenant_id_uq")

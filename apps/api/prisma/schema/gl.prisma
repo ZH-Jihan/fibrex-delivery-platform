@@ -25,11 +25,12 @@ model GlAccount {
   deletedBy           String?   @map("deleted_by") @db.Uuid
   deleteReason        String?   @map("delete_reason")
 
-  company  Company     @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "account_company_fk", onDelete: NoAction, onUpdate: NoAction)
-  parent   GlAccount?  @relation("GlAccountTree", fields: [companyId, parentId], references: [companyId, id], map: "account_parent_fk", onDelete: NoAction, onUpdate: NoAction)
-  children GlAccount[] @relation("GlAccountTree")
-  currency Currency?   @relation(fields: [currencyRestriction], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  company  Company         @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "account_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  parent   GlAccount?      @relation("GlAccountTree", fields: [companyId, parentId], references: [companyId, id], map: "account_parent_fk", onDelete: NoAction, onUpdate: NoAction)
+  children GlAccount[]     @relation("GlAccountTree")
+  currency Currency?       @relation(fields: [currencyRestriction], references: [code], onDelete: NoAction, onUpdate: NoAction)
   taxCodes GlTaxCode[]
+  lines    GlJournalLine[]
 
   @@unique([companyId, id], map: "account_company_id_uq")
   @@unique([companyId, code], map: "account_code_uq", where: raw("deleted_at IS NULL"))
@@ -55,9 +56,10 @@ model GlCostCentre {
   deletedBy    String?   @map("deleted_by") @db.Uuid
   deleteReason String?   @map("delete_reason")
 
-  company  Company        @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "cost_centre_company_fk", onDelete: NoAction, onUpdate: NoAction)
-  parent   GlCostCentre?  @relation("GlCostCentreTree", fields: [companyId, parentId], references: [companyId, id], map: "cost_centre_parent_fk", onDelete: NoAction, onUpdate: NoAction)
-  children GlCostCentre[] @relation("GlCostCentreTree")
+  company  Company         @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "cost_centre_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  parent   GlCostCentre?   @relation("GlCostCentreTree", fields: [companyId, parentId], references: [companyId, id], map: "cost_centre_parent_fk", onDelete: NoAction, onUpdate: NoAction)
+  children GlCostCentre[]  @relation("GlCostCentreTree")
+  lines    GlJournalLine[]
 
   @@unique([companyId, id], map: "cost_centre_company_id_uq")
   @@unique([companyId, code], map: "cost_centre_code_uq", where: raw("deleted_at IS NULL"))
@@ -84,8 +86,9 @@ model GlTaxCode {
   deletedBy    String?   @map("deleted_by") @db.Uuid
   deleteReason String?   @map("delete_reason")
 
-  company Company    @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "tax_code_company_fk", onDelete: NoAction, onUpdate: NoAction)
-  account GlAccount? @relation(fields: [companyId, accountId], references: [companyId, id], map: "tax_code_account_fk", onDelete: NoAction, onUpdate: NoAction)
+  company Company         @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "tax_code_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  account GlAccount?      @relation(fields: [companyId, accountId], references: [companyId, id], map: "tax_code_account_fk", onDelete: NoAction, onUpdate: NoAction)
+  lines   GlJournalLine[]
 
   @@unique([companyId, id], map: "tax_code_company_id_uq")
   @@unique([companyId, code], map: "tax_code_code_uq", where: raw("deleted_at IS NULL"))
@@ -180,9 +183,137 @@ model GlFiscalPeriod {
 
   company    Company      @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "fiscal_period_company_fk", onDelete: NoAction, onUpdate: NoAction)
   fiscalYear GlFiscalYear @relation(fields: [companyId, fiscalYearId], references: [companyId, id], map: "fiscal_period_year_fk", onDelete: NoAction, onUpdate: NoAction)
+  journals   GlJournal[]
 
   @@unique([companyId, id], map: "fiscal_period_company_id_uq")
   @@unique([fiscalYearId, periodNo], map: "fiscal_period_no_uq", where: raw("deleted_at IS NULL"))
   @@map("fiscal_period")
+  @@schema("gl")
+}
+
+// Row 2.15a (posting): posting rules, journals, journal lines.
+// SQL source: migrations/20261118000400_gl_posting (triggers for period, balance, frozen rules).
+
+/// How an event becomes journal lines; versioned, frozen once in force.
+model GlPostingRule {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  eventKey     String    @map("event_key")
+  versionNo    Int       @map("version_no")
+  name         String
+  description  String?
+  inputSchema  Json      @default("{}") @map("input_schema")
+  lines        Json
+  validFrom    DateTime  @default(dbgenerated("CURRENT_DATE")) @map("valid_from") @db.Date
+  validTo      DateTime? @map("valid_to") @db.Date
+  status       String    @default("draft")
+  checksum     String
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company  Company     @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "posting_rule_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  journals GlJournal[]
+
+  @@unique([companyId, id], map: "posting_rule_company_id_uq")
+  @@unique([companyId, eventKey, versionNo], map: "posting_rule_version_uq")
+  @@unique([companyId, eventKey], map: "posting_rule_active_uq", where: raw("status = 'active' AND deleted_at IS NULL"))
+  @@index([companyId, eventKey, validFrom], map: "posting_rule_resolve_idx", where: raw("deleted_at IS NULL AND status <> 'draft'"))
+  @@map("posting_rule")
+  @@schema("gl")
+}
+
+/// A posted journal (insert-only). A correction is a reversal journal.
+model GlJournal {
+  id             String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  number         String
+  entryDate      DateTime @map("entry_date") @db.Date
+  fiscalPeriodId String   @map("fiscal_period_id") @db.Uuid
+  eventKey       String   @map("event_key")
+  postingRuleId  String?  @map("posting_rule_id") @db.Uuid
+  sourceType     String?  @map("source_type")
+  sourceId       String?  @map("source_id") @db.Uuid
+  description    String
+  lineCount      Int      @map("line_count") @db.SmallInt
+  reversalOfId   String?  @map("reversal_of_id") @db.Uuid
+  reason         String?
+  postedBy       String?  @map("posted_by") @db.Uuid
+  postedAt       DateTime @default(now()) @map("posted_at") @db.Timestamptz(6)
+  idempotencyKey String?  @map("idempotency_key")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy      String?  @map("created_by") @db.Uuid
+
+  company      Company         @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "journal_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  fiscalPeriod GlFiscalPeriod  @relation(fields: [companyId, fiscalPeriodId], references: [companyId, id], map: "journal_period_fk", onDelete: NoAction, onUpdate: NoAction)
+  postingRule  GlPostingRule?  @relation(fields: [companyId, postingRuleId], references: [companyId, id], map: "journal_rule_fk", onDelete: NoAction, onUpdate: NoAction)
+  reversalOf   GlJournal?      @relation("GlJournalReversal", fields: [companyId, reversalOfId], references: [companyId, id], map: "journal_reversal_fk", onDelete: NoAction, onUpdate: NoAction)
+  reversals    GlJournal[]     @relation("GlJournalReversal")
+  lines        GlJournalLine[]
+
+  @@unique([companyId, id], map: "journal_company_id_uq")
+  @@unique([companyId, number], map: "journal_number_uq")
+  @@unique([reversalOfId], map: "journal_reversal_uq", where: raw("reversal_of_id IS NOT NULL"))
+  @@unique([companyId, idempotencyKey], map: "journal_idempotency_uq", where: raw("idempotency_key IS NOT NULL"))
+  @@index([companyId, entryDate(sort: Desc), id(sort: Desc)], map: "journal_date_idx")
+  @@index([companyId, sourceType, sourceId], map: "journal_source_idx", where: raw("source_id IS NOT NULL"))
+  @@index([companyId, eventKey, entryDate(sort: Desc)], map: "journal_event_idx")
+  @@map("journal")
+  @@schema("gl")
+}
+
+/// One side of a journal (insert-only, partitioned by month of entry_date).
+model GlJournalLine {
+  id               String   @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  companyId        String   @map("company_id") @db.Uuid
+  journalId        String   @map("journal_id") @db.Uuid
+  entryDate        DateTime @map("entry_date") @db.Date
+  lineNo           Int      @map("line_no") @db.SmallInt
+  accountId        String   @map("account_id") @db.Uuid
+  debit            Decimal  @default(0) @db.Decimal(18, 4)
+  credit           Decimal  @default(0) @db.Decimal(18, 4)
+  currency         String   @db.Char(3)
+  fxRate           Decimal  @default(1) @map("fx_rate") @db.Decimal(18, 8)
+  baseDebit        Decimal  @default(0) @map("base_debit") @db.Decimal(18, 4)
+  baseCredit       Decimal  @default(0) @map("base_credit") @db.Decimal(18, 4)
+  partyId          String?  @map("party_id") @db.Uuid
+  employeePartyId  String?  @map("employee_party_id") @db.Uuid
+  vehicleId        String?  @map("vehicle_id") @db.Uuid
+  clientPlatformId String?  @map("client_platform_id") @db.Uuid
+  branchId         String?  @map("branch_id") @db.Uuid
+  costCentreId     String?  @map("cost_centre_id") @db.Uuid
+  payPeriodId      String?  @map("pay_period_id") @db.Uuid
+  loanId           String?  @map("loan_id") @db.Uuid
+  sourceDocType    String?  @map("source_doc_type")
+  sourceDocId      String?  @map("source_doc_id") @db.Uuid
+  taxCodeId        String   @map("tax_code_id") @db.Uuid
+  memo             String?
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy        String?  @map("created_by") @db.Uuid
+
+  journal     GlJournal     @relation(fields: [companyId, journalId], references: [companyId, id], map: "journal_line_journal_fk", onDelete: NoAction, onUpdate: NoAction)
+  account     GlAccount     @relation(fields: [companyId, accountId], references: [companyId, id], map: "journal_line_account_fk", onDelete: NoAction, onUpdate: NoAction)
+  taxCode     GlTaxCode     @relation(fields: [companyId, taxCodeId], references: [companyId, id], map: "journal_line_tax_code_fk", onDelete: NoAction, onUpdate: NoAction)
+  costCentre  GlCostCentre? @relation(fields: [companyId, costCentreId], references: [companyId, id], map: "journal_line_cost_centre_fk", onDelete: NoAction, onUpdate: NoAction)
+  branch      Branch?       @relation(fields: [companyId, branchId], references: [companyId, id], map: "journal_line_branch_fk", onDelete: NoAction, onUpdate: NoAction)
+  party       Party?        @relation("GlLineParty", fields: [tenantId, partyId], references: [tenantId, id], map: "journal_line_party_fk", onDelete: NoAction, onUpdate: NoAction)
+  employee    Party?        @relation("GlLineEmployee", fields: [tenantId, employeePartyId], references: [tenantId, id], map: "journal_line_employee_fk", onDelete: NoAction, onUpdate: NoAction)
+  currencyRef Currency      @relation(fields: [currency], references: [code], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([id, entryDate])
+  @@unique([journalId, entryDate, lineNo], map: "journal_line_no_uq")
+  @@index([companyId, accountId, entryDate], map: "journal_line_account_idx")
+  @@index([companyId, partyId, entryDate], map: "journal_line_party_idx", where: raw("party_id IS NOT NULL"))
+  @@index([companyId, employeePartyId, entryDate], map: "journal_line_employee_idx", where: raw("employee_party_id IS NOT NULL"))
+  @@index([companyId, loanId, entryDate], map: "journal_line_loan_idx", where: raw("loan_id IS NOT NULL"))
+  @@map("journal_line")
   @@schema("gl")
 }
