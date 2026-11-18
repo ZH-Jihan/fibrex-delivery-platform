@@ -67,7 +67,16 @@ describe('buildNav', () => {
       ['nav.reports', ['/reports']],
       [
         'nav.ledger',
-        ['/ledger/accounts', '/ledger/journals', '/ledger/manual-journals', '/ledger/simulate'],
+        [
+          '/ledger/accounts',
+          '/ledger/journals',
+          '/ledger/manual-journals',
+          '/ledger/simulate',
+          '/ledger/cash-bank',
+          '/ledger/statements',
+          '/ledger/reconciliation',
+          '/ledger/match-rules',
+        ],
       ],
     ]);
     // Every entry has an icon and a permission; the shell relies on both.

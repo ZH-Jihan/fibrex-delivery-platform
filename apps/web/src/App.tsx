@@ -35,6 +35,10 @@ import { AccountsPage } from './ledger/AccountsPage';
 import { JournalsPage } from './ledger/JournalsPage';
 import { ManualJournalsPage } from './ledger/ManualJournalsPage';
 import { SimulatePage } from './ledger/SimulatePage';
+import { BankPage } from './ledger/BankPage';
+import { MatchRulesPage } from './ledger/MatchRulesPage';
+import { ReconciliationPage } from './ledger/ReconciliationPage';
+import { StatementsPage } from './ledger/StatementsPage';
 import { StateMachinesPage } from './org/StateMachinesPage';
 import { WorkflowBuilderPage } from './org/WorkflowBuilderPage';
 import { WorkflowBindingsPage } from './org/WorkflowBindingsPage';
@@ -234,6 +238,38 @@ function Gate() {
           element={
             <Guarded permission="gl.posting_rule.read">
               <SimulatePage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="ledger/cash-bank"
+          element={
+            <Guarded permission="gl.cash_location.read">
+              <BankPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="ledger/statements"
+          element={
+            <Guarded permission="gl.bank_statement.read">
+              <StatementsPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="ledger/reconciliation"
+          element={
+            <Guarded permission="gl.reconciliation.read">
+              <ReconciliationPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="ledger/match-rules"
+          element={
+            <Guarded permission="gl.bank_match_rule.read">
+              <MatchRulesPage />
             </Guarded>
           }
         />

@@ -1,8 +1,9 @@
 /**
  * Bank statement import API (phase 2 row 2.17a; PLAN 3.9, SPEC 2.12).
  *
- *   POST /bank-statements          import a CSV already uploaded as a file (the body maps its
- *                                  columns); creates the statement and all its lines
+ *   POST /bank-statements          import a CSV or Excel (.xlsx, first sheet) already uploaded as
+ *                                  a file (the body maps its columns); creates the statement
+ *                                  and all its lines
  *   GET  /bank-statements          list (filters companyBankAccountId, status)
  *   GET  /bank-statements/{id}     one statement
  *   PATCH /bank-statements/{id}    change the note
@@ -40,6 +41,7 @@ import type { Db } from '../../kernel/db/prisma.js';
 import { createRepository, type Repository } from '../../kernel/db/repository.js';
 import { currentUnit, type UnitOfWork } from '../../kernel/db/unit-of-work.js';
 import { createCrudRouter } from '../../kernel/http/crud-router.js';
+import { readXlsx } from '../../kernel/imports/xlsx-sheet.js';
 import { NotFoundError, UnprocessableError, ValidationError } from '../../kernel/http/errors.js';
 import { registerRoute } from '../../kernel/http/openapi.js';
 import type { PermissionService } from '../../kernel/permissions/permission-service.js';
@@ -52,6 +54,7 @@ export type BankStatementLineRecord = NonNullable<
 >;
 
 const CSV_MIME_TYPES = new Set(['text/csv', 'text/plain', 'application/vnd.ms-excel']);
+const XLSX_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const LINE_CHUNK = 1000;
 const day = z.iso.date();
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
@@ -172,8 +175,13 @@ export function createBankStatementRepository(
       if (file === null) {
         throw invalid('fileObjectId', 'This file does not exist.', 'unknown_file');
       }
-      if (!CSV_MIME_TYPES.has(file.mimeType)) {
-        throw invalid('fileObjectId', 'Upload the statement as a CSV file.', 'not_a_csv');
+      const isExcel = file.mimeType === XLSX_MIME_TYPE;
+      if (!isExcel && !CSV_MIME_TYPES.has(file.mimeType)) {
+        throw invalid(
+          'fileObjectId',
+          'Upload the statement as a CSV or Excel (.xlsx) file.',
+          'not_a_csv',
+        );
       }
       const bytes = await storage.read(file.objectKey);
       if (bytes === null) {
@@ -183,7 +191,11 @@ export function createBankStatementRepository(
       // Step 2: read and check every row before writing anything (rule 1).
       let sheet;
       try {
-        sheet = parseCsv(new TextDecoder('utf-8').decode(bytes));
+        // Excel cells are read as text exactly like CSV fields (dates as YYYY-MM-DD, so
+        // choose the "ymd" date order for a real date column), so one mapping serves both.
+        sheet = isExcel
+          ? await readXlsx(Buffer.from(bytes))
+          : parseCsv(new TextDecoder('utf-8').decode(bytes));
       } catch (err) {
         if (err instanceof SheetError)
           throw invalid('fileObjectId', err.message, `sheet_${err.code}`);

@@ -32,8 +32,7 @@ import {
   Skeleton,
 } from '../ui/components';
 import { useToast } from '../ui/toast';
-
-const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+import { uploadFile } from './upload';
 
 interface TypeItem {
   key: string;
@@ -116,44 +115,6 @@ export function autoMap(fields: TargetField[], columns: string[]): Record<string
     if (hit !== undefined) map[field.key] = hit;
   }
   return map;
-}
-
-/** SHA-256 of a file as hex; the upload endpoint checks the stored bytes against it. */
-export async function sha256Hex(file: Blob): Promise<string> {
-  const bytes = await file.arrayBuffer();
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-/** Uploads a file through the signed-upload flow and returns its file id. */
-async function uploadFile(file: File): Promise<string> {
-  const mimeType =
-    file.type !== ''
-      ? file.type
-      : file.name.toLowerCase().endsWith('.xlsx')
-        ? XLSX_MIME
-        : 'text/csv';
-  const target = await api<{
-    uploadToken: string;
-    url: string;
-    method: 'PUT';
-    headers: Record<string, string>;
-  }>('/files/upload-url', {
-    method: 'POST',
-    body: {
-      originalName: file.name,
-      mimeType,
-      sizeBytes: file.size,
-      sha256: await sha256Hex(file),
-    },
-  });
-  const put = await fetch(target.url, { method: 'PUT', headers: target.headers, body: file });
-  if (!put.ok) throw new Error(`Upload failed (${String(put.status)})`);
-  const done = await api<{ id: string }>('/files/complete', {
-    method: 'POST',
-    body: { uploadToken: target.uploadToken },
-  });
-  return done.id;
 }
 
 async function downloadFile(fileId: string): Promise<void> {

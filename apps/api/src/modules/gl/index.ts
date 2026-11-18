@@ -7,7 +7,8 @@
  * journals and the posting service (`PostingService`, the only writer of the ledger);
  * row 2.15b: foreign currency with base amounts, simulate, manual journals; row 2.16 the
  * ledger reports and screens; row 2.17a cash locations, company bank accounts (number
- * encrypted) and bank statement import.
+ * encrypted) and bank statement import; row 2.17b match rules, reconciliation matches and
+ * automatic matching (./reconcile-router.ts).
  *
  * Depends on: ./setup-router.ts, ./fiscal-router.ts, ./setup-service.ts, ./chart-seed.ts,
  * ./posting-service.ts, ./posting-rule-router.ts, ./journal-router.ts,
@@ -36,6 +37,7 @@ import {
   createBankStatementRouter,
 } from './bank-statement-router.js';
 import type { BankVault } from './bank-vault.js';
+import { createReconcileRouter, createRuleRepository } from './reconcile-router.js';
 import { createFiscalRouter, createFiscalYearRepository } from './fiscal-router.js';
 import { createJournalRouter } from './journal-router.js';
 import { createLedgerRouter } from './ledger-router.js';
@@ -93,6 +95,11 @@ export const GL_PERMISSIONS: readonly PermissionDef[] = [
   ...crudPermissions('gl', 'gl.cash_location', 'cash locations'),
   ...crudPermissions('gl', 'gl.bank_account', "the company's bank accounts"),
   ...crudPermissions('gl', 'gl.bank_statement', 'bank statements (create = import)'),
+  ...crudPermissions('gl', 'gl.bank_match_rule', 'bank match rules'),
+  permission('gl', 'gl.reconciliation', 'read', 'View bank reconciliation and match candidates'),
+  permission('gl', 'gl.reconciliation', 'create', 'Match a statement line with a ledger line'),
+  permission('gl', 'gl.reconciliation', 'delete', 'Unmatch a statement line (with a reason)'),
+  permission('gl', 'gl.reconciliation', 'auto', 'Run automatic matching on a statement'),
 ];
 
 export interface GlModuleDeps {
@@ -131,6 +138,7 @@ export function createGlModule(deps: GlModuleDeps): ModuleManifest {
       createLedgerRouter(deps),
       createBankRouter({ ...deps, vault: deps.bankVault }),
       createBankStatementRouter(deps),
+      createReconcileRouter(deps),
     ],
     reports: GL_REPORTS,
     recycleTypes: [
@@ -174,6 +182,7 @@ export function createGlModule(deps: GlModuleDeps): ModuleManifest {
         createBankStatementRepository(deps.storage),
         (r) => r.fileName,
       ),
+      recycle('gl.bank_match_rule', 'Bank match rule', createRuleRepository(), (r) => r.name),
     ],
   };
 }

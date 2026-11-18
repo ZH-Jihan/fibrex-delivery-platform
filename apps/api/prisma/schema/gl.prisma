@@ -32,6 +32,7 @@ model GlAccount {
   taxCodes GlTaxCode[]
   lines    GlJournalLine[]
   cashLocations GlCashLocation[]
+  matchRules    GlBankMatchRule[]
 
   @@unique([companyId, id], map: "account_company_id_uq")
   @@unique([companyId, code], map: "account_code_uq", where: raw("deleted_at IS NULL"))
@@ -481,10 +482,73 @@ model GlBankStatementLine {
   company     Company         @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "bank_statement_line_company_fk", onDelete: NoAction, onUpdate: NoAction)
   statement   GlBankStatement @relation(fields: [companyId, statementId], references: [companyId, id], map: "bank_statement_line_statement_fk", onDelete: NoAction, onUpdate: NoAction)
   currencyRef Currency        @relation(fields: [currency], references: [code], map: "bank_statement_line_currency_fk", onDelete: NoAction, onUpdate: NoAction)
+  matches     GlReconciliationMatch[]
 
   @@unique([companyId, id], map: "bank_statement_line_company_id_uq")
   @@unique([statementId, lineNo], map: "bank_statement_line_no_uq")
   @@index([companyId, matchStatus, valueDate], map: "bank_statement_line_open_idx", where: raw("deleted_at IS NULL"))
   @@map("bank_statement_line")
+  @@schema("gl")
+}
+
+/// A saved rule for automatic matching of statement lines (row 2.17b).
+model GlBankMatchRule {
+  id              String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
+  name            String
+  conditions      Json      @default("{}")
+  targetAccountId String?   @map("target_account_id") @db.Uuid
+  targetPartyId   String?   @map("target_party_id") @db.Uuid
+  priority        Int       @default(100)
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy       String?   @map("created_by") @db.Uuid
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy       String?   @map("updated_by") @db.Uuid
+  version         Int       @default(1)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy       String?   @map("deleted_by") @db.Uuid
+  deleteReason    String?   @map("delete_reason")
+
+  company       Company                 @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "bank_match_rule_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  targetAccount GlAccount?              @relation(fields: [companyId, targetAccountId], references: [companyId, id], map: "bank_match_rule_account_fk", onDelete: NoAction, onUpdate: NoAction)
+  matches       GlReconciliationMatch[]
+
+  @@unique([companyId, id], map: "bank_match_rule_company_id_uq")
+  @@unique([companyId, name], map: "bank_match_rule_name_uq", where: raw("deleted_at IS NULL"))
+  @@map("bank_match_rule")
+  @@schema("gl")
+}
+
+/// One statement line paired with one ledger line; unmatching soft-deletes it (row 2.17b).
+model GlReconciliationMatch {
+  id              String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
+  statementLineId String    @map("statement_line_id") @db.Uuid
+  journalLineId   String    @map("journal_line_id") @db.Uuid
+  journalLineDate DateTime  @map("journal_line_date") @db.Date
+  amount          Decimal   @db.Decimal(18, 4)
+  matchedBy       String?   @map("matched_by") @db.Uuid
+  method          String
+  ruleId          String?   @map("rule_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy       String?   @map("created_by") @db.Uuid
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy       String?   @map("updated_by") @db.Uuid
+  version         Int       @default(1)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy       String?   @map("deleted_by") @db.Uuid
+  deleteReason    String?   @map("delete_reason")
+
+  company       Company              @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "reconciliation_match_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  statementLine GlBankStatementLine  @relation(fields: [companyId, statementLineId], references: [companyId, id], map: "reconciliation_match_line_fk", onDelete: NoAction, onUpdate: NoAction)
+  rule          GlBankMatchRule?     @relation(fields: [companyId, ruleId], references: [companyId, id], map: "reconciliation_match_rule_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([companyId, id], map: "reconciliation_match_company_id_uq")
+  @@unique([statementLineId], map: "reconciliation_match_line_uq", where: raw("deleted_at IS NULL"))
+  @@unique([journalLineId, journalLineDate], map: "reconciliation_match_journal_uq", where: raw("deleted_at IS NULL"))
+  @@map("reconciliation_match")
   @@schema("gl")
 }

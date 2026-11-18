@@ -1,9 +1,19 @@
 /**
- * Menu entries of the ledger screens (phase 2 row 2.16a): chart of accounts, journals,
- * manual journals. Each entry needs the matching `gl.*` read permission.
+ * Menu entries of the ledger screens (phase 2 rows 2.16a and 2.17b): chart of accounts,
+ * journals, manual journals, simulate, cash and bank, statements, reconciliation, match
+ * rules. Each entry needs the matching `gl.*` read permission.
  * Depends on: shell/manifest.ts, lucide-react. Used by: shell/nav.ts.
  */
-import { BookOpen, FilePenLine, FlaskConical, NotebookText } from 'lucide-react';
+import {
+  BookOpen,
+  FilePenLine,
+  FileSpreadsheet,
+  FlaskConical,
+  GitCompareArrows,
+  Landmark,
+  NotebookText,
+  Wand2,
+} from 'lucide-react';
 import type { WebModuleManifest } from '../shell/manifest';
 
 export const ledgerManifest: WebModuleManifest = {
@@ -35,6 +45,30 @@ export const ledgerManifest: WebModuleManifest = {
           label: 'nav.simulate',
           permission: 'gl.posting_rule.read',
           icon: FlaskConical,
+        },
+        {
+          to: '/ledger/cash-bank',
+          label: 'nav.cashBank',
+          permission: 'gl.cash_location.read',
+          icon: Landmark,
+        },
+        {
+          to: '/ledger/statements',
+          label: 'nav.statements',
+          permission: 'gl.bank_statement.read',
+          icon: FileSpreadsheet,
+        },
+        {
+          to: '/ledger/reconciliation',
+          label: 'nav.reconciliation',
+          permission: 'gl.reconciliation.read',
+          icon: GitCompareArrows,
+        },
+        {
+          to: '/ledger/match-rules',
+          label: 'nav.matchRules',
+          permission: 'gl.bank_match_rule.read',
+          icon: Wand2,
         },
       ],
     },

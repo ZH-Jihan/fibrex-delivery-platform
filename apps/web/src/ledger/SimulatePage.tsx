@@ -153,7 +153,11 @@ export function SimulatePage() {
               { key: 'debit', header: t('gl.debit'), value: (l) => showAmount(l.debit) },
               { key: 'credit', header: t('gl.credit'), value: (l) => showAmount(l.credit) },
               { key: 'currency', header: t('gl.currency'), value: (l) => l.currency },
-              { key: 'baseDebit', header: t('gl.baseDebit'), value: (l) => showAmount(l.baseDebit) },
+              {
+                key: 'baseDebit',
+                header: t('gl.baseDebit'),
+                value: (l) => showAmount(l.baseDebit),
+              },
               {
                 key: 'baseCredit',
                 header: t('gl.baseCredit'),

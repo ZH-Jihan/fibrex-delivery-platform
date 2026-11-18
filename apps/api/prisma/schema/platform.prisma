@@ -206,6 +206,8 @@ model Company {
   glCompanyBankAccounts GlCompanyBankAccount[]
   glBankStatements     GlBankStatement[]
   glBankStatementLines GlBankStatementLine[]
+  glBankMatchRules     GlBankMatchRule[]
+  glReconciliationMatches GlReconciliationMatch[]
 
   @@unique([tenantId, id], map: "company_tenant_id_uq")
   @@map("company")
