@@ -43,9 +43,15 @@ export function filterNav(
   nav: readonly NavGroup[],
   can: (permission: string) => boolean,
 ): NavGroup[] {
-  return nav
-    .map((g) => ({ ...g, items: g.items.filter((i) => can(i.permission)) }))
-    .filter((g) => g.items.length > 0);
+  return (
+    nav
+      // An empty permission means "every signed-in user" (the task inbox).
+      .map((g) => ({
+        ...g,
+        items: g.items.filter((i) => i.permission === '' || can(i.permission)),
+      }))
+      .filter((g) => g.items.length > 0)
+  );
 }
 
 /**

@@ -32,6 +32,8 @@ import { TemplatesPage } from './org/TemplatesPage';
 import { FormulasPage } from './org/FormulasPage';
 import { RateTablesPage } from './org/RateTablesPage';
 import { StateMachinesPage } from './org/StateMachinesPage';
+import { WorkflowBuilderPage } from './org/WorkflowBuilderPage';
+import { InboxPage } from './workflow/InboxPage';
 import { DataExchangePage } from './data/DataExchangePage';
 import { BranchesPage, CompanyPage } from './org/OrganisationPages';
 import { RolesPage } from './admin/RolesPage';
@@ -210,6 +212,15 @@ function Gate() {
             </Guarded>
           }
         />
+        <Route
+          path="organisation/workflows"
+          element={
+            <Guarded permission="platform.workflow_definition.read">
+              <WorkflowBuilderPage />
+            </Guarded>
+          }
+        />
+        <Route path="tasks" element={<InboxPage />} />
         <Route
           path="organisation/record-types"
           element={

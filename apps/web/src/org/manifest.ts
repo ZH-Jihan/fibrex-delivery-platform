@@ -8,7 +8,9 @@ import {
   Boxes,
   Building2,
   FileText,
+  GitBranch,
   Hash,
+  Inbox,
   ListTree,
   MapPin,
   Sigma,
@@ -20,6 +22,11 @@ import type { WebModuleManifest } from '../shell/manifest';
 export const orgManifest: WebModuleManifest = {
   key: 'platform',
   nav: [
+    {
+      // The inbox lists only tasks given to the user, so the menu entry needs no permission.
+      label: 'nav.work',
+      items: [{ to: '/tasks', label: 'nav.inbox', permission: '', icon: Inbox }],
+    },
     {
       label: 'nav.org',
       items: [
@@ -76,6 +83,12 @@ export const orgManifest: WebModuleManifest = {
           label: 'nav.states',
           permission: 'platform.state_machine.read',
           icon: Workflow,
+        },
+        {
+          to: '/organisation/workflows',
+          label: 'nav.workflows',
+          permission: 'platform.workflow_definition.read',
+          icon: GitBranch,
         },
         {
           to: '/data',

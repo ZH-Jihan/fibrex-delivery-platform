@@ -26,6 +26,7 @@ import { Button, EmptyState, ErrorAlert, Field, PageHeader, Skeleton } from '../
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { DataTable, type Column } from '../ui/DataTable';
 import { EntityForm, type FormField } from '../ui/EntityForm';
+import { WorkflowTimeline } from '../workflow/WorkflowTimeline';
 
 export interface PublishedType {
   id: string;
@@ -442,6 +443,7 @@ export function RecordsPage() {
               })}
             </div>
           ))}
+          <WorkflowTimeline entityType={key} entityId={viewing.id} />
           <Button
             variant="link"
             onClick={() => {

@@ -35,6 +35,7 @@ describe('buildNav', () => {
     expect(WEB_MODULES.map((m) => m.key)).toEqual(['iam', 'audit', 'platform', 'party']);
     expect(NAV.map((g) => [g.label, g.items.map((i) => i.to)])).toEqual([
       ['nav.admin', ['/users', '/roles', '/permission-matrix', '/audit', '/recycle-bin']],
+      ['nav.work', ['/tasks']],
       [
         'nav.org',
         [
@@ -47,6 +48,7 @@ describe('buildNav', () => {
           '/organisation/formulas',
           '/organisation/rate-tables',
           '/organisation/state-machines',
+          '/organisation/workflows',
           '/data',
           '/organisation/record-types',
         ],
@@ -56,7 +58,8 @@ describe('buildNav', () => {
     // Every entry has an icon and a permission; the shell relies on both.
     for (const item of NAV.flatMap((g) => g.items)) {
       expect(item.icon).toBeDefined();
-      expect(item.permission).not.toBe('');
+      // Only the task inbox is open to every signed-in user (it lists their own tasks).
+      if (item.to !== '/tasks') expect(item.permission).not.toBe('');
     }
   });
 });
