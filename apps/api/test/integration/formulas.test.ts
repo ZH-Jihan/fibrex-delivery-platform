@@ -276,6 +276,19 @@ describe('formulas and versions', () => {
     expect(version.status).toBe('draft');
     expect(version.versionNo).toBe(1);
     expect(version.checksum).toMatch(/^[0-9a-f]{64}$/);
+
+    // A deleted draft keeps its number: the next version is 3, not 2 again.
+    const v2 = (
+      await post('/formula-versions', alice, { formulaId: formula.id, expression: 'rate * 2' })
+    ).body as Item;
+    expect(v2.versionNo).toBe(2);
+    expect((await del(`/formula-versions/${v2.id}`, alice, v2.version)).status).toBe(204);
+    const v3 = await post('/formula-versions', alice, {
+      formulaId: formula.id,
+      expression: 'rate * 3',
+    });
+    expect(v3.status).toBe(201);
+    expect((v3.body as Item).versionNo).toBe(3);
   });
 
   it('runs test cases, then activates and closes the version in force', async () => {

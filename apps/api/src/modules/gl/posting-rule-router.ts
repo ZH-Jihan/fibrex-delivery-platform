@@ -4,7 +4,7 @@
  *
  *   /posting-rules                       CRUD (filters eventKey, status); only drafts change
  *   POST /posting-rules/{id}/activate    put a draft in force from its validFrom (If-Match)
- *   (row 2.15b adds POST /posting-rules/{eventKey}/simulate)
+ *   POST /posting-rules/{eventKey}/simulate   the journal an event would post (row 2.15b)
  *
  * Rules, and why:
  *   1. A rule belongs to one company (each company has its own chart) and one event key.
@@ -20,6 +20,9 @@
  *      the way it was booked then.
  *   4. Active and retired versions are frozen (also by a database trigger): journals name
  *      the version that produced them. Only drafts can be edited or deleted.
+ *   5. Simulation goes through the same posting service as a real posting (minus writing),
+ *      so what it shows is what would be posted; a draft can be tried with `ruleId`. Read
+ *      permission is enough because nothing is written.
  *
  * Depends on: express, zod, @fibrex/shared (posting shapes), @fibrex/formula, kernel/db,
  * kernel/http, kernel/permissions, ./posting-service.ts. Used by: ./index.ts.
@@ -43,6 +46,7 @@ import { currentUnit, type UnitOfWork } from '../../kernel/db/unit-of-work.js';
 import { createCrudRouter, parseIfMatch } from '../../kernel/http/crud-router.js';
 import {
   BadRequestError,
+  NotFoundError,
   UnprocessableError,
   ValidationError,
   type FieldIssue,
@@ -55,6 +59,7 @@ import {
   postingRuleChecksum,
   toDay,
   type PostingRuleRecord,
+  type PostingService,
 } from './posting-service.js';
 
 const day = z.iso.date();
@@ -247,14 +252,54 @@ export function createPostingRuleRepository(): Repository<PostingRuleRecord> {
   };
 }
 
+const eventKeyParams = z.object({ eventKey: postingEventKeySchema });
+const simulateBody = z.strictObject({
+  /** Needed only when the session spans several companies. */
+  companyId: z.uuid().optional(),
+  /** Picks the rule version, the exchange rates and the period; today when left out. */
+  entryDate: day.optional(),
+  inputs: z.record(z.string(), z.unknown()).default({}),
+  /** Try this version (a draft, say) instead of the one in force on entryDate. */
+  ruleId: z.uuid().optional(),
+  description: z.string().trim().min(1).max(500).optional(),
+});
+const money = z.string();
+const simulateResult = z
+  .object({
+    rule: z.object({ id: z.uuid(), versionNo: z.number().int(), status: z.string() }),
+    entryDate: day,
+    baseCurrency: z.string(),
+    lines: z.array(
+      z.object({
+        lineNo: z.number().int(),
+        accountId: z.uuid(),
+        accountCode: z.string(),
+        debit: money,
+        credit: money,
+        currency: z.string(),
+        fxRate: z.string(),
+        baseDebit: money,
+        baseCredit: money,
+        dimensions: z.record(z.string(), z.uuid()),
+        taxCodeId: z.uuid(),
+        memo: z.string().nullable(),
+      }),
+    ),
+    totals: z.object({ debit: money, credit: money, balanced: z.boolean() }),
+    period: z.object({ id: z.uuid(), status: z.string() }).nullable(),
+    postable: z.boolean(),
+  })
+  .meta({ id: 'PostingSimulation' });
+
 export interface PostingRuleRouterDeps {
   uow: UnitOfWork;
   registry: OpenAPIRegistry;
   permissions: PermissionService;
+  posting: PostingService;
 }
 
 export function createPostingRuleRouter(deps: PostingRuleRouterDeps): Router {
-  const { uow, registry, permissions } = deps;
+  const { uow, registry, permissions, posting } = deps;
   const router = Router();
   const rules = createPostingRuleRepository();
   const idParams = z.object({ id: z.uuid() });
@@ -347,6 +392,83 @@ export function createPostingRuleRouter(deps: PostingRuleRouterDeps): Router {
       404: problem('No such rule'),
       409: problem('Version conflict'),
       422: problem('Not a draft, or starts too early'),
+    },
+  });
+
+  // Rule 5: simulate. Runs the whole posting (rule, formulas, accounts, dimensions, rates,
+  // base amounts, balance) and shows the journal it would write; writes nothing.
+  router.post('/posting-rules/:eventKey/simulate', async (req, res) => {
+    const { eventKey } = eventKeyParams.parse(req.params);
+    const body = simulateBody.parse(req.body ?? {});
+    const result = await uow.run(async () => {
+      await permissions.require('gl.posting_rule.read');
+      const companyId = companyFor(body.companyId);
+      const entryDate = body.entryDate ?? isoDay(new Date());
+      const day = toDay(entryDate);
+      let rule: PostingRuleRecord;
+      if (body.ruleId === undefined) {
+        rule = await posting.ruleInForce(companyId, eventKey, day);
+      } else {
+        const found = await currentUnit().db.glPostingRule.findFirst({
+          where: { id: body.ruleId, companyId, eventKey, deletedAt: null },
+        });
+        if (found === null) throw new NotFoundError(`No ${eventKey} rule with that id.`);
+        rule = found;
+      }
+      const lines = await posting.linesFromRule(rule, body.inputs, day);
+      const prepared = await posting.prepare({
+        companyId,
+        entryDate,
+        eventKey,
+        description: body.description ?? `Simulation of ${eventKey}`,
+        lines,
+        postingRuleId: rule.id,
+      });
+      return { rule, entryDate, prepared };
+    });
+    const { rule, entryDate, prepared } = result;
+    res.json({
+      rule: { id: rule.id, versionNo: rule.versionNo, status: rule.status },
+      entryDate,
+      baseCurrency: prepared.baseCurrency,
+      lines: prepared.rows.map((r) => ({
+        lineNo: r.lineNo,
+        accountId: r.accountId,
+        accountCode: r.accountCode,
+        debit: r.debit,
+        credit: r.credit,
+        currency: r.currency,
+        fxRate: r.fxRate,
+        baseDebit: r.baseDebit,
+        baseCredit: r.baseCredit,
+        dimensions: r.dimensionFields,
+        taxCodeId: r.taxCodeId,
+        memo: r.memo,
+      })),
+      totals: prepared.totals,
+      period: prepared.period,
+      // Whether posting it on that day would get past the period check too.
+      postable: prepared.period?.status === 'open',
+    });
+  });
+  registerRoute(registry, {
+    method: 'post',
+    path: '/posting-rules/{eventKey}/simulate',
+    tags: ['Posting rules'],
+    summary:
+      'Show the journal an event would post (rule in force on entryDate, or ruleId to try a draft); writes nothing',
+    request: {
+      params: eventKeyParams,
+      body: { content: { 'application/json': { schema: simulateBody } } },
+    },
+    responses: {
+      200: {
+        description: 'The journal lines it would post',
+        content: { 'application/json': { schema: simulateResult } },
+      },
+      403: problem('Missing permission'),
+      404: problem('No such rule'),
+      422: problem('The posting would be refused (no rule, formula, account, rate, balance)'),
     },
   });
 

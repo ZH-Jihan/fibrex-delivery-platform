@@ -312,14 +312,15 @@ export function createFormulaVersionRepository(): Repository<FormulaVersionRow> 
       const formula = await liveFormula(body.formulaId);
       checkExpression(formula, body.expression);
       const { db } = currentUnit();
-      // The number counts deleted drafts too, so a number never names two expressions.
-      const highest = await db.formulaVersion.aggregate({
-        where: { formulaId: formula.id },
-        _max: { versionNo: true },
-      });
+      // The number counts deleted drafts too, so a number never names two expressions. Raw
+      // SQL because the soft-delete extension hides deleted rows from Prisma reads (aggregate
+      // included), which would hand out the number of a deleted draft again.
+      const highest = await db.$queryRaw<{ n: number }[]>`
+        SELECT coalesce(max(version_no), 0)::int AS n FROM cfg.formula_version
+         WHERE formula_id = ${formula.id}::uuid`;
       return base.create({
         formulaId: formula.id,
-        versionNo: (highest._max.versionNo ?? 0) + 1,
+        versionNo: (highest[0]?.n ?? 0) + 1,
         expression: body.expression,
         checksum: checksumOf(body.expression),
         testCases: body.testCases,

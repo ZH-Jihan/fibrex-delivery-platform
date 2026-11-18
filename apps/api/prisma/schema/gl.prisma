@@ -257,6 +257,7 @@ model GlJournal {
   reversalOf   GlJournal?      @relation("GlJournalReversal", fields: [companyId, reversalOfId], references: [companyId, id], map: "journal_reversal_fk", onDelete: NoAction, onUpdate: NoAction)
   reversals    GlJournal[]     @relation("GlJournalReversal")
   lines        GlJournalLine[]
+  manualJournals GlManualJournal[]
 
   @@unique([companyId, id], map: "journal_company_id_uq")
   @@unique([companyId, number], map: "journal_number_uq")
@@ -315,5 +316,41 @@ model GlJournalLine {
   @@index([companyId, employeePartyId, entryDate], map: "journal_line_employee_idx", where: raw("employee_party_id IS NOT NULL"))
   @@index([companyId, loanId, entryDate], map: "journal_line_loan_idx", where: raw("loan_id IS NOT NULL"))
   @@map("journal_line")
+  @@schema("gl")
+}
+
+// Row 2.15b: manual journals (drafts posted through the posting service).
+// SQL source: migrations/20261118000500_gl_manual_journal (posted rows frozen by trigger).
+
+/// A journal written by hand: draft, then posted (journal_id names the posted journal).
+model GlManualJournal {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  number       String
+  entryDate    DateTime  @map("entry_date") @db.Date
+  description  String
+  lines        Json      @default("[]")
+  status       String    @default("draft")
+  journalId    String?   @map("journal_id") @db.Uuid
+  postedAt     DateTime? @map("posted_at") @db.Timestamptz(6)
+  postedBy     String?   @map("posted_by") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company Company    @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "manual_journal_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  journal GlJournal? @relation(fields: [companyId, journalId], references: [companyId, id], map: "manual_journal_journal_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([companyId, id], map: "manual_journal_company_id_uq")
+  @@unique([companyId, number], map: "manual_journal_number_uq")
+  @@unique([journalId], map: "manual_journal_journal_uq", where: raw("journal_id IS NOT NULL"))
+  @@index([companyId, status, entryDate(sort: Desc)], map: "manual_journal_list_idx", where: raw("deleted_at IS NULL"))
+  @@map("manual_journal")
   @@schema("gl")
 }

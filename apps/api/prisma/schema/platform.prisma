@@ -198,6 +198,7 @@ model Company {
   glFiscalPeriods      GlFiscalPeriod[]
   glPostingRules       GlPostingRule[]
   glJournals           GlJournal[]
+  glManualJournals     GlManualJournal[]
 
   @@unique([tenantId, id], map: "company_tenant_id_uq")
   @@map("company")

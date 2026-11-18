@@ -13,8 +13,10 @@
  *      is live, postable, takes the line's currency, and the line carries every dimension the
  *      account requires (a control account always needs a party); the tax code exists (the
  *      company default when none is named).
- *   3. The journal balances (exact decimal sums). Lines are in the base currency only until
- *      row 2.15b adds foreign currency with exchange rates; base amount = amount, rate 1.
+ *   3. Base amounts (row 2.15b): a foreign line takes the rate it names or the exchange rate
+ *      of the entry day; base = amount x rate, half-up to 4 decimals; a base line has rate 1.
+ *      A difference that is rounding only is moved onto one line (shared `baseRoundingFix`
+ *      says when). Then the journal must balance in base (exact decimal sums).
  *   4. The entry date falls in an open fiscal period.
  *   5. A gapless journal number (`gl.journal`, default JV-YYYY-00001, yearly) is taken in this
  *      transaction, then the journal and its lines are inserted.
@@ -49,7 +51,9 @@ import {
 } from '@fibrex/formula';
 import {
   AccountResolveError,
+  baseRoundingFix,
   canonicalJson,
+  toBaseAmount,
   DIMENSION_FIELDS,
   journalTotals,
   LEDGER_DIMENSIONS,
@@ -83,8 +87,14 @@ export interface PostingLineInput {
   /** Decimal text, at most 4 decimals. */
   debit?: string;
   credit?: string;
-  /** Defaults to the company's base currency (the only one accepted until row 2.15b). */
+  /** Defaults to the company's base currency. */
   currency?: string;
+  /**
+   * 1 unit of `currency` = fxRate base units (decimal text, at most 8 decimals). Left out:
+   * the exchange rate of the entry day (`LedgerSetupService.rateOn`). Must be 1 (or left
+   * out) on a base-currency line.
+   */
+  fxRate?: string;
   dimensions?: Dimensions;
   /** Tax code id or code; the company's default tax code when neither is given. */
   taxCodeId?: string;
@@ -117,6 +127,35 @@ export interface EventPostingInput {
   description: string;
   source?: { type: string; id?: string };
   idempotencyKey?: string;
+}
+
+/** A journal checked and priced but not written (post() writes it; simulate shows it). */
+export interface PreparedJournal {
+  companyId: string;
+  baseCurrency: string;
+  day: Date;
+  description: string;
+  rows: PreparedLine[];
+  totals: { debit: string; credit: string; balanced: boolean };
+  /** The fiscal period of the day, or null when no fiscal year covers it. */
+  period: { id: string; status: string } | null;
+}
+
+export interface PreparedLine {
+  lineNo: number;
+  accountId: string;
+  accountCode: string;
+  debit: string;
+  credit: string;
+  currency: string;
+  fxRate: string;
+  baseDebit: string;
+  baseCredit: string;
+  dimensionFields: Record<string, string>;
+  taxCodeId: string;
+  sourceDocType: string | null;
+  sourceDocId: string | null;
+  memo: string | null;
 }
 
 export interface PostedJournal {
@@ -350,6 +389,81 @@ export class PostingService {
     const { db, context } = currentUnit();
     const replay = await this.#replay(input.companyId, input.idempotencyKey);
     if (replay !== null) return replay;
+    const { period, rows, day, description } = await this.prepare(input);
+
+    // Step 4: an open period.
+    if (period === null) {
+      throw invalid(
+        'gl_period_missing',
+        `No fiscal period covers ${input.entryDate}; open the fiscal year first.`,
+      );
+    }
+    if (period.status !== 'open') {
+      throw invalid(
+        'gl_period_not_open',
+        `The fiscal period of ${input.entryDate} is ${period.status}.`,
+      );
+    }
+
+    // Step 5: number, journal, lines (the triggers check again; their errors become 422).
+    const { number } = await this.#numbering.allocate('gl.journal', {
+      companyId: input.companyId,
+      date: day,
+      defaults: { format: 'JV-{YYYY}-{00000}', resetPolicy: 'yearly' },
+    });
+    try {
+      const journal = await db.glJournal.create({
+        data: {
+          tenantId: context.tenantId,
+          companyId: input.companyId,
+          number,
+          entryDate: day,
+          fiscalPeriodId: period.id,
+          eventKey: input.eventKey,
+          postingRuleId: input.postingRuleId ?? null,
+          sourceType: input.source?.type ?? null,
+          sourceId: input.source?.id ?? null,
+          description,
+          lineCount: rows.length,
+          reversalOfId: input.reversalOfId ?? null,
+          reason: input.reason ?? null,
+          idempotencyKey: input.idempotencyKey ?? null,
+        },
+      });
+      await db.glJournalLine.createMany({
+        data: rows.map((r) => ({
+          lineNo: r.lineNo,
+          accountId: r.accountId,
+          debit: r.debit,
+          credit: r.credit,
+          currency: r.currency,
+          fxRate: r.fxRate,
+          baseDebit: r.baseDebit,
+          baseCredit: r.baseCredit,
+          taxCodeId: r.taxCodeId,
+          sourceDocType: r.sourceDocType,
+          sourceDocId: r.sourceDocId,
+          memo: r.memo,
+          ...r.dimensionFields,
+          tenantId: context.tenantId,
+          companyId: input.companyId,
+          journalId: journal.id,
+          entryDate: day,
+        })),
+      });
+      const lines = await this.linesOf(journal);
+      return { journal, lines, replayed: false };
+    } catch (err) {
+      throw ledgerDbProblem(err);
+    }
+  }
+
+  /**
+   * Steps 1 to 3 of a posting and the period lookup of step 4, without writing anything.
+   * post() uses it, and so does the simulate endpoint (which shows the result instead).
+   */
+  async prepare(input: JournalInput): Promise<PreparedJournal> {
+    const { db, context } = currentUnit();
 
     // Step 1: company and base currency.
     if (!context.companyIds.includes(input.companyId)) {
@@ -393,7 +507,37 @@ export class PostingService {
     });
     const defaultTax = taxCodes.find((t) => t.isDefault);
 
-    const rows = input.lines.map((line, i) => {
+    // Step 3 (first half): currencies and rates, read once. A rate the line names wins over
+    // the exchange rate of the day (a bank's actual rate on a transfer, for example).
+    const currencies = [...new Set(input.lines.map((l) => l.currency ?? base))];
+    const known = await db.currency.findMany({
+      where: { code: { in: currencies }, isActive: true },
+      select: { code: true },
+    });
+    const rateOfDay = new Map<string, string>();
+    for (const [i, line] of input.lines.entries()) {
+      const currency = line.currency ?? base;
+      const where = `Line ${String(i + 1)}`;
+      if (!known.some((c) => c.code === currency)) {
+        throw invalid('gl_currency_unknown', `${where}: ${currency} is not an active currency.`);
+      }
+      if (line.fxRate !== undefined) {
+        if (!/^\d{1,10}(\.\d{1,8})?$/.test(line.fxRate) || new Decimal(line.fxRate).lte(0)) {
+          throw invalid(
+            'gl_fx_rate_invalid',
+            `${where}: the rate must be above zero with at most 8 decimals.`,
+          );
+        }
+        if (currency === base && !new Decimal(line.fxRate).eq(1)) {
+          throw invalid('gl_fx_rate_invalid', `${where}: a ${base} line has rate 1.`);
+        }
+      } else if (currency !== base && !rateOfDay.has(currency)) {
+        const found = await this.#setup.rateOn(input.companyId, currency, base, day);
+        rateOfDay.set(currency, found.rate);
+      }
+    }
+
+    const rows: PreparedLine[] = input.lines.map((line, i) => {
       const where = `Line ${String(i + 1)}`;
       const account =
         line.accountId === undefined
@@ -417,12 +561,6 @@ export class PostingService {
       }
       const amount = amountOf((hasDebit ? line.debit : line.credit) ?? '', where);
       const currency = line.currency ?? base;
-      if (currency !== base) {
-        throw invalid(
-          'gl_currency_not_supported',
-          `${where}: only ${base} lines can be posted for now (foreign currency comes with row 2.15b).`,
-        );
-      }
       if (account.currencyRestriction !== null && account.currencyRestriction !== currency) {
         throw invalid(
           'gl_account_currency',
@@ -468,17 +606,22 @@ export class PostingService {
       const dimensionFields = Object.fromEntries(
         Object.entries(dims).map(([dim, id]) => [DIMENSION_FIELDS[dim as LedgerDimension], id]),
       );
+      // Step 3: the rate (named, of the day, or 1 in base) and the base amount.
+      const fxRate = new Decimal(
+        line.fxRate ?? (currency === base ? '1' : (rateOfDay.get(currency) ?? '')),
+      ).toFixed(8);
+      const baseText = currency === base ? text : toBaseAmount(text, fxRate);
       return {
         lineNo: i + 1,
         accountId: account.id,
-        debit: hasDebit ? text : '0',
-        credit: hasCredit ? text : '0',
+        accountCode: account.code,
+        debit: hasDebit ? text : '0.0000',
+        credit: hasCredit ? text : '0.0000',
         currency,
-        // Base currency only (step 3): rate 1, base amount = amount.
-        fxRate: '1',
-        baseDebit: hasDebit ? text : '0',
-        baseCredit: hasCredit ? text : '0',
-        ...dimensionFields,
+        fxRate,
+        baseDebit: hasDebit ? baseText : '0.0000',
+        baseCredit: hasCredit ? baseText : '0.0000',
+        dimensionFields,
         taxCodeId: tax.id,
         sourceDocType: line.sourceDocType ?? null,
         sourceDocId: line.sourceDocId ?? null,
@@ -487,69 +630,36 @@ export class PostingService {
       };
     });
 
-    // Step 3: balance, exact.
+    // Step 3 (second half): a difference that is rounding only goes onto one line (the
+    // shared helper decides; real differences are left for the balance check to refuse).
+    const fix = baseRoundingFix(rows);
+    if (fix !== null) {
+      const row = rows[fix.index];
+      if (row !== undefined) {
+        if (fix.side === 'debit')
+          row.baseDebit = new Decimal(row.baseDebit).plus(fix.delta).toFixed(4);
+        else row.baseCredit = new Decimal(row.baseCredit).plus(fix.delta).toFixed(4);
+      }
+    }
     const totals = journalTotals(rows.map((r) => ({ debit: r.baseDebit, credit: r.baseCredit })));
     if (!totals.balanced) {
       throw invalid(
         'gl_journal_unbalanced',
-        `Debits ${totals.debit} and credits ${totals.credit} must be equal and above zero.`,
+        `Debits ${totals.debit} and credits ${totals.credit} (${base}) must be equal and above zero.`,
       );
     }
 
-    // Step 4: an open period.
+    // Step 4 (lookup only; post() refuses a missing or closed period).
     const period = await this.#setup.periodFor(input.companyId, day);
-    if (period === null) {
-      throw invalid(
-        'gl_period_missing',
-        `No fiscal period covers ${input.entryDate}; open the fiscal year first.`,
-      );
-    }
-    if (period.status !== 'open') {
-      throw invalid(
-        'gl_period_not_open',
-        `The fiscal period of ${input.entryDate} is ${period.status}.`,
-      );
-    }
-
-    // Step 5: number, journal, lines (the triggers check again; their errors become 422).
-    const { number } = await this.#numbering.allocate('gl.journal', {
+    return {
       companyId: input.companyId,
-      date: day,
-      defaults: { format: 'JV-{YYYY}-{00000}', resetPolicy: 'yearly' },
-    });
-    try {
-      const journal = await db.glJournal.create({
-        data: {
-          tenantId: context.tenantId,
-          companyId: input.companyId,
-          number,
-          entryDate: day,
-          fiscalPeriodId: period.id,
-          eventKey: input.eventKey,
-          postingRuleId: input.postingRuleId ?? null,
-          sourceType: input.source?.type ?? null,
-          sourceId: input.source?.id ?? null,
-          description,
-          lineCount: rows.length,
-          reversalOfId: input.reversalOfId ?? null,
-          reason: input.reason ?? null,
-          idempotencyKey: input.idempotencyKey ?? null,
-        },
-      });
-      await db.glJournalLine.createMany({
-        data: rows.map((r) => ({
-          ...r,
-          tenantId: context.tenantId,
-          companyId: input.companyId,
-          journalId: journal.id,
-          entryDate: day,
-        })),
-      });
-      const lines = await this.linesOf(journal);
-      return { journal, lines, replayed: false };
-    } catch (err) {
-      throw ledgerDbProblem(err);
-    }
+      baseCurrency: base,
+      day,
+      description,
+      rows,
+      totals,
+      period: period === null ? null : { id: period.id, status: period.status },
+    };
   }
 
   /** Reverse a posted journal (see the header). */
@@ -616,6 +726,9 @@ export class PostingService {
             accountId: l.accountId,
             ...(l.debit.isZero() ? { debit: l.credit.toFixed(4) } : { credit: l.debit.toFixed(4) }),
             currency: l.currency,
+            // The original rate, not today's: a reversal undoes exactly what was posted (the
+            // rounding fix picks the same line again, see shared baseRoundingFix).
+            fxRate: l.fxRate.toFixed(8),
             dimensions,
             taxCodeId: l.taxCodeId,
             ...(l.sourceDocType === null ? {} : { sourceDocType: l.sourceDocType }),

@@ -180,6 +180,16 @@ beforeAll(async () => {
     [worker, f.tenantA, f.companyA1],
   );
   ctx = { tenantId: f.tenantA, companyIds: [f.companyA1], userId: f.userA };
+  await owner.query(
+    `INSERT INTO platform.currency (code, name) VALUES ('USD', 'US Dollar'), ('BDT', 'Taka')
+     ON CONFLICT (code) DO NOTHING`,
+  );
+  // USD -> QAR from March 2026 (row 2.15b tests).
+  await owner.query(
+    `INSERT INTO gl.exchange_rate (tenant_id, company_id, from_currency, to_currency, rate_date, rate)
+     VALUES ($1, $2, 'USD', 'QAR', '2026-03-01', 3.64)`,
+    [f.tenantA, f.companyA1],
+  );
 
   const env = loadEnv({
     DATABASE_URL: 'postgresql://unused@localhost:1/x',
@@ -568,12 +578,13 @@ describe('explicit postings', () => {
     );
     await refused(twoLines('10', '1100'), 'gl_account_not_postable');
     await refused(twoLines('10', '9999'), 'gl_account_missing');
+    // Foreign currency needs a rate of the day (no BDT rate is ever entered in this file).
     await refused(
       [
-        { accountCode: '5100', debit: '10', currency: 'USD' },
-        { accountCode: '1110', credit: '10', currency: 'USD' },
+        { accountCode: '5100', debit: '10', currency: 'BDT' },
+        { accountCode: '1110', credit: '10', currency: 'BDT' },
       ],
-      'gl_currency_not_supported',
+      'gl_exchange_rate_missing',
     );
     await refused(twoLines('10'), 'gl_period_missing', '2027-02-01');
     await refused([{ accountCode: '5100', debit: '10' }], 'gl_line_count');
@@ -801,5 +812,289 @@ describe('fiscal years with postings', () => {
     const res = await del(`/fiscal-years/${year.id}`, alice, year.version);
     expect(res.status).toBe(422);
     expect(JSON.stringify(res.body)).toContain('Journals are posted');
+  });
+});
+
+describe('foreign currency (row 2.15b)', () => {
+  const postLines = (lines: PostingLineInput[], entryDate = '2026-05-05') =>
+    run(() =>
+      posting.post({
+        companyId: f.companyA1,
+        entryDate,
+        eventKey: 'test.fx',
+        description: 'FX test',
+        lines,
+      }),
+    );
+  const shape = (lines: Awaited<ReturnType<typeof postLines>>['lines']) =>
+    lines.map((l) => [
+      l.currency,
+      l.fxRate.toFixed(8),
+      l.debit.toFixed(4),
+      l.credit.toFixed(4),
+      l.baseDebit.toFixed(4),
+      l.baseCredit.toFixed(4),
+    ]);
+
+  it('takes the rate of the day and stores base amounts', async () => {
+    const posted = await postLines([
+      { accountCode: '5100', debit: '100', currency: 'USD' },
+      { accountCode: '1110', credit: '364' },
+    ]);
+    expect(shape(posted.lines)).toEqual([
+      ['USD', '3.64000000', '100.0000', '0.0000', '364.0000', '0.0000'],
+      ['QAR', '1.00000000', '0.0000', '364.0000', '0.0000', '364.0000'],
+    ]);
+    // A rate named on the line wins over the rate of the day.
+    const named = await postLines([
+      { accountCode: '5100', debit: '10', currency: 'USD', fxRate: '3.7' },
+      { accountCode: '1110', credit: '37' },
+    ]);
+    expect(named.lines[0]?.fxRate.toFixed(8)).toBe('3.70000000');
+  });
+
+  it('moves a rounding difference onto one line, and the reversal mirrors it', async () => {
+    // 10.0001 x 3.64 = 36.400364 -> 36.4004 (twice: 72.8008); 20.0002 x 3.64 = 72.800728 -> 72.8007.
+    const posted = await postLines([
+      { accountCode: '5100', debit: '10.0001', currency: 'USD' },
+      { accountCode: '5100', debit: '10.0001', currency: 'USD' },
+      { accountCode: '1110', credit: '20.0002', currency: 'USD' },
+    ]);
+    expect(shape(posted.lines).map((l) => [l[4], l[5]])).toEqual([
+      ['36.4004', '0.0000'],
+      ['36.4004', '0.0000'],
+      ['0.0000', '72.8008'],
+    ]);
+    const reversal = await run(() =>
+      posting.reverse(posted.journal.id, { reason: 'test', entryDate: '2026-05-06' }),
+    );
+    expect(shape(reversal.lines).map((l) => [l[1], l[4], l[5]])).toEqual([
+      ['3.64000000', '0.0000', '36.4004'],
+      ['3.64000000', '0.0000', '36.4004'],
+      ['3.64000000', '72.8008', '0.0000'],
+    ]);
+  });
+
+  it('refuses unknown currencies, missing rates, bad rates and real base differences', async () => {
+    const refused = async (lines: PostingLineInput[], code: string, entryDate?: string) => {
+      await expect(postLines(lines, entryDate)).rejects.toMatchObject({ code });
+    };
+    await refused(
+      [
+        { accountCode: '5100', debit: '1', currency: 'ZZZ' },
+        { accountCode: '1110', credit: '1', currency: 'ZZZ' },
+      ],
+      'gl_currency_unknown',
+    );
+    // Before the first USD rate.
+    await refused(
+      [
+        { accountCode: '5100', debit: '1', currency: 'USD' },
+        { accountCode: '1110', credit: '1', currency: 'USD' },
+      ],
+      'gl_exchange_rate_missing',
+      '2026-02-15',
+    );
+    await refused(
+      [
+        { accountCode: '5100', debit: '1', fxRate: '2' },
+        { accountCode: '1110', credit: '1' },
+      ],
+      'gl_fx_rate_invalid',
+    );
+    await refused(
+      [
+        { accountCode: '5100', debit: '1', currency: 'USD', fxRate: '0' },
+        { accountCode: '1110', credit: '1', currency: 'USD' },
+      ],
+      'gl_fx_rate_invalid',
+    );
+    // Same USD amount at two rates: a real exchange difference, never absorbed as rounding.
+    await refused(
+      [
+        { accountCode: '5100', debit: '100', currency: 'USD', fxRate: '3.64' },
+        { accountCode: '1110', credit: '100', currency: 'USD', fxRate: '3.65' },
+      ],
+      'gl_journal_unbalanced',
+    );
+  });
+});
+
+describe('simulate (row 2.15b)', () => {
+  const fxRule = {
+    eventKey: 'test.fx.fee',
+    name: 'Fee in a currency',
+    inputSchema: { amount: { type: 'decimal' }, currency: { type: 'string', default: 'QAR' } },
+    lines: [
+      { side: 'debit', account: { kind: 'fixed', code: '5100' }, amount: 'amount' },
+      { side: 'credit', account: { kind: 'fixed', code: '1110' }, amount: 'amount' },
+    ],
+    validFrom: '2026-01-01',
+  };
+  const journalCount = async () =>
+    Number(
+      (
+        await owner.query<{ n: string }>(
+          `SELECT count(*) AS n FROM gl.journal WHERE company_id = $1`,
+          [f.companyA1],
+        )
+      ).rows[0]?.n,
+    );
+
+  it('shows what the rule in force would post, or a draft, and writes nothing', async () => {
+    const created = (await post('/posting-rules', carol, fxRule)).body as Item;
+    const before = await journalCount();
+
+    // A draft is not in force, but can be tried by id.
+    const none = await post('/posting-rules/test.fx.fee/simulate', carol, {
+      entryDate: '2026-05-05',
+      inputs: { amount: '12.5' },
+    });
+    expect(none.status).toBe(422);
+    expect((none.body as { code: string }).code).toBe('gl_posting_rule_missing');
+    const draft = await post('/posting-rules/test.fx.fee/simulate', carol, {
+      entryDate: '2026-05-05',
+      inputs: { amount: '12.5' },
+      ruleId: created.id,
+    });
+    expect(draft.status, JSON.stringify(draft.body)).toBe(200);
+
+    const active = await post(`/posting-rules/${created.id}/activate`, carol, {}, created.version);
+    expect(active.status).toBe(200);
+    const res = await post('/posting-rules/test.fx.fee/simulate', carol, {
+      entryDate: '2026-05-05',
+      inputs: { amount: '12.5' },
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const body = res.body as {
+      rule: { versionNo: number; status: string };
+      baseCurrency: string;
+      lines: { accountCode: string; debit: string; credit: string; baseDebit: string }[];
+      totals: { debit: string; balanced: boolean };
+      postable: boolean;
+    };
+    expect(body.rule).toMatchObject({ versionNo: 1, status: 'active' });
+    expect(body.baseCurrency).toBe('QAR');
+    expect(body.lines.map((l) => [l.accountCode, l.debit, l.credit])).toEqual([
+      ['5100', '12.5000', '0.0000'],
+      ['1110', '0.0000', '12.5000'],
+    ]);
+    expect(body.totals).toMatchObject({ debit: '12.5000', balanced: true });
+    expect(body.postable).toBe(true);
+    expect(await journalCount()).toBe(before);
+  });
+
+  it('reports refusals as a posting would, and needs read permission', async () => {
+    const bad = await post('/posting-rules/test.fx.fee/simulate', carol, {
+      entryDate: '2026-05-05',
+      inputs: { amount: '1.23456' },
+    });
+    expect(bad.status).toBe(422);
+    expect((bad.body as { code: string }).code).toBe('gl_amount_invalid');
+    expect(
+      (
+        await post('/posting-rules/test.fx.fee/simulate', dave, {
+          inputs: { amount: '1' },
+        })
+      ).status,
+    ).toBe(403);
+    expect((await post('/posting-rules/Not-A-Key/simulate', carol, {})).status).toBe(400);
+  });
+});
+
+describe('manual journals (row 2.15b)', () => {
+  interface Mj extends Item {
+    number: string;
+    journalId: string | null;
+    journal?: JournalBody;
+  }
+  const draftBody = {
+    entryDate: '2026-06-10',
+    description: 'Office supplies paid in cash',
+    lines: [
+      { accountCode: '5100', debit: '40' },
+      { accountCode: '1110', credit: '39' },
+    ],
+  };
+
+  it('keeps an unbalanced draft, refuses to post it, then posts it once and freezes it', async () => {
+    expect((await post('/manual-journals', dave, draftBody)).status).toBe(403);
+    const bad = await post('/manual-journals', carol, {
+      ...draftBody,
+      lines: [{ accountCode: '5100', debit: '1', credit: '1' }],
+    });
+    expect(bad.status).toBe(400);
+
+    const created = await post('/manual-journals', carol, draftBody);
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    let mj = created.body as Mj;
+    expect(mj.number).toMatch(/^MJ-2026-\d{5}$/);
+    expect(mj.status).toBe('draft');
+
+    const unbalanced = await post(`/manual-journals/${mj.id}/post`, carol, {}, mj.version);
+    expect(unbalanced.status).toBe(422);
+    expect((unbalanced.body as { code: string }).code).toBe('gl_journal_unbalanced');
+
+    const fixed = await patch(`/manual-journals/${mj.id}`, carol, mj.version, {
+      lines: [
+        { accountCode: '5100', debit: '40' },
+        { accountCode: '1110', credit: '40' },
+      ],
+    });
+    expect(fixed.status).toBe(200);
+    mj = fixed.body as Mj;
+
+    expect((await post(`/manual-journals/${mj.id}/post`, carol, {}, mj.version + 5)).status).toBe(
+      409,
+    );
+    const posted = await post(`/manual-journals/${mj.id}/post`, carol, {}, mj.version);
+    expect(posted.status, JSON.stringify(posted.body)).toBe(200);
+    const done = posted.body as Mj;
+    expect(done.status).toBe('posted');
+    expect(done.journalId).toBe(done.journal?.id);
+    expect(done.journal?.lines.map((l) => [l.debit, l.credit])).toEqual([
+      ['40.0000', '0.0000'],
+      ['0.0000', '40.0000'],
+    ]);
+    const journal = (await get(`/journals/${done.journalId ?? ''}`, carol)).body as JournalBody & {
+      eventKey: string;
+      sourceId: string;
+    };
+    expect(journal).toMatchObject({ eventKey: 'gl.manual_journal', sourceId: mj.id });
+
+    // Frozen: no second posting, no edit, no delete; the database refuses too.
+    expect((await post(`/manual-journals/${mj.id}/post`, carol, {}, done.version)).status).toBe(
+      422,
+    );
+    expect(
+      (await patch(`/manual-journals/${mj.id}`, carol, done.version, { description: 'x' })).status,
+    ).toBe(422);
+    expect((await del(`/manual-journals/${mj.id}`, carol, done.version)).status).toBe(422);
+    await expect(
+      owner.query(`UPDATE gl.manual_journal SET description = 'x' WHERE id = $1`, [mj.id]),
+    ).rejects.toThrow(/gl_manual_journal_posted/);
+  });
+
+  it('posts foreign lines and lists by status; a deleted draft keeps its number', async () => {
+    const usd = (
+      await post('/manual-journals', carol, {
+        ...draftBody,
+        lines: [
+          { accountCode: '5100', debit: '10', currency: 'USD' },
+          { accountCode: '1110', credit: '36.4' },
+        ],
+      })
+    ).body as Mj;
+    const posted = await post(`/manual-journals/${usd.id}/post`, carol, {}, usd.version);
+    expect(posted.status, JSON.stringify(posted.body)).toBe(200);
+
+    const gone = (await post('/manual-journals', carol, draftBody)).body as Mj;
+    expect((await del(`/manual-journals/${gone.id}`, carol, gone.version)).status).toBe(204);
+    const next = (await post('/manual-journals', carol, draftBody)).body as Mj;
+    expect(next.number).not.toBe(gone.number);
+
+    const drafts = (await get('/manual-journals?status=draft', carol)).body as { items: Mj[] };
+    expect(drafts.items.map((i) => i.id)).toContain(next.id);
+    expect(drafts.items.every((i) => i.status === 'draft')).toBe(true);
   });
 });

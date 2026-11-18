@@ -269,6 +269,17 @@ describe('templates API', () => {
     expect(dup.status).toBe(409);
   });
 
+  it('never reuses the number of a deleted draft', async () => {
+    const alice = await signIn('alice');
+    const t = await makeTemplate(alice);
+    await makeVersion(alice, t.id);
+    const v2 = (await makeVersion(alice, t.id)).body as VersionItem;
+    expect((await del(`/template-versions/${v2.id}`, alice, v2.version)).status).toBe(204);
+    const v3 = await makeVersion(alice, t.id);
+    expect(v3.status).toBe(201);
+    expect((v3.body as VersionItem).versionNo).toBe(3);
+  });
+
   it('refuses broken syntax and a CSS that closes the style element', async () => {
     const alice = await signIn('alice');
     const t = await makeTemplate(alice);

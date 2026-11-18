@@ -5,10 +5,12 @@
  * Purpose (row 2.14, ledger set-up): chart of accounts, cost centres, tax codes, exchange
  * rates, fiscal years and periods with close, lock and reopen. Row 2.15a: posting rules,
  * journals and the posting service (`PostingService`, the only writer of the ledger);
- * row 2.16 the ledger reports and screens.
+ * row 2.15b: foreign currency with base amounts, simulate, manual journals; row 2.16 the
+ * ledger reports and screens.
  *
  * Depends on: ./setup-router.ts, ./fiscal-router.ts, ./setup-service.ts, ./chart-seed.ts,
  * ./posting-service.ts, ./posting-rule-router.ts, ./journal-router.ts,
+ * ./manual-journal-router.ts,
  * kernel/module-registry, kernel/permissions. Used by: src/main.ts, src/seed/seed.ts.
  */
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
@@ -24,6 +26,10 @@ import {
 import type { PermissionService } from '../../kernel/permissions/permission-service.js';
 import { createFiscalRouter, createFiscalYearRepository } from './fiscal-router.js';
 import { createJournalRouter } from './journal-router.js';
+import {
+  createManualJournalRepository,
+  createManualJournalRouter,
+} from './manual-journal-router.js';
 import { createPostingRuleRepository, createPostingRuleRouter } from './posting-rule-router.js';
 import { PostingService } from './posting-service.js';
 import {
@@ -44,6 +50,7 @@ export {
   type JournalInput,
   type PostedJournal,
   type PostingLineInput,
+  type PreparedJournal,
 } from './posting-service.js';
 
 export const GL_PERMISSIONS: readonly PermissionDef[] = [
@@ -66,6 +73,8 @@ export const GL_PERMISSIONS: readonly PermissionDef[] = [
   permission('gl', 'gl.posting_rule', 'activate', 'Put a posting rule version in force'),
   permission('gl', 'gl.journal', 'read', 'View posted journals'),
   permission('gl', 'gl.journal', 'reverse', 'Reverse a posted journal'),
+  ...crudPermissions('gl', 'gl.manual_journal', 'manual journals (drafts)'),
+  permission('gl', 'gl.manual_journal', 'post', 'Post a manual journal to the ledger'),
 ];
 
 export interface GlModuleDeps {
@@ -86,6 +95,7 @@ export function createGlModule(deps: GlModuleDeps): ModuleManifest {
   ): RecycleBinType =>
     ({ entityType, moduleKey: 'gl', label, repository, describe }) as unknown as RecycleBinType;
 
+  const posting = deps.posting ?? new PostingService();
   return {
     key: 'gl',
     label: 'General ledger',
@@ -93,8 +103,9 @@ export function createGlModule(deps: GlModuleDeps): ModuleManifest {
     routers: [
       createSetupRouter(deps),
       createFiscalRouter(deps),
-      createPostingRuleRouter(deps),
-      createJournalRouter({ ...deps, posting: deps.posting ?? new PostingService() }),
+      createPostingRuleRouter({ ...deps, posting }),
+      createJournalRouter({ ...deps, posting }),
+      createManualJournalRouter({ ...deps, posting }),
     ],
     recycleTypes: [
       recycle('gl.account', 'Account', createAccountRepository(), (r) => r.code),
@@ -117,6 +128,12 @@ export function createGlModule(deps: GlModuleDeps): ModuleManifest {
         'Posting rule (draft)',
         createPostingRuleRepository(),
         (r) => `${r.eventKey} v${String(r.versionNo)}`,
+      ),
+      recycle(
+        'gl.manual_journal',
+        'Manual journal (draft)',
+        createManualJournalRepository(),
+        (r) => `${r.number} ${r.description}`,
       ),
     ],
   };

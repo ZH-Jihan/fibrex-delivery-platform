@@ -233,11 +233,11 @@ export function createTemplateVersionRepository(): Repository<TemplateVersionRow
         }
       }
       // The number counts deleted versions too: the unique index does, and a number must
-      // never name two different texts.
-      const highest = await db.templateVersion.aggregate({
-        where: { templateId: body.templateId, language: body.language },
-        _max: { versionNo: true },
-      });
+      // never name two different texts. Raw SQL because the soft-delete extension hides
+      // deleted rows from Prisma reads (aggregate included).
+      const highest = await db.$queryRaw<{ n: number }[]>`
+        SELECT coalesce(max(version_no), 0)::int AS n FROM cfg.template_version
+         WHERE template_id = ${body.templateId}::uuid AND language = ${body.language}`;
       // Written directly, not through the repository: it treats company_id as a system
       // column and drops it for tenant-wide tables, but here it is a real choice
       // (NULL = every company). The database triggers still stamp the audit columns.
@@ -247,7 +247,7 @@ export function createTemplateVersionRepository(): Repository<TemplateVersionRow
           templateId: body.templateId,
           companyId: body.companyId,
           language: body.language,
-          versionNo: (highest._max.versionNo ?? 0) + 1,
+          versionNo: (highest[0]?.n ?? 0) + 1,
           subject: body.subject,
           body: body.body,
           css: body.css,
