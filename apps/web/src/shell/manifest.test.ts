@@ -32,7 +32,13 @@ describe('buildNav', () => {
   });
 
   it('builds the Phase 1 menu from the four feature manifests', () => {
-    expect(WEB_MODULES.map((m) => m.key)).toEqual(['iam', 'audit', 'platform', 'party']);
+    expect(WEB_MODULES.map((m) => m.key)).toEqual([
+      'iam',
+      'audit',
+      'platform',
+      'party',
+      'platform',
+    ]);
     expect(NAV.map((g) => [g.label, g.items.map((i) => i.to)])).toEqual([
       ['nav.admin', ['/users', '/roles', '/permission-matrix', '/audit', '/recycle-bin']],
       ['nav.work', ['/tasks', '/delegations']],
@@ -57,12 +63,14 @@ describe('buildNav', () => {
         ],
       ],
       ['nav.people.group', ['/people']],
+      ['nav.reports', ['/reports']],
     ]);
     // Every entry has an icon and a permission; the shell relies on both.
     for (const item of NAV.flatMap((g) => g.items)) {
       expect(item.icon).toBeDefined();
-      // Only the task inbox is open to every signed-in user (it lists their own tasks).
-      if (item.to !== '/tasks') expect(item.permission).not.toBe('');
+      // Only the task inbox and the report page are open to every signed-in user: each lists
+      // just what the API allows that person (their own tasks, the reports they may run).
+      if (item.to !== '/tasks' && item.to !== '/reports') expect(item.permission).not.toBe('');
     }
   });
 });

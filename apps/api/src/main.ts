@@ -112,6 +112,10 @@ import { createLogger } from './kernel/observability/logger.js';
 import { createAccessAdminRouter } from './kernel/permissions/access-admin-router.js';
 import { AccessAdminService } from './kernel/permissions/access-admin-service.js';
 import { KERNEL_PERMISSIONS, syncPermissionCatalogue } from './kernel/permissions/catalogue.js';
+import { KERNEL_REPORTS } from './kernel/reports/kernel-reports.js';
+import { createReportRouter } from './kernel/reports/report-router.js';
+import { ReportService } from './kernel/reports/report-service.js';
+import { syncReportDefinitions } from './kernel/reports/report-sync.js';
 import { PermissionService } from './kernel/permissions/permission-service.js';
 import { createJobRouter, JOB_PERMISSIONS } from './kernel/jobs/job-router.js';
 import { JobScheduler } from './kernel/jobs/scheduler.js';
@@ -323,11 +327,12 @@ async function main(): Promise<void> {
   // listen(), so the service pushes through a holder that is filled in below.
   const realtimeHolder: { gateway?: RealtimeGateway } = {};
   const emailQueue = new EmailQueue({ redisUrl: env.REDIS_URL, uow, messaging, logger });
+  const pdfRenderer = new ChromiumPdfRenderer({ executablePath: env.PDF_CHROMIUM_PATH });
   const pdfQueue = new PdfQueue({
     redisUrl: env.REDIS_URL,
     uow,
     storage,
-    renderer: new ChromiumPdfRenderer({ executablePath: env.PDF_CHROMIUM_PATH }),
+    renderer: pdfRenderer,
     logger,
   });
   const notify = new NotifyService({
@@ -521,6 +526,13 @@ async function main(): Promise<void> {
   const importTargets = new ImportTargets((key) => customRecordTarget({ records, entities }, key));
   const importService = new ImportService({ uow, storage, permissions, targets: importTargets });
   const exportService = new ExportService({ storage, permissions, targets: importTargets });
+  // Reports (row 2.13): kernel reports plus every module manifest's `reports`.
+  const reportService = new ReportService({
+    permissions,
+    storage,
+    renderer: pdfRenderer,
+    definitions: () => [...KERNEL_REPORTS, ...modules.reports()],
+  });
   const importQueue = new ImportQueue({ redisUrl: env.REDIS_URL, service: importService, logger });
   recycleBin.register({
     entityType: 'integration.import_mapping',
@@ -588,6 +600,7 @@ async function main(): Promise<void> {
       for (const type of modules.recycleTypes()) recycleBin.register(type);
       modules.mount(api);
       api.use(createModuleRouter({ registry, modules }));
+      api.use(createReportRouter({ uow, registry, permissions, reports: reportService }));
       api.use(
         createEventRouter({
           uow,
@@ -646,6 +659,7 @@ async function main(): Promise<void> {
     ...modules.permissions(),
   ]);
   await syncEventTypes(prisma, [...modules.eventTypes(), ...WORKFLOW_EVENT_TYPES]);
+  await syncReportDefinitions(prisma, [...KERNEL_REPORTS, ...modules.reports()]);
   await scheduler.start();
   emailQueue.startWorker();
   pdfQueue.startWorker();

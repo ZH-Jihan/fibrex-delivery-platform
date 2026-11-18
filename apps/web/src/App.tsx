@@ -39,6 +39,7 @@ import { WebhooksPage } from './org/WebhooksPage';
 import { DelegationsPage } from './workflow/DelegationsPage';
 import { InboxPage } from './workflow/InboxPage';
 import { DataExchangePage } from './data/DataExchangePage';
+import { ReportsPage } from './reports/ReportsPage';
 import { BranchesPage, CompanyPage } from './org/OrganisationPages';
 import { RolesPage } from './admin/RolesPage';
 import { UserDetailPage, UsersPage } from './admin/UsersPage';
@@ -273,6 +274,7 @@ function Gate() {
             </Guarded>
           }
         />
+        <Route path="reports" element={<ReportsPage />} />
         <Route path="records" element={<RecordTypesIndexPage />} />
         <Route path="records/:key" element={<RecordsPage />} />
         <Route path="login" element={<Navigate to="/" replace />} />

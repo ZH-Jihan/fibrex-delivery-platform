@@ -1,5 +1,55 @@
 // Schema `cfg`: configurable engines (PLAN 3.7). Row 2.3 adds the lookups, row 2.4 the entity definitions.
 
+// Row 2.13: reports are declared in code and synced here (a global catalogue); a saved report is a person's filters.
+model ReportDefinition {
+  id            String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  key           String   @unique
+  moduleKey     String   @map("module_key")
+  label         String
+  description   String   @default("")
+  source        String   @default("code")
+  config        Json     @default("{}")
+  permissionKey String   @map("permission_key")
+  isSystem      Boolean  @default(true) @map("is_system")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy     String?  @map("created_by") @db.Uuid
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy     String?  @map("updated_by") @db.Uuid
+  version       Int      @default(1)
+
+  savedReports SavedReport[]
+
+  @@map("report_definition")
+  @@schema("cfg")
+}
+
+model SavedReport {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  reportKey    String    @map("report_key")
+  ownerUserId  String    @map("owner_user_id") @db.Uuid
+  name         String
+  filters      Json      @default("{}")
+  columns      Json      @default("[]")
+  sharedWith   Json      @default("[]") @map("shared_with")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], map: "saved_report_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+  definition ReportDefinition @relation(fields: [reportKey], references: [key], map: "saved_report_definition_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, ownerUserId, reportKey, name], map: "saved_report_name_uq", where: { deletedAt: null })
+  @@index([tenantId, reportKey], map: "saved_report_owner_idx", where: { deletedAt: null })
+  @@map("saved_report")
+  @@schema("cfg")
+}
+
 model LookupType {
   id             String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
   tenantId       String    @map("tenant_id") @db.Uuid

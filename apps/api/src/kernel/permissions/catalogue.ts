@@ -167,6 +167,13 @@ export const KERNEL_PERMISSIONS: readonly PermissionDef[] = [
     'read',
     'View the event outbox (events and who handled them)',
   ),
+  ...crudPermissions('platform', 'platform.saved_report', 'saved reports'),
+  permission(
+    'platform',
+    'platform.report',
+    'export',
+    'Export a report to CSV, Excel or PDF (the report’s own permission is also needed)',
+  ),
   ...crudPermissions('integration', 'integration.webhook_subscription', 'webhook subscriptions'),
   permission(
     'integration',

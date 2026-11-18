@@ -5,7 +5,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | Phase | Title | Status | Accepted on | Notes |
 | --- | --- | --- | --- | --- |
 | 1 | Foundation A | Done (13 of 13 commits), awaiting acceptance | | Plan: `docs/phases/phase-01-plan.md` |
-| 2 | Foundation B | In progress (11 of 20 rows; 2.11 done, 2.12 next) | | Plan: `docs/phases/phase-02-plan.md` |
+| 2 | Foundation B | In progress (2.13 done, 2.14 next) | | Plan: `docs/phases/phase-02-plan.md` |
 | 3 | People and documents | Not started | | |
 | 4 | Performance and tracking | Not started | | |
 | 5 | Inventory and fleet | Not started | | |
@@ -75,6 +75,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | 2.11c | Workflow screens and delegation: bindings (`/organisation/workflow-bindings`) and "My stand-ins" (`/delegations`) screens, pass-on from the inbox (`GET /workflow-people`), self-service delegation (own-only unless new `platform.workflow_delegation.manage_all`; seed gives manager/viewer the own keys), parallel groups and step editing in the builder, 6 seeded `workflow.*` notification rules, Playwright journey (e2e users reviewer, owner, manager; e2e seed now tops up roles). Not built: branch deadline/escalation fields in the builder | 357 API + 82 web + 83 shared + 28 formula tests pass (2 + 7 new); lint, typecheck clean; Playwright 7 pass. Next: row 2.12 |
 | Review | Workflow permissions: `GET /delegations/{id}` now own-only (404 for others); the stand-in may cancel a delegation given to them; one person approves a step round once (no double vote through a stand-in or pass-on; passing to someone already on the step is refused); RLS test now covers `cfg` and `integration` tables and cross-tenant delegations. Seed top-up checked, no change | 360 API + 82 web + 83 shared + 28 formula tests pass (3 new); lint, typecheck clean |
 | 2.12 | Outbox and webhooks (migration `integration_events`; `kernel/events`: `EventOutbox.record` in the caller's transaction, `OutboxRelay` with job `outbox-relay` (5 s) + nudge after commit, consumers once-only via `event_consumption`, signed webhooks with backoff and per-attempt `webhook_delivery`; `/event-types`, `/events`, `/webhook-subscriptions` (+ rotate-secret), `/webhook-deliveries` (+ retry); workflow notifications now go outbox → `notify.rules`; screens `/organisation/webhooks`, `/organisation/events`). Next: row 2.13 Report engine base | 375 API + 87 web + 83 shared + 28 formula tests pass (15 + 5 new); lint, typecheck clean |
+| 2.13 | Report engine base (migration `cfg_reports`; `kernel/reports`, `packages/shared/src/reports`; `ReportDef` in manifests + `KERNEL_REPORTS`): `GET /reports`, `/reports/{key}/meta`, `POST .../run` (checked filters, sort, paging) and `.../export` (CSV, Excel, PDF; needs `platform.report.export`), `/saved-reports` (owner, sharing), generic page `/reports`, first report `integration.export_log`. Not built: `report_schedule`, per-report column choice on the page | 387 API + 93 web + 89 shared + 28 formula tests pass (12 + 6 + 6 new); lint, typecheck clean. Next: row 2.14 |
 
 ## Phase 1 summary
 

@@ -178,6 +178,8 @@ describe('grants: no physical deletes and no RLS bypass for the app role', () =>
       `SELECT n.nspname || '.' || c.relname AS table
          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname IN ('cfg', 'integration') AND c.relkind IN ('r', 'p')
+          -- Global catalogue written from code at start-up (no tenant column): reports.
+          AND n.nspname || '.' || c.relname <> 'cfg.report_definition'
           AND (NOT c.relrowsecurity
                OR NOT EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid = c.oid))
         ORDER BY 1`,

@@ -9,6 +9,8 @@ export type {
   ModuleSummary,
   NavEntryDef,
   ReportDef,
+  ReportRunInput,
+  ReportRunResult,
   SettingDef,
 } from './manifest.js';
 export { ModuleRegistry, ModuleRegistryError } from './registry.js';

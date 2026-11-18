@@ -29,6 +29,7 @@ import type {
   ModuleManifest,
   ModuleSummary,
   NavEntryDef,
+  ReportDef,
   SystemEntityDef,
 } from './manifest.js';
 
@@ -114,6 +115,10 @@ export class ModuleRegistry {
     return this.all().flatMap((m) => [...(m.eventTypes ?? [])]);
   }
 
+  reports(): ReportDef[] {
+    return this.all().flatMap((m) => [...(m.reports ?? [])]);
+  }
+
   recycleTypes(): RecycleBinType[] {
     return this.all().flatMap((m) => [...(m.recycleTypes ?? [])]);
   }
@@ -174,7 +179,11 @@ export class ModuleRegistry {
       permissions: m.permissions.map((p) => p.key),
       nav: [...(m.nav ?? [])],
       settings: [...(m.settings ?? [])],
-      reports: [...(m.reports ?? [])],
+      reports: (m.reports ?? []).map((r) => ({
+        key: r.key,
+        label: r.label,
+        permission: r.permission,
+      })),
       eventTypes: (m.eventTypes ?? []).map((e) => e.key),
     }));
   }

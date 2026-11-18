@@ -12,6 +12,7 @@ import { adminManifest } from '../admin/manifest';
 import { auditManifest } from '../audit/manifest';
 import { orgManifest } from '../org/manifest';
 import { peopleManifest } from '../people/manifest';
+import { reportsManifest } from '../reports/manifest';
 import { buildNav, type NavGroup, type NavItem, type WebModuleManifest } from './manifest';
 
 export type { NavGroup, NavItem } from './manifest';
@@ -25,6 +26,7 @@ export const WEB_MODULES: readonly WebModuleManifest[] = [
   auditManifest,
   orgManifest,
   peopleManifest,
+  reportsManifest,
 ];
 
 export const NAV: readonly NavGroup[] = buildNav(WEB_MODULES);

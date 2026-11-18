@@ -13,6 +13,7 @@
  * kernel/audit/recycle-bin.ts, kernel/db/prisma.ts. Used by: ./registry.ts, every
  * module's index.ts, src/main.ts.
  */
+import type { ReportCell, ReportColumnSpec, ReportFilterSpec } from '@fibrex/shared';
 import type { Router } from 'express';
 import type { RecycleBinType } from '../audit/recycle-bin.js';
 import type { Db } from '../db/prisma.js';
@@ -48,11 +49,37 @@ export interface SettingDef {
   permission: string;
 }
 
-/** A report a module defines in code; the report engine (row 2.13) syncs it to a table. */
+/** What a report's query receives: checked filters, an optional sort and a page. */
+export interface ReportRunInput {
+  /** Already checked against `filters` (known keys, right kinds); empty values removed. */
+  filters: Record<string, string>;
+  /** Already checked against the sortable `columns`. */
+  sort?: { key: string; direction: 'asc' | 'desc' };
+  page: number;
+  pageSize: number;
+}
+export interface ReportRunResult {
+  rows: Record<string, ReportCell>[];
+  /** Rows matching the filters, over all pages. */
+  total: number;
+}
+
+/**
+ * A report a module defines in code (row 2.13). The kernel report engine syncs the
+ * description to `cfg.report_definition`, lists it for people who hold `permission`, and runs
+ * `run` inside the caller's unit of work, so row-level security applies to the query.
+ */
 export interface ReportDef {
+  /** `<module>.<name>`, e.g. `loans.arrears`. */
   key: string;
   label: string;
+  description?: string;
+  /** The permission needed to see and run the report (it must be in the module's list). */
   permission: string;
+  columns: readonly ReportColumnSpec[];
+  filters: readonly ReportFilterSpec[];
+  /** Reads one page. Must read only through `db` (the caller's context) and never write. */
+  run(db: Db, input: ReportRunInput): Promise<ReportRunResult>;
 }
 
 /**
@@ -107,6 +134,6 @@ export interface ModuleSummary {
   permissions: string[];
   nav: NavEntryDef[];
   settings: SettingDef[];
-  reports: ReportDef[];
+  reports: { key: string; label: string; permission: string }[];
   eventTypes: string[];
 }
