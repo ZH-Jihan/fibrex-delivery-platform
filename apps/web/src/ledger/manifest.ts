@@ -3,7 +3,7 @@
  * manual journals. Each entry needs the matching `gl.*` read permission.
  * Depends on: shell/manifest.ts, lucide-react. Used by: shell/nav.ts.
  */
-import { BookOpen, FilePenLine, NotebookText } from 'lucide-react';
+import { BookOpen, FilePenLine, FlaskConical, NotebookText } from 'lucide-react';
 import type { WebModuleManifest } from '../shell/manifest';
 
 export const ledgerManifest: WebModuleManifest = {
@@ -29,6 +29,12 @@ export const ledgerManifest: WebModuleManifest = {
           label: 'nav.manualJournals',
           permission: 'gl.manual_journal.read',
           icon: FilePenLine,
+        },
+        {
+          to: '/ledger/simulate',
+          label: 'nav.simulate',
+          permission: 'gl.posting_rule.read',
+          icon: FlaskConical,
         },
       ],
     },

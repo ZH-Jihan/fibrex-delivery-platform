@@ -796,6 +796,19 @@ export const en = {
   'nav.accounts': 'Chart of accounts',
   'nav.journals': 'Journals',
   'nav.manualJournals': 'Manual journals',
+  // Ledger reports and simulation (phase 2 row 2.16b).
+  'nav.simulate': 'Simulate posting',
+  'gl.simulateTitle': 'Simulate a posting',
+  'gl.simulateIntro':
+    'See the journal an event would post, using the rule in force on the date. Nothing is saved.',
+  'gl.eventKey': 'Event key',
+  'gl.inputsJson': 'Event inputs (JSON)',
+  'gl.badJson': 'The inputs must be a JSON object, for example {"amount": "100"}.',
+  'gl.simulate': 'Simulate',
+  'gl.simulationResult': 'Simulation result',
+  'gl.ruleUsed': 'Rule version {version} ({status})',
+  'gl.simPostable': 'Could be posted',
+  'gl.simNotPostable': 'Could not be posted on this date',
   'gl.accountsTitle': 'Chart of accounts',
   'gl.accountsIntro':
     'Headers group accounts; only postable accounts take entries. A code never changes once saved, because posting rules name accounts by code.',

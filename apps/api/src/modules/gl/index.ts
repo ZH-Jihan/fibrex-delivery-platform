@@ -10,7 +10,7 @@
  *
  * Depends on: ./setup-router.ts, ./fiscal-router.ts, ./setup-service.ts, ./chart-seed.ts,
  * ./posting-service.ts, ./posting-rule-router.ts, ./journal-router.ts,
- * ./manual-journal-router.ts,
+ * ./manual-journal-router.ts, ./ledger-router.ts, ./ledger-reports.ts, ./ledger-queries.ts,
  * kernel/module-registry, kernel/permissions. Used by: src/main.ts, src/seed/seed.ts.
  */
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
@@ -26,6 +26,8 @@ import {
 import type { PermissionService } from '../../kernel/permissions/permission-service.js';
 import { createFiscalRouter, createFiscalYearRepository } from './fiscal-router.js';
 import { createJournalRouter } from './journal-router.js';
+import { createLedgerRouter } from './ledger-router.js';
+import { GL_REPORTS } from './ledger-reports.js';
 import {
   createManualJournalRepository,
   createManualJournalRouter,
@@ -106,7 +108,9 @@ export function createGlModule(deps: GlModuleDeps): ModuleManifest {
       createPostingRuleRouter({ ...deps, posting }),
       createJournalRouter({ ...deps, posting }),
       createManualJournalRouter({ ...deps, posting }),
+      createLedgerRouter(deps),
     ],
+    reports: GL_REPORTS,
     recycleTypes: [
       recycle('gl.account', 'Account', createAccountRepository(), (r) => r.code),
       recycle(

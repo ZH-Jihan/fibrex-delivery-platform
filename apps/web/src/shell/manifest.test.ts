@@ -65,7 +65,10 @@ describe('buildNav', () => {
       ],
       ['nav.people.group', ['/people']],
       ['nav.reports', ['/reports']],
-      ['nav.ledger', ['/ledger/accounts', '/ledger/journals', '/ledger/manual-journals']],
+      [
+        'nav.ledger',
+        ['/ledger/accounts', '/ledger/journals', '/ledger/manual-journals', '/ledger/simulate'],
+      ],
     ]);
     // Every entry has an icon and a permission; the shell relies on both.
     for (const item of NAV.flatMap((g) => g.items)) {

@@ -34,6 +34,7 @@ import { RateTablesPage } from './org/RateTablesPage';
 import { AccountsPage } from './ledger/AccountsPage';
 import { JournalsPage } from './ledger/JournalsPage';
 import { ManualJournalsPage } from './ledger/ManualJournalsPage';
+import { SimulatePage } from './ledger/SimulatePage';
 import { StateMachinesPage } from './org/StateMachinesPage';
 import { WorkflowBuilderPage } from './org/WorkflowBuilderPage';
 import { WorkflowBindingsPage } from './org/WorkflowBindingsPage';
@@ -225,6 +226,14 @@ function Gate() {
           element={
             <Guarded permission="gl.manual_journal.read">
               <ManualJournalsPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="ledger/simulate"
+          element={
+            <Guarded permission="gl.posting_rule.read">
+              <SimulatePage />
             </Guarded>
           }
         />
