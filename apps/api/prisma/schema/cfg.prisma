@@ -43,6 +43,7 @@ model SavedReport {
 
   tenant     Tenant           @relation(fields: [tenantId], references: [id], map: "saved_report_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
   definition ReportDefinition @relation(fields: [reportKey], references: [key], map: "saved_report_definition_fk", onDelete: NoAction, onUpdate: NoAction)
+  schedules  ReportSchedule[]
 
   @@unique([tenantId, ownerUserId, reportKey, name], map: "saved_report_name_uq", where: { deletedAt: null })
   @@index([tenantId, reportKey], map: "saved_report_owner_idx", where: { deletedAt: null })
@@ -812,5 +813,283 @@ model WorkflowDelegation {
   @@unique([tenantId, id], map: "workflow_delegation_tenant_id_uq")
   @@index([tenantId, userId, validFrom], map: "workflow_delegation_user_idx", where: { deletedAt: null })
   @@map("workflow_delegation")
+  @@schema("cfg")
+}
+
+// Row 2.18: reserved tables and retention (migration 20261119000100_cfg_reserved).
+// Automation, service catalogue, dashboards and the semantic layer have no engine yet.
+
+model AutomationRule {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  name         String
+  eventTypeKey String    @map("event_type_key")
+  conditionExpr String?  @map("condition_expr")
+  actions      Json      @default("[]")
+  active       Boolean   @default(false)
+  runAsUserId  String?   @map("run_as_user_id") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  tenant Tenant          @relation(fields: [tenantId], references: [id], map: "automation_rule_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+  runs   AutomationRun[]
+
+  @@unique([tenantId, id], map: "automation_rule_tenant_id_uq")
+  @@map("automation_rule")
+  @@schema("cfg")
+}
+
+model AutomationRun {
+  id        String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  ruleId    String   @map("rule_id") @db.Uuid
+  eventId   String?  @map("event_id") @db.Uuid
+  result    String
+  error     String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy String?  @map("created_by") @db.Uuid
+
+  tenant Tenant         @relation(fields: [tenantId], references: [id], map: "automation_run_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+  rule   AutomationRule @relation(fields: [tenantId, ruleId], references: [tenantId, id], map: "automation_run_rule_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, ruleId, id], map: "automation_run_rule_idx")
+  @@map("automation_run")
+  @@schema("cfg")
+}
+
+model ServiceCatalogItem {
+  id                   String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
+  key                  String
+  name                 Json
+  entityDefinitionId   String?   @map("entity_definition_id") @db.Uuid
+  workflowDefinitionId String?   @map("workflow_definition_id") @db.Uuid
+  templateId           String?   @map("template_id") @db.Uuid
+  audienceRoles        String[]  @default([]) @map("audience_roles")
+  active               Boolean   @default(false)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy            String?   @map("created_by") @db.Uuid
+  updatedAt            DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy            String?   @map("updated_by") @db.Uuid
+  version              Int       @default(1)
+  deletedAt            DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy            String?   @map("deleted_by") @db.Uuid
+  deleteReason         String?   @map("delete_reason")
+
+  tenant   Tenant           @relation(fields: [tenantId], references: [id], map: "service_catalog_item_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+  requests ServiceRequest[]
+
+  @@unique([tenantId, id], map: "service_catalog_item_tenant_id_uq")
+  @@unique([tenantId, key], map: "service_catalog_item_key_uq", where: { deletedAt: null })
+  @@map("service_catalog_item")
+  @@schema("cfg")
+}
+
+model ServiceRequest {
+  id                 String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  companyId          String    @map("company_id") @db.Uuid
+  number             String
+  catalogItemId      String    @map("catalog_item_id") @db.Uuid
+  requesterPartyId   String?   @map("requester_party_id") @db.Uuid
+  customRecordId     String?   @map("custom_record_id") @db.Uuid
+  status             String    @default("draft")
+  workflowInstanceId String?   @map("workflow_instance_id") @db.Uuid
+  outputDocumentId   String?   @map("output_document_id") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy          String?   @map("created_by") @db.Uuid
+  updatedAt          DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy          String?   @map("updated_by") @db.Uuid
+  version            Int       @default(1)
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy          String?   @map("deleted_by") @db.Uuid
+  deleteReason       String?   @map("delete_reason")
+
+  company     Company            @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "service_request_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  catalogItem ServiceCatalogItem @relation(fields: [tenantId, catalogItemId], references: [tenantId, id], map: "service_request_item_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([companyId, number], map: "service_request_number_uq", where: { deletedAt: null })
+  @@map("service_request")
+  @@schema("cfg")
+}
+
+model ReportSchedule {
+  id            String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  savedReportId String    @map("saved_report_id") @db.Uuid
+  cron          String
+  timeZone      String    @default("UTC") @map("time_zone")
+  recipients    Json      @default("[]")
+  format        String    @default("pdf")
+  active        Boolean   @default(false)
+  lastRunAt     DateTime? @map("last_run_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy     String?   @map("created_by") @db.Uuid
+  updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy     String?   @map("updated_by") @db.Uuid
+  version       Int       @default(1)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy     String?   @map("deleted_by") @db.Uuid
+  deleteReason  String?   @map("delete_reason")
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], map: "report_schedule_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+  savedReport SavedReport @relation(fields: [savedReportId], references: [id], map: "report_schedule_saved_report_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, savedReportId], map: "report_schedule_report_idx", where: { deletedAt: null })
+  @@map("report_schedule")
+  @@schema("cfg")
+}
+
+model Dashboard {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  key          String
+  name         String
+  roleKey      String?   @map("role_key")
+  ownerUserId  String?   @map("owner_user_id") @db.Uuid
+  layout       Json      @default("{}")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  tenant  Tenant            @relation(fields: [tenantId], references: [id], map: "dashboard_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+  widgets DashboardWidget[]
+
+  @@unique([tenantId, id], map: "dashboard_tenant_id_uq")
+  @@unique([tenantId, key], map: "dashboard_key_uq", where: { deletedAt: null })
+  @@map("dashboard")
+  @@schema("cfg")
+}
+
+model DashboardWidget {
+  id            String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  dashboardId   String    @map("dashboard_id") @db.Uuid
+  kind          String
+  measureKeys   String[]  @default([]) @map("measure_keys")
+  dimensionKeys String[]  @default([]) @map("dimension_keys")
+  filters       Json      @default("{}")
+  drillLink     String?   @map("drill_link")
+  sortOrder     Int       @default(0) @map("sort_order")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy     String?   @map("created_by") @db.Uuid
+  updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy     String?   @map("updated_by") @db.Uuid
+  version       Int       @default(1)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy     String?   @map("deleted_by") @db.Uuid
+  deleteReason  String?   @map("delete_reason")
+
+  dashboard Dashboard @relation(fields: [tenantId, dashboardId], references: [tenantId, id], map: "dashboard_widget_dashboard_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, dashboardId], map: "dashboard_widget_dashboard_idx", where: { deletedAt: null })
+  @@map("dashboard_widget")
+  @@schema("cfg")
+}
+
+model SemanticMeasure {
+  id            String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  key           String
+  label         Json
+  sqlRef        String    @map("sql_ref")
+  aggregation   String
+  format        String    @default("number")
+  permissionKey String?   @map("permission_key")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy     String?   @map("created_by") @db.Uuid
+  updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy     String?   @map("updated_by") @db.Uuid
+  version       Int       @default(1)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy     String?   @map("deleted_by") @db.Uuid
+  deleteReason  String?   @map("delete_reason")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], map: "semantic_measure_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, key], map: "semantic_measure_key_uq", where: { deletedAt: null })
+  @@map("semantic_measure")
+  @@schema("cfg")
+}
+
+model SemanticDimension {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  key          String
+  label        Json
+  sqlRef       String    @map("sql_ref")
+  type         String
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], map: "semantic_dimension_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, key], map: "semantic_dimension_key_uq", where: { deletedAt: null })
+  @@map("semantic_dimension")
+  @@schema("cfg")
+}
+
+model RetentionPolicy {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  entityKey    String    @map("entity_key")
+  keepMonths   Int       @map("keep_months")
+  action       String
+  legalBasis   String    @map("legal_basis")
+  mode         String    @default("dry_run")
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  tenant Tenant         @relation(fields: [tenantId], references: [id], map: "retention_policy_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+  runs   RetentionRun[]
+
+  @@unique([tenantId, id], map: "retention_policy_tenant_id_uq")
+  @@unique([tenantId, entityKey], map: "retention_policy_entity_uq", where: { deletedAt: null })
+  @@map("retention_policy")
+  @@schema("cfg")
+}
+
+model RetentionRun {
+  id            String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  policyId      String   @map("policy_id") @db.Uuid
+  runAt         DateTime @default(now()) @map("run_at") @db.Timestamptz(6)
+  dryRun        Boolean  @default(true) @map("dry_run")
+  status        String
+  rowsAffected  Int      @default(0) @map("rows_affected")
+  archiveFileId String?  @map("archive_file_id") @db.Uuid
+  note          String?
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy     String?  @map("created_by") @db.Uuid
+
+  tenant Tenant          @relation(fields: [tenantId], references: [id], map: "retention_run_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+  policy RetentionPolicy @relation(fields: [tenantId, policyId], references: [tenantId, id], map: "retention_run_policy_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, policyId, id], map: "retention_run_policy_idx")
+  @@map("retention_run")
   @@schema("cfg")
 }

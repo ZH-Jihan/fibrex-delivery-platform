@@ -112,6 +112,11 @@ import { createLogger } from './kernel/observability/logger.js';
 import { createAccessAdminRouter } from './kernel/permissions/access-admin-router.js';
 import { AccessAdminService } from './kernel/permissions/access-admin-service.js';
 import { KERNEL_PERMISSIONS, syncPermissionCatalogue } from './kernel/permissions/catalogue.js';
+import {
+  createRetentionPolicyRepository,
+  createRetentionRouter,
+} from './kernel/retention/retention-router.js';
+import { RetentionService, RetentionTargets } from './kernel/retention/retention-service.js';
 import { KERNEL_REPORTS } from './kernel/reports/kernel-reports.js';
 import { createReportRouter } from './kernel/reports/report-router.js';
 import { ReportService } from './kernel/reports/report-service.js';
@@ -475,6 +480,23 @@ async function main(): Promise<void> {
     describe: (d) =>
       `${d.validFrom.toISOString().slice(0, 10)} to ${d.validTo.toISOString().slice(0, 10)}`,
   });
+  // Retention: counts what each active policy would affect, once a day. Always a dry run:
+  // `allowLive` is never passed here and no module registers a target yet (DECISIONS 2.18).
+  const retention = new RetentionService({ targets: new RetentionTargets(), logger });
+  scheduler.register({
+    name: 'retention-dry-run',
+    everyMs: 24 * 60 * 60_000,
+    run: async () => {
+      await retention.sweep(prisma, uow);
+    },
+  });
+  recycleBin.register({
+    entityType: 'platform.retention_policy',
+    moduleKey: 'platform',
+    label: 'Retention policy',
+    repository: createRetentionPolicyRepository(retention),
+    describe: (policy) => `${policy.entityKey} (${String(policy.keepMonths)} months)`,
+  });
   scheduler.register({
     name: 'workflow-sla',
     everyMs: 5 * 60_000,
@@ -573,6 +595,7 @@ async function main(): Promise<void> {
       api.use(createRecordRouter({ uow, registry, permissions, records }));
       api.use(createStateRouter({ uow, registry, permissions, states }));
       api.use(createWorkflowRouter({ uow, registry, permissions, workflows }));
+      api.use(createRetentionRouter({ uow, registry, permissions, retention }));
       api.use(
         createImportRouter({
           uow,

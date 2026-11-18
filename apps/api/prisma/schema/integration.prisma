@@ -209,3 +209,50 @@ model ExportJob {
   @@map("export_job")
   @@schema("integration")
 }
+
+// Row 2.18: adapter configuration and health (migration 20261119000100_cfg_reserved).
+
+model AdapterConfig {
+  id                String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  adapterKind       String    @map("adapter_kind")
+  provider          String
+  settingsEncrypted String?   @map("settings_encrypted")
+  active            Boolean   @default(false)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy         String?   @map("created_by") @db.Uuid
+  updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy         String?   @map("updated_by") @db.Uuid
+  version           Int       @default(1)
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy         String?   @map("deleted_by") @db.Uuid
+  deleteReason      String?   @map("delete_reason")
+
+  tenant Tenant              @relation(fields: [tenantId], references: [id], map: "adapter_config_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+  health IntegrationHealth[]
+
+  @@unique([tenantId, id], map: "adapter_config_tenant_id_uq")
+  @@unique([tenantId, adapterKind, provider], map: "adapter_config_provider_uq", where: { deletedAt: null })
+  @@unique([tenantId, adapterKind], map: "adapter_config_active_uq", where: raw("active AND deleted_at IS NULL"))
+  @@map("adapter_config")
+  @@schema("integration")
+}
+
+model IntegrationHealth {
+  id              String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  adapterConfigId String   @map("adapter_config_id") @db.Uuid
+  checkedAt       DateTime @default(now()) @map("checked_at") @db.Timestamptz(6)
+  status          String
+  latencyMs       Int?     @map("latency_ms")
+  error           String?
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy       String?  @map("created_by") @db.Uuid
+
+  tenant  Tenant        @relation(fields: [tenantId], references: [id], map: "integration_health_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+  adapter AdapterConfig @relation(fields: [tenantId, adapterConfigId], references: [tenantId, id], map: "integration_health_adapter_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, adapterConfigId, id], map: "integration_health_adapter_idx")
+  @@map("integration_health")
+  @@schema("integration")
+}

@@ -63,6 +63,17 @@ model Tenant {
   ssoProviders        SsoProvider[]
   auditSeals          AuditSeal[]
   exportLogs          ExportLog[]
+  automationRules     AutomationRule[]
+  automationRuns      AutomationRun[]
+  serviceCatalogItems ServiceCatalogItem[]
+  reportSchedules     ReportSchedule[]
+  dashboards          Dashboard[]
+  semanticMeasures    SemanticMeasure[]
+  semanticDimensions  SemanticDimension[]
+  retentionPolicies   RetentionPolicy[]
+  retentionRuns       RetentionRun[]
+  adapterConfigs      AdapterConfig[]
+  integrationHealth   IntegrationHealth[]
 
   @@unique([slug], map: "tenant_slug_uq", where: { deletedAt: null })
   @@map("tenant")
@@ -187,6 +198,7 @@ model Company {
   templateVersions     TemplateVersion[]
   generatedDocuments   GeneratedDocument[]
   stateHistory         StateHistory[]
+  serviceRequests      ServiceRequest[]
   workflowInstances    WorkflowInstance[]
   workflowTasks        WorkflowTask[]
   workflowEvents       WorkflowEvent[]
