@@ -22,3 +22,4 @@ export * from './reports/index.js';
 export * from './ledger/index.js';
 export * from './ledger/posting.js';
 export * from './ledger/journal.js';
+export * from './ledger/bank.js';

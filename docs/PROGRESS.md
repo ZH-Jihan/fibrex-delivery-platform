@@ -5,7 +5,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | Phase | Title | Status | Accepted on | Notes |
 | --- | --- | --- | --- | --- |
 | 1 | Foundation A | Done (13 of 13 commits), awaiting acceptance | | Plan: `docs/phases/phase-01-plan.md` |
-| 2 | Foundation B | Row 2.16b done; Phase 2 awaiting acceptance | | Plan: `docs/phases/phase-02-plan.md` |
+| 2 | Foundation B | In progress: rows 2.1 to 2.17a done; 2.17b to 2.20 still to build (awaiting acceptance only after row 2.19) | | Plan: `docs/phases/phase-02-plan.md` |
 | 3 | People and documents | Not started | | |
 | 4 | Performance and tracking | Not started | | |
 | 5 | Inventory and fleet | Not started | | |
@@ -81,6 +81,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | 2.15b | Multi-currency, simulate, manual journals (migration `gl_manual_journal`; `modules/gl/manual-journal-router.ts`; shared `ledger/journal.ts`): foreign lines with `fxRate` (named or `rateOn`) and half-up base amounts, rounding-only differences moved onto one line, reversals reuse rates; `PostingService.prepare`; `POST /posting-rules/{eventKey}/simulate` (rule in force or `ruleId`); `/manual-journals` CRUD + `POST .../post` (frozen once posted). Fix: formula and template version numbers no longer reuse a deleted draft's number. Next: row 2.16 | 424 API + 113 shared + 93 web + 28 formula tests pass (8 + 5 new); lint, typecheck clean |
 | 2.16a | Ledger screens (`web/src/ledger`, menu "Ledger"): chart of accounts tree with create/edit/delete, journals list (date and account filters), detail with base totals and reverse (reason, date), manual journals draft editor with per-currency totals and post (If-Match); rounding-line rule accepted in DECISIONS. **Remaining for 2.16b:** `GET /ledger/balances` (account, party, dims, asOf), reports `ledger.trial_balance`, `ledger.general_ledger`, `ledger.party_statement`; simulate screen | 424 API + 100 web + 113 shared + 28 formula tests pass (7 new web); lint, typecheck clean |
 | 2.16b | Ledger reports (`modules/gl/ledger-queries.ts`, `ledger-router.ts`, `ledger-reports.ts`): `GET /ledger/balances?account=&party=&dims=name:id,..&asOf=` (base currency, needs `gl.journal.read`), reports `ledger.trial_balance`, `ledger.general_ledger`, `ledger.party_statement` (running balance, opening balance from `from`), screen `/ledger/simulate` for posting-rule simulate. Not built: account/party pickers on the report filters (ids typed) | 433 API + 103 web + 113 shared + 28 formula tests pass (9 + 3 new); lint, typecheck clean |
+| 2.17a | Bank accounts and statement import (migration `gl_cash_bank`; `modules/gl/bank-router.ts`, `bank-vault.ts`, `bank-statement-router.ts`; shared `ledger/bank.ts`): `/cash-locations`, `/company-bank-accounts` (IBAN encrypted with SecretBox, hashed, masked; never in responses or audit), `/bank-statements` (CSV import with column mapping, all-or-nothing, duplicate and overlap refusal, immutable signed lines, `/bank-statements/{id}/lines`). **Remaining for 2.17b:** `bank_match_rule`, `reconciliation_match`, auto and manual matching, reconciliation screens, cash/bank/statement screens, Excel statements | 443 API + 103 web + 123 shared + 28 formula tests pass (10 + 10 new); lint, typecheck clean. Next: row 2.17b |
 
 ## Phase 1 summary
 

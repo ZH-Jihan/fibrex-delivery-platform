@@ -31,6 +31,7 @@ model GlAccount {
   currency Currency?       @relation(fields: [currencyRestriction], references: [code], onDelete: NoAction, onUpdate: NoAction)
   taxCodes GlTaxCode[]
   lines    GlJournalLine[]
+  cashLocations GlCashLocation[]
 
   @@unique([companyId, id], map: "account_company_id_uq")
   @@unique([companyId, code], map: "account_code_uq", where: raw("deleted_at IS NULL"))
@@ -352,5 +353,138 @@ model GlManualJournal {
   @@unique([journalId], map: "manual_journal_journal_uq", where: raw("journal_id IS NOT NULL"))
   @@index([companyId, status, entryDate(sort: Desc)], map: "manual_journal_list_idx", where: raw("deleted_at IS NULL"))
   @@map("manual_journal")
+  @@schema("gl")
+}
+
+/// A place money is held; the ledger account carries its balance (row 2.17a).
+model GlCashLocation {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  name         String
+  kind         String
+  accountId    String    @map("account_id") @db.Uuid
+  currency     String    @db.Char(3)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company      Company                @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "cash_location_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  account      GlAccount              @relation(fields: [companyId, accountId], references: [companyId, id], map: "cash_location_account_fk", onDelete: NoAction, onUpdate: NoAction)
+  currencyRef  Currency               @relation(fields: [currency], references: [code], map: "cash_location_currency_fk", onDelete: NoAction, onUpdate: NoAction)
+  bankAccounts GlCompanyBankAccount[]
+
+  @@unique([companyId, id], map: "cash_location_company_id_uq")
+  @@unique([companyId, name], map: "cash_location_name_uq", where: raw("deleted_at IS NULL"))
+  @@unique([companyId, accountId], map: "cash_location_account_uq", where: raw("deleted_at IS NULL"))
+  @@map("cash_location")
+  @@schema("gl")
+}
+
+/// The company's own bank account; the number is encrypted, hashed and masked (row 2.17a).
+model GlCompanyBankAccount {
+  id             String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  cashLocationId String    @map("cash_location_id") @db.Uuid
+  bankName       String    @map("bank_name")
+  ibanEncrypted  Bytes     @map("iban_encrypted")
+  ibanHash       String    @map("iban_hash")
+  ibanMasked     String    @map("iban_masked")
+  wpsEmployerId  String?   @map("wps_employer_id")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy      String?   @map("created_by") @db.Uuid
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  version        Int       @default(1)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy      String?   @map("deleted_by") @db.Uuid
+  deleteReason   String?   @map("delete_reason")
+
+  company      Company           @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "company_bank_account_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  cashLocation GlCashLocation    @relation(fields: [companyId, cashLocationId], references: [companyId, id], map: "company_bank_account_location_fk", onDelete: NoAction, onUpdate: NoAction)
+  statements   GlBankStatement[]
+
+  @@unique([companyId, id], map: "company_bank_account_company_id_uq")
+  @@unique([companyId, cashLocationId], map: "company_bank_account_location_uq", where: raw("deleted_at IS NULL"))
+  @@unique([companyId, ibanHash], map: "company_bank_account_number_uq", where: raw("deleted_at IS NULL"))
+  @@map("company_bank_account")
+  @@schema("gl")
+}
+
+/// One imported bank statement file (row 2.17a).
+model GlBankStatement {
+  id                   String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
+  companyId            String    @map("company_id") @db.Uuid
+  companyBankAccountId String    @map("company_bank_account_id") @db.Uuid
+  rawInputId           String    @map("raw_input_id") @db.Uuid
+  fileName             String    @map("file_name")
+  sha256               String
+  periodFrom           DateTime  @map("period_from") @db.Date
+  periodTo             DateTime  @map("period_to") @db.Date
+  currency             String    @db.Char(3)
+  lineCount            Int       @map("line_count")
+  totalIn              Decimal   @map("total_in") @db.Decimal(18, 4)
+  totalOut             Decimal   @map("total_out") @db.Decimal(18, 4)
+  status               String    @default("open")
+  note                 String?
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy            String?   @map("created_by") @db.Uuid
+  updatedAt            DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy            String?   @map("updated_by") @db.Uuid
+  version              Int       @default(1)
+  deletedAt            DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy            String?   @map("deleted_by") @db.Uuid
+  deleteReason         String?   @map("delete_reason")
+
+  company     Company              @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "bank_statement_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  bankAccount GlCompanyBankAccount @relation(fields: [companyId, companyBankAccountId], references: [companyId, id], map: "bank_statement_account_fk", onDelete: NoAction, onUpdate: NoAction)
+  rawInput    RawInput             @relation(fields: [rawInputId], references: [id], map: "bank_statement_raw_input_fk", onDelete: NoAction, onUpdate: NoAction)
+  currencyRef Currency             @relation(fields: [currency], references: [code], map: "bank_statement_currency_fk", onDelete: NoAction, onUpdate: NoAction)
+  lines       GlBankStatementLine[]
+
+  @@unique([companyId, id], map: "bank_statement_company_id_uq")
+  @@unique([companyBankAccountId, sha256], map: "bank_statement_file_uq", where: raw("deleted_at IS NULL"))
+  @@index([companyId, companyBankAccountId, periodFrom(sort: Desc)], map: "bank_statement_list_idx", where: raw("deleted_at IS NULL"))
+  @@map("bank_statement")
+  @@schema("gl")
+}
+
+/// A statement line; money in is positive, money out negative; content never changes (row 2.17a).
+model GlBankStatementLine {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  statementId  String    @map("statement_id") @db.Uuid
+  lineNo       Int       @map("line_no")
+  valueDate    DateTime  @map("value_date") @db.Date
+  amount       Decimal   @db.Decimal(18, 4)
+  currency     String    @db.Char(3)
+  reference    String?
+  description  String?
+  matchStatus  String    @default("unmatched") @map("match_status")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company     Company         @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "bank_statement_line_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  statement   GlBankStatement @relation(fields: [companyId, statementId], references: [companyId, id], map: "bank_statement_line_statement_fk", onDelete: NoAction, onUpdate: NoAction)
+  currencyRef Currency        @relation(fields: [currency], references: [code], map: "bank_statement_line_currency_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([companyId, id], map: "bank_statement_line_company_id_uq")
+  @@unique([statementId, lineNo], map: "bank_statement_line_no_uq")
+  @@index([companyId, matchStatus, valueDate], map: "bank_statement_line_open_idx", where: raw("deleted_at IS NULL"))
+  @@map("bank_statement_line")
   @@schema("gl")
 }

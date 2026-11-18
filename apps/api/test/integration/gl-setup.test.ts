@@ -36,7 +36,9 @@ import {
 } from '../../src/kernel/permissions/catalogue.js';
 import { PermissionService } from '../../src/kernel/permissions/permission-service.js';
 import { createRedis } from '../../src/kernel/redis/client.js';
+import { MemoryStorageAdapter } from '../../src/adapters/storage/memory.js';
 import {
+  BankVault,
   GL_PERMISSIONS,
   LedgerSetupService,
   STANDARD_CHART,
@@ -212,7 +214,13 @@ beforeAll(async () => {
           cookiePath: `${API_PREFIX}/auth`,
         }),
       );
-      const gl = createGlModule({ uow, registry, permissions });
+      const gl = createGlModule({
+        uow,
+        registry,
+        permissions,
+        storage: new MemoryStorageAdapter(),
+        bankVault: new BankVault(new SecretBox(env.DATA_ENCRYPTION_KEY), env.DATA_ENCRYPTION_KEY),
+      });
       for (const router of gl.routers ?? []) api.use(router);
       for (const type of gl.recycleTypes ?? []) recycleBin.register(type);
       api.use(

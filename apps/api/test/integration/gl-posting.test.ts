@@ -16,6 +16,7 @@ import type pg from 'pg';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { API_PREFIX, createApp } from '../../src/app.js';
+import { MemoryStorageAdapter } from '../../src/adapters/storage/memory.js';
 import { AccessTokens } from '../../src/kernel/auth/access-token.js';
 import { ApiKeyResolver } from '../../src/kernel/auth/api-keys.js';
 import { createAuthRouter } from '../../src/kernel/auth/auth-router.js';
@@ -36,6 +37,7 @@ import {
 import { PermissionService } from '../../src/kernel/permissions/permission-service.js';
 import { createRedis } from '../../src/kernel/redis/client.js';
 import {
+  BankVault,
   GL_PERMISSIONS,
   PostingService,
   createGlModule,
@@ -237,7 +239,14 @@ beforeAll(async () => {
           cookiePath: `${API_PREFIX}/auth`,
         }),
       );
-      const gl = createGlModule({ uow, registry, permissions, posting });
+      const gl = createGlModule({
+        uow,
+        registry,
+        permissions,
+        posting,
+        storage: new MemoryStorageAdapter(),
+        bankVault: new BankVault(new SecretBox(env.DATA_ENCRYPTION_KEY), env.DATA_ENCRYPTION_KEY),
+      });
       for (const router of gl.routers ?? []) api.use(router);
     },
   });

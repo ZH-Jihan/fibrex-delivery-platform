@@ -134,7 +134,7 @@ import {
   syncEventTypes,
   type NotificationView,
 } from './modules/notify/index.js';
-import { createGlModule } from './modules/gl/index.js';
+import { BankVault, createGlModule } from './modules/gl/index.js';
 import { PartyReferenceRegistry, PartyVault, createPartyModule } from './modules/party/index.js';
 
 const rootEnv = path.resolve(import.meta.dirname, '../../../.env');
@@ -597,7 +597,15 @@ async function main(): Promise<void> {
       );
       modules.register(createFilesModule({ uow, registry, permissions, files, attachables }));
       modules.register(createNotifyModule({ uow, registry, permissions, notify }));
-      modules.register(createGlModule({ uow, registry, permissions }));
+      modules.register(
+        createGlModule({
+          uow,
+          registry,
+          permissions,
+          storage,
+          bankVault: new BankVault(new SecretBox(env.DATA_ENCRYPTION_KEY), env.DATA_ENCRYPTION_KEY),
+        }),
+      );
       for (const attachable of modules.attachables()) attachables.register(attachable);
       for (const type of modules.recycleTypes()) recycleBin.register(type);
       modules.mount(api);

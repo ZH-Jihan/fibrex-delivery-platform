@@ -6,7 +6,8 @@
  * rates, fiscal years and periods with close, lock and reopen. Row 2.15a: posting rules,
  * journals and the posting service (`PostingService`, the only writer of the ledger);
  * row 2.15b: foreign currency with base amounts, simulate, manual journals; row 2.16 the
- * ledger reports and screens.
+ * ledger reports and screens; row 2.17a cash locations, company bank accounts (number
+ * encrypted) and bank statement import.
  *
  * Depends on: ./setup-router.ts, ./fiscal-router.ts, ./setup-service.ts, ./chart-seed.ts,
  * ./posting-service.ts, ./posting-rule-router.ts, ./journal-router.ts,
@@ -24,6 +25,17 @@ import {
   type PermissionDef,
 } from '../../kernel/permissions/catalogue.js';
 import type { PermissionService } from '../../kernel/permissions/permission-service.js';
+import type { StorageAdapter } from '../../adapters/storage/interface.js';
+import {
+  createBankAccountRepository,
+  createBankRouter,
+  createCashLocationRepository,
+} from './bank-router.js';
+import {
+  createBankStatementRepository,
+  createBankStatementRouter,
+} from './bank-statement-router.js';
+import type { BankVault } from './bank-vault.js';
 import { createFiscalRouter, createFiscalYearRepository } from './fiscal-router.js';
 import { createJournalRouter } from './journal-router.js';
 import { createLedgerRouter } from './ledger-router.js';
@@ -46,6 +58,7 @@ export { seedLedger, STANDARD_CHART, type LedgerSeedResult } from './chart-seed.
 export { LedgerSetupService, type RateOnDay } from './setup-service.js';
 export type { FiscalPeriodRecord, FiscalYearRecord } from './fiscal-router.js';
 export type { AccountRecord, TaxCodeRecord } from './setup-router.js';
+export { BankVault } from './bank-vault.js';
 export {
   PostingService,
   type EventPostingInput,
@@ -77,6 +90,9 @@ export const GL_PERMISSIONS: readonly PermissionDef[] = [
   permission('gl', 'gl.journal', 'reverse', 'Reverse a posted journal'),
   ...crudPermissions('gl', 'gl.manual_journal', 'manual journals (drafts)'),
   permission('gl', 'gl.manual_journal', 'post', 'Post a manual journal to the ledger'),
+  ...crudPermissions('gl', 'gl.cash_location', 'cash locations'),
+  ...crudPermissions('gl', 'gl.bank_account', "the company's bank accounts"),
+  ...crudPermissions('gl', 'gl.bank_statement', 'bank statements (create = import)'),
 ];
 
 export interface GlModuleDeps {
@@ -85,6 +101,10 @@ export interface GlModuleDeps {
   permissions: PermissionService;
   /** The posting service the module's routes use; one is made when not given. */
   posting?: PostingService;
+  /** Encrypts and hashes the company's bank account numbers (row 2.17a). */
+  bankVault: BankVault;
+  /** Reads uploaded statement files (row 2.17a). */
+  storage: StorageAdapter;
 }
 
 export function createGlModule(deps: GlModuleDeps): ModuleManifest {
@@ -109,6 +129,8 @@ export function createGlModule(deps: GlModuleDeps): ModuleManifest {
       createJournalRouter({ ...deps, posting }),
       createManualJournalRouter({ ...deps, posting }),
       createLedgerRouter(deps),
+      createBankRouter({ ...deps, vault: deps.bankVault }),
+      createBankStatementRouter(deps),
     ],
     reports: GL_REPORTS,
     recycleTypes: [
@@ -138,6 +160,19 @@ export function createGlModule(deps: GlModuleDeps): ModuleManifest {
         'Manual journal (draft)',
         createManualJournalRepository(),
         (r) => `${r.number} ${r.description}`,
+      ),
+      recycle('gl.cash_location', 'Cash location', createCashLocationRepository(), (r) => r.name),
+      recycle(
+        'gl.bank_account',
+        'Company bank account',
+        createBankAccountRepository(deps.bankVault),
+        (r) => `${r.bankName} ${r.ibanMasked}`,
+      ),
+      recycle(
+        'gl.bank_statement',
+        'Bank statement',
+        createBankStatementRepository(deps.storage),
+        (r) => r.fileName,
       ),
     ],
   };

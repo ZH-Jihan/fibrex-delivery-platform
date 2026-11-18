@@ -39,6 +39,7 @@ import { createRedis } from '../../src/kernel/redis/client.js';
 import { createReportRouter } from '../../src/kernel/reports/report-router.js';
 import { ReportService } from '../../src/kernel/reports/report-service.js';
 import {
+  BankVault,
   GL_PERMISSIONS,
   PostingService,
   createGlModule,
@@ -210,7 +211,14 @@ beforeAll(async () => {
           cookiePath: `${API_PREFIX}/auth`,
         }),
       );
-      const gl = createGlModule({ uow, registry, permissions, posting });
+      const gl = createGlModule({
+        uow,
+        registry,
+        permissions,
+        posting,
+        storage: new MemoryStorageAdapter(),
+        bankVault: new BankVault(new SecretBox(env.DATA_ENCRYPTION_KEY), env.DATA_ENCRYPTION_KEY),
+      });
       for (const router of gl.routers ?? []) api.use(router);
       api.use(createReportRouter({ uow, registry, permissions, reports }));
     },
