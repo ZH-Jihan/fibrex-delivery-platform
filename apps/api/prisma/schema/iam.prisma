@@ -37,7 +37,12 @@ model UserAccount {
   impersonationsTarget Impersonation[]          @relation("ImpersonationTarget")
   sessions             Session[]
   passwordResetTokens  PasswordResetToken[]
-  party                Party?                   @relation(fields: [tenantId, partyId], references: [tenantId, id], map: "user_account_party_fk", onDelete: NoAction, onUpdate: NoAction)
+  workflowsStarted     WorkflowInstance[]       @relation("WorkflowInstanceStarter")
+  workflowTasks        WorkflowTask[]           @relation("WorkflowTaskAssignee")
+  workflowTasksDelegated WorkflowTask[]         @relation("WorkflowTaskDelegatedFrom")
+  delegationsGiven     WorkflowDelegation[]     @relation("WorkflowDelegationUser")
+  delegationsReceived  WorkflowDelegation[]     @relation("WorkflowDelegationDelegate")
+  party              Party?                   @relation(fields: [tenantId, partyId], references: [tenantId, id], map: "user_account_party_fk", onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([tenantId, id], map: "user_account_tenant_id_uq")
   @@unique([tenantId, username], map: "user_account_username_uq", where: { deletedAt: null })
@@ -170,6 +175,7 @@ model Role {
   grantedBy       RoleGrantable[]  @relation("RoleGrantable")
   rolePermissions RolePermission[]
   membershipRoles MembershipRole[]
+  workflowTasks   WorkflowTask[]
 
   @@unique([tenantId, id], map: "role_tenant_id_uq")
   @@unique([tenantId, key], map: "role_key_uq", where: { deletedAt: null })

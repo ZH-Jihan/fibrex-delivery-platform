@@ -481,6 +481,7 @@ model StateTransition {
 
   machine    StateMachine @relation(fields: [tenantId, stateMachineId], references: [tenantId, id], map: "state_transition_machine_fk", onDelete: NoAction, onUpdate: NoAction)
   reasonList LookupType?  @relation(fields: [tenantId, reasonLookupTypeId], references: [tenantId, id], map: "state_transition_reason_list_fk", onDelete: NoAction, onUpdate: NoAction)
+  workflow   WorkflowDefinition? @relation(fields: [tenantId, workflowDefinitionId], references: [tenantId, id], map: "state_transition_workflow_fk", onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([tenantId, id], map: "state_transition_tenant_id_uq")
   @@unique([stateMachineId, fromCode, toCode], map: "state_transition_move_uq", where: { deletedAt: null })
@@ -509,5 +510,257 @@ model StateHistory {
 
   @@index([companyId, entityType, entityId, id], map: "state_history_entity_idx")
   @@map("state_history")
+  @@schema("cfg")
+}
+
+// Row 2.11a: workflow engine (migration 20261118000000_cfg_workflows).
+
+model WorkflowDefinition {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  key          String
+  name         String
+  description  String?
+  entityKey    String    @map("entity_key")
+  status       String    @default("active")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], map: "workflow_definition_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+  versions    WorkflowVersion[]
+  bindings    WorkflowBinding[]
+  instances   WorkflowInstance[]
+  transitions StateTransition[]
+
+  @@unique([tenantId, id], map: "workflow_definition_tenant_id_uq")
+  @@unique([tenantId, key], map: "workflow_definition_key_uq", where: { deletedAt: null })
+  @@map("workflow_definition")
+  @@schema("cfg")
+}
+
+model WorkflowVersion {
+  id                   String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
+  workflowDefinitionId String    @map("workflow_definition_id") @db.Uuid
+  versionNo            Int       @map("version_no")
+  graph                Json
+  status               String    @default("draft")
+  publishedAt          DateTime? @map("published_at") @db.Timestamptz(6)
+  publishedBy          String?   @map("published_by") @db.Uuid
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy            String?   @map("created_by") @db.Uuid
+  updatedAt            DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy            String?   @map("updated_by") @db.Uuid
+  version              Int       @default(1)
+  deletedAt            DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy            String?   @map("deleted_by") @db.Uuid
+  deleteReason         String?   @map("delete_reason")
+
+  definition WorkflowDefinition @relation(fields: [tenantId, workflowDefinitionId], references: [tenantId, id], map: "workflow_version_definition_fk", onDelete: NoAction, onUpdate: NoAction)
+  steps      WorkflowStep[]
+  instances  WorkflowInstance[]
+
+  @@unique([tenantId, id], map: "workflow_version_tenant_id_uq")
+  @@unique([workflowDefinitionId, versionNo], map: "workflow_version_no_uq", where: { deletedAt: null })
+  @@unique([workflowDefinitionId], map: "workflow_version_published_uq", where: raw("status = 'published' AND deleted_at IS NULL"))
+  @@map("workflow_version")
+  @@schema("cfg")
+}
+
+model WorkflowStep {
+  id                  String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId            String    @map("tenant_id") @db.Uuid
+  workflowVersionId   String    @map("workflow_version_id") @db.Uuid
+  key                 String
+  parentKey           String?   @map("parent_key")
+  kind                String
+  name                String
+  assigneeRule        Json?     @map("assignee_rule")
+  quorum              String?
+  conditionFormulaKey String?   @map("condition_formula_key")
+  onFalseStepKey      String?   @map("on_false_step_key")
+  eventTypeKey        String?   @map("event_type_key")
+  slaHours            Int?      @map("sla_hours")
+  reminderHours       Int?      @map("reminder_hours")
+  escalateTo          Json?     @map("escalate_to")
+  allowSelfApproval   Boolean   @default(false) @map("allow_self_approval")
+  orderNo             Int       @map("order_no")
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy           String?   @map("created_by") @db.Uuid
+  updatedAt           DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy           String?   @map("updated_by") @db.Uuid
+  version             Int       @default(1)
+  deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy           String?   @map("deleted_by") @db.Uuid
+  deleteReason        String?   @map("delete_reason")
+
+  workflowVersion WorkflowVersion @relation(fields: [tenantId, workflowVersionId], references: [tenantId, id], map: "workflow_step_version_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id], map: "workflow_step_tenant_id_uq")
+  @@unique([workflowVersionId, key], map: "workflow_step_key_uq", where: { deletedAt: null })
+  @@map("workflow_step")
+  @@schema("cfg")
+}
+
+model WorkflowBinding {
+  id                   String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
+  entityKey            String    @map("entity_key")
+  trigger              String
+  toStateCode          String?   @map("to_state_code")
+  workflowDefinitionId String    @map("workflow_definition_id") @db.Uuid
+  conditionFormulaKey  String?   @map("condition_formula_key")
+  active               Boolean   @default(true)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy            String?   @map("created_by") @db.Uuid
+  updatedAt            DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy            String?   @map("updated_by") @db.Uuid
+  version              Int       @default(1)
+  deletedAt            DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy            String?   @map("deleted_by") @db.Uuid
+  deleteReason         String?   @map("delete_reason")
+
+  definition WorkflowDefinition @relation(fields: [tenantId, workflowDefinitionId], references: [tenantId, id], map: "workflow_binding_definition_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id], map: "workflow_binding_tenant_id_uq")
+  @@index([tenantId, entityKey, trigger], map: "workflow_binding_entity_idx", where: { deletedAt: null })
+  @@map("workflow_binding")
+  @@schema("cfg")
+}
+
+model WorkflowInstance {
+  id                   String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
+  companyId            String    @map("company_id") @db.Uuid
+  workflowDefinitionId String    @map("workflow_definition_id") @db.Uuid
+  workflowVersionId    String    @map("workflow_version_id") @db.Uuid
+  entityType           String    @map("entity_type")
+  entityId             String    @map("entity_id") @db.Uuid
+  trigger              String
+  status               String    @default("running")
+  startedBy            String?   @map("started_by") @db.Uuid
+  currentStepKeys      String[]  @default([]) @map("current_step_keys")
+  stepIndex            Int       @default(0) @map("step_index")
+  activationNo         Int       @default(0) @map("activation_no")
+  completedAt          DateTime? @map("completed_at") @db.Timestamptz(6)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy            String?   @map("created_by") @db.Uuid
+  updatedAt            DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy            String?   @map("updated_by") @db.Uuid
+  version              Int       @default(1)
+  deletedAt            DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy            String?   @map("deleted_by") @db.Uuid
+  deleteReason         String?   @map("delete_reason")
+
+  company         Company            @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "workflow_instance_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  definition      WorkflowDefinition @relation(fields: [tenantId, workflowDefinitionId], references: [tenantId, id], map: "workflow_instance_definition_fk", onDelete: NoAction, onUpdate: NoAction)
+  workflowVersion WorkflowVersion    @relation(fields: [tenantId, workflowVersionId], references: [tenantId, id], map: "workflow_instance_version_fk", onDelete: NoAction, onUpdate: NoAction)
+  starter         UserAccount?       @relation("WorkflowInstanceStarter", fields: [tenantId, startedBy], references: [tenantId, id], map: "workflow_instance_starter_fk", onDelete: NoAction, onUpdate: NoAction)
+  tasks           WorkflowTask[]
+  events          WorkflowEvent[]
+
+  @@unique([tenantId, id], map: "workflow_instance_tenant_id_uq")
+  @@unique([workflowDefinitionId, entityType, entityId], map: "workflow_instance_running_uq", where: raw("status = 'running' AND deleted_at IS NULL"))
+  @@index([companyId, entityType, entityId], map: "workflow_instance_entity_idx")
+  @@map("workflow_instance")
+  @@schema("cfg")
+}
+
+model WorkflowTask {
+  id                  String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId            String    @map("tenant_id") @db.Uuid
+  companyId           String    @map("company_id") @db.Uuid
+  instanceId          String    @map("instance_id") @db.Uuid
+  stepKey             String    @map("step_key")
+  activationNo        Int       @map("activation_no")
+  assigneeUserId      String?   @map("assignee_user_id") @db.Uuid
+  assigneeRoleId      String?   @map("assignee_role_id") @db.Uuid
+  status              String    @default("open")
+  dueAt               DateTime? @map("due_at") @db.Timestamptz(6)
+  reminderAt          DateTime? @map("reminder_at") @db.Timestamptz(6)
+  remindedAt          DateTime? @map("reminded_at") @db.Timestamptz(6)
+  escalatedAt         DateTime? @map("escalated_at") @db.Timestamptz(6)
+  escalatedFromTaskId String?   @map("escalated_from_task_id") @db.Uuid
+  actedBy             String?   @map("acted_by") @db.Uuid
+  actedAt             DateTime? @map("acted_at") @db.Timestamptz(6)
+  action              String?
+  comment             String?
+  delegatedFromUserId String?   @map("delegated_from_user_id") @db.Uuid
+  payload             Json?
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy           String?   @map("created_by") @db.Uuid
+  updatedAt           DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy           String?   @map("updated_by") @db.Uuid
+  version             Int       @default(1)
+  deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy           String?   @map("deleted_by") @db.Uuid
+  deleteReason        String?   @map("delete_reason")
+
+  company       Company          @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "workflow_task_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  instance      WorkflowInstance @relation(fields: [tenantId, instanceId], references: [tenantId, id], map: "workflow_task_instance_fk", onDelete: NoAction, onUpdate: NoAction)
+  assignee      UserAccount?     @relation("WorkflowTaskAssignee", fields: [tenantId, assigneeUserId], references: [tenantId, id], map: "workflow_task_user_fk", onDelete: NoAction, onUpdate: NoAction)
+  assigneeRole  Role?            @relation(fields: [tenantId, assigneeRoleId], references: [tenantId, id], map: "workflow_task_role_fk", onDelete: NoAction, onUpdate: NoAction)
+  delegatedFrom UserAccount?     @relation("WorkflowTaskDelegatedFrom", fields: [tenantId, delegatedFromUserId], references: [tenantId, id], map: "workflow_task_delegated_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id], map: "workflow_task_tenant_id_uq")
+  @@index([instanceId, stepKey, activationNo], map: "workflow_task_instance_idx")
+  @@index([assigneeUserId], map: "workflow_task_user_open_idx", where: raw("status = 'open'"))
+  @@index([assigneeRoleId], map: "workflow_task_role_open_idx", where: raw("status = 'open'"))
+  @@index([tenantId, companyId], map: "workflow_task_sla_idx", where: raw("status = 'open' AND (reminder_at IS NOT NULL OR due_at IS NOT NULL)"))
+  @@map("workflow_task")
+  @@schema("cfg")
+}
+
+model WorkflowEvent {
+  id         String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  companyId  String   @map("company_id") @db.Uuid
+  instanceId String   @map("instance_id") @db.Uuid
+  taskId     String?  @map("task_id") @db.Uuid
+  kind       String
+  stepKey    String?  @map("step_key")
+  actorId    String?  @map("actor_id") @db.Uuid
+  detail     Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy  String?  @map("created_by") @db.Uuid
+
+  company  Company          @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "workflow_event_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  instance WorkflowInstance @relation(fields: [tenantId, instanceId], references: [tenantId, id], map: "workflow_event_instance_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([instanceId, id], map: "workflow_event_instance_idx")
+  @@map("workflow_event")
+  @@schema("cfg")
+}
+
+model WorkflowDelegation {
+  id             String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  delegateUserId String    @map("delegate_user_id") @db.Uuid
+  validFrom      DateTime  @map("valid_from") @db.Date
+  validTo        DateTime  @map("valid_to") @db.Date
+  scope          Json      @default("{}")
+  note           String?
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy      String?   @map("created_by") @db.Uuid
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  version        Int       @default(1)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy      String?   @map("deleted_by") @db.Uuid
+  deleteReason   String?   @map("delete_reason")
+
+  user     UserAccount @relation("WorkflowDelegationUser", fields: [tenantId, userId], references: [tenantId, id], map: "workflow_delegation_user_fk", onDelete: NoAction, onUpdate: NoAction)
+  delegate UserAccount @relation("WorkflowDelegationDelegate", fields: [tenantId, delegateUserId], references: [tenantId, id], map: "workflow_delegation_delegate_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id], map: "workflow_delegation_tenant_id_uq")
+  @@index([tenantId, userId, validFrom], map: "workflow_delegation_user_idx", where: { deletedAt: null })
+  @@map("workflow_delegation")
   @@schema("cfg")
 }

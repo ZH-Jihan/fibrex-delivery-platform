@@ -22,6 +22,8 @@
  *      people moving the same record at once get one success and one 409.
  *   7. Write the history row. Steps 6 and 7 are in the caller's transaction: a state never
  *      changes without its history, nor the other way round.
+ *   8. Tell the workflow engine (row 2.11a), which starts the workflows bound to the move
+ *      in the same transaction: a move whose workflow cannot start is not made.
  *
  * Depends on: @fibrex/shared (checkTransition), kernel/db unit of work, kernel/http/errors,
  * kernel/permissions.
@@ -120,9 +122,30 @@ export interface TransitionResult {
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 const toDay = (text: string) => new Date(`${text}T00:00:00.000Z`);
 
+/** A move that just happened, for the workflow engine (row 2.11a). */
+export interface StateMove {
+  entityType: string;
+  entityId: string;
+  fromCode: string;
+  toCode: string;
+  /** The workflow the transition itself names (`state_transition.workflow_definition_id`). */
+  workflowDefinitionId: string | null;
+}
+
+/**
+ * How a move is made. `byWorkflow`: the move is the outcome of a finished workflow; the
+ * workflow's approval is the authority, so step 4 (permission) is not asked again, and the
+ * move starts no further workflow (a workflow can never set off a chain of workflows).
+ */
+export interface TransitionOptions {
+  byWorkflow?: boolean;
+}
+
 export interface StateServiceDeps {
   permissions: PermissionService;
   targets: StateTargets;
+  /** Called after every move except a workflow's own (step 8). */
+  onTransition?: (move: StateMove) => Promise<void>;
 }
 
 export class StateService {
@@ -258,6 +281,7 @@ export class StateService {
     entityType: string,
     id: string,
     request: TransitionRequest,
+    options: TransitionOptions = {},
   ): Promise<TransitionResult> {
     const { db } = currentUnit();
     // Steps 1 and 2.
@@ -287,8 +311,10 @@ export class StateService {
         `A record in state "${fromCode}" cannot move to "${request.toCode}".`,
       );
     }
-    // Step 4.
-    await this.#deps.permissions.require(transition.permissionKey ?? subject.updatePermission);
+    // Step 4 (not for a workflow's outcome: see TransitionOptions).
+    if (options.byWorkflow !== true) {
+      await this.#deps.permissions.require(transition.permissionKey ?? subject.updatePermission);
+    }
     // Step 5.
     const last = await db.stateHistory.findFirst({
       where: { entityType, entityId: id },
@@ -345,6 +371,16 @@ export class StateService {
       reasonId: request.reasonId,
       note: request.note,
     });
+    // Step 8: workflows bound to this move start in the same transaction.
+    if (options.byWorkflow !== true && this.#deps.onTransition !== undefined) {
+      await this.#deps.onTransition({
+        entityType,
+        entityId: id,
+        fromCode,
+        toCode: request.toCode,
+        workflowDefinitionId: transition.workflowDefinitionId,
+      });
+    }
     return { stateCode: request.toCode, history };
   }
 }

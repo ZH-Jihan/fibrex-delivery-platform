@@ -44,6 +44,7 @@ model Tenant {
   formulas      Formula[]
   rateTables    RateTable[]
   stateMachines StateMachine[]
+  workflowDefinitions WorkflowDefinition[]
   importMappings ImportMapping[]
   entityDefinitions EntityDefinition[]
   users         UserAccount[]
@@ -178,6 +179,9 @@ model Company {
   templateVersions    TemplateVersion[]
   generatedDocuments  GeneratedDocument[]
   stateHistory        StateHistory[]
+  workflowInstances   WorkflowInstance[]
+  workflowTasks       WorkflowTask[]
+  workflowEvents      WorkflowEvent[]
   importJobs         ImportJob[]
   exportJobs          ExportJob[]
 

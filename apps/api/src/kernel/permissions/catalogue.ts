@@ -120,6 +120,18 @@ export const KERNEL_PERMISSIONS: readonly PermissionDef[] = [
   ...crudPermissions('platform', 'platform.state_machine', 'state machines'),
   ...crudPermissions('platform', 'platform.state', 'states of state machines'),
   ...crudPermissions('platform', 'platform.state_transition', 'transitions of state machines'),
+  ...crudPermissions('platform', 'platform.workflow_definition', 'workflows'),
+  permission('platform', 'platform.workflow_definition', 'publish', 'Publish a workflow version'),
+  ...crudPermissions('platform', 'platform.workflow_version', 'draft workflow versions'),
+  ...crudPermissions('platform', 'platform.workflow_binding', 'workflow bindings'),
+  ...crudPermissions('platform', 'platform.workflow_delegation', 'workflow delegations'),
+  permission('platform', 'platform.workflow_instance', 'cancel', 'Stop any running workflow'),
+  permission(
+    'platform',
+    'platform.workflow_task',
+    'reassign',
+    "Pass anyone's workflow task to someone else",
+  ),
   ...crudPermissions('platform', 'platform.entity_definition', 'record types'),
   permission(
     'platform',

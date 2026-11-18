@@ -78,6 +78,13 @@ import {
   createStateTransitionRepository,
 } from './kernel/states/state-router.js';
 import { StateService, StateTargets } from './kernel/states/state-service.js';
+import {
+  createWorkflowBindingRepository,
+  createWorkflowDefinitionRepository,
+  createWorkflowDelegationRepository,
+  createWorkflowRouter,
+} from './kernel/workflows/workflow-router.js';
+import { WORKFLOW_EVENT_TYPES, WorkflowService } from './kernel/workflows/workflow-service.js';
 import { ModuleRegistry, createModuleRouter } from './kernel/module-registry/index.js';
 import {
   createNumberSequenceRepository,
@@ -373,7 +380,52 @@ async function main(): Promise<void> {
   // record service; a module registers its own entity types on `stateTargets`. The arrow
   // function reads `records` only when a request arrives, after it is built below.
   const stateTargets: StateTargets = new StateTargets((key) => records.stateTarget(key));
-  const states = new StateService({ permissions, targets: stateTargets });
+  // Workflows (row 2.11a) start from a record's creation or a move; the arrows read
+  // `workflows`, built just below, only when a request arrives.
+  const states: StateService = new StateService({
+    permissions,
+    targets: stateTargets,
+    onTransition: (move) => workflows.onTransition(move),
+  });
+  const rates = new RateService();
+  const formulas = new FormulaService(rates);
+  const workflows: WorkflowService = new WorkflowService({
+    permissions,
+    targets: stateTargets,
+    states,
+    evaluate: (key, onDate, inputs) => formulas.evaluate(key, onDate, inputs),
+    events: notify,
+    logger,
+  });
+  recycleBin.register({
+    entityType: 'platform.workflow_definition',
+    moduleKey: 'platform',
+    label: 'Workflow',
+    repository: createWorkflowDefinitionRepository(),
+    describe: (definition) => `${definition.key} (${definition.name})`,
+  });
+  recycleBin.register({
+    entityType: 'platform.workflow_binding',
+    moduleKey: 'platform',
+    label: 'Workflow binding',
+    repository: createWorkflowBindingRepository(workflows),
+    describe: (binding) => `${binding.entityKey} ${binding.trigger}`,
+  });
+  recycleBin.register({
+    entityType: 'platform.workflow_delegation',
+    moduleKey: 'platform',
+    label: 'Workflow delegation',
+    repository: createWorkflowDelegationRepository(),
+    describe: (d) =>
+      `${d.validFrom.toISOString().slice(0, 10)} to ${d.validTo.toISOString().slice(0, 10)}`,
+  });
+  scheduler.register({
+    name: 'workflow-sla',
+    everyMs: 5 * 60_000,
+    run: async () => {
+      await workflows.sweep(prisma, uow);
+    },
+  });
   recycleBin.register({
     entityType: 'platform.state_machine',
     moduleKey: 'platform',
@@ -399,6 +451,7 @@ async function main(): Promise<void> {
     entities,
     numbering,
     states,
+    onCreated: (key, id) => workflows.onCreated(key, id),
     referenceExists: async (entityType, id) => {
       if (entityType === FILE_ENTITY_TYPE) return files.exists(id);
       const owner = modules.attachables().find((a) => a.entityType === entityType);
@@ -451,14 +504,12 @@ async function main(): Promise<void> {
       api.use(createNumberingRouter({ uow, registry, permissions, numbering }));
       api.use(createLookupRouter({ uow, registry, permissions, lookups }));
       api.use(createTemplateRouter({ uow, registry, permissions }));
-      const rates = new RateService();
-      api.use(
-        createFormulaRouter({ uow, registry, permissions, formulas: new FormulaService(rates) }),
-      );
+      api.use(createFormulaRouter({ uow, registry, permissions, formulas }));
       api.use(createRateRouter({ uow, registry, permissions, rates }));
       api.use(createEntityDefinitionRouter({ uow, registry, permissions, entities }));
       api.use(createRecordRouter({ uow, registry, permissions, records }));
       api.use(createStateRouter({ uow, registry, permissions, states }));
+      api.use(createWorkflowRouter({ uow, registry, permissions, workflows }));
       api.use(
         createImportRouter({
           uow,
@@ -532,7 +583,7 @@ async function main(): Promise<void> {
     ...JOB_PERMISSIONS,
     ...modules.permissions(),
   ]);
-  await syncEventTypes(prisma, modules.eventTypes());
+  await syncEventTypes(prisma, [...modules.eventTypes(), ...WORKFLOW_EVENT_TYPES]);
   await scheduler.start();
   emailQueue.startWorker();
   pdfQueue.startWorker();

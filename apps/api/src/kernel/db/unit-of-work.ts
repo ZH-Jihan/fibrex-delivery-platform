@@ -22,6 +22,11 @@
  * Everything inside `run()` commits together or, if anything throws, rolls back together.
  * A nested `run()` joins the transaction already open.
  *
+ * `afterCommit(fn)` (row 2.11a) queues work that must only happen once the data is
+ * committed, such as announcing a notification: it runs after the commit, never after a
+ * rollback. Its failures cannot undo the commit, so they are swallowed here; the queued
+ * function handles and logs its own errors.
+ *
  * Depends on: ./prisma.ts, ../context/request-context.ts, ../http/errors.ts.
  * Used by: kernel/db/repository.ts, kernel/http/crud-router.ts, every module service, jobs.
  */
@@ -51,6 +56,8 @@ export interface DbContext {
 export interface Unit {
   readonly db: Db;
   readonly context: DbContext;
+  /** Runs `fn` after this transaction commits (not at all when it rolls back). */
+  readonly afterCommit: (fn: () => Promise<void>) => void;
 }
 
 export interface UnitOfWorkOptions {
@@ -164,10 +171,19 @@ export class UnitOfWork {
   }
 
   private begin<T>(context: DbContext, fn: (db: Db) => Promise<T>): Promise<T> {
+    // Synchronous on purpose: a bad context throws before any transaction is opened.
     validateDbContext(context);
+    return this.transact(context, fn);
+  }
+
+  private async transact<T>(context: DbContext, fn: (db: Db) => Promise<T>): Promise<T> {
     const companies = `{${context.companyIds.join(',')}}`;
     const roleKeys = `{${(context.roleKeys ?? []).join(',')}}`;
-    return this.prisma.$transaction(
+    const committed: (() => Promise<void>)[] = [];
+    const afterCommit = (task: () => Promise<void>) => {
+      committed.push(task);
+    };
+    const result = await this.prisma.$transaction(
       async (tx) => {
         // First statement of the transaction: nothing can run before the context exists.
         await tx.$queryRaw`
@@ -179,9 +195,19 @@ export class UnitOfWork {
                  set_config('app.ip', ${context.ip ?? ''}, true),
                  set_config('app.role_keys', ${roleKeys}, true)`;
         const db: Db = tx;
-        return unitStorage.run({ db, context }, () => fn(db));
+        return unitStorage.run({ db, context, afterCommit }, () => fn(db));
       },
       { maxWait: this.maxWaitMs, timeout: this.timeoutMs },
     );
+    // Committed: now the queued work, outside the transaction and outside this unit (so it
+    // may open units of its own).
+    for (const task of committed) {
+      try {
+        await task();
+      } catch {
+        // See the header: the data is committed; the task reports its own failure.
+      }
+    }
+    return result;
   }
 }

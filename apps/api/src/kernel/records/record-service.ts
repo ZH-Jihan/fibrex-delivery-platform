@@ -81,6 +81,11 @@ export interface RecordServiceDeps {
    * have no state).
    */
   states?: Pick<StateService, 'initialCode' | 'recordStart'>;
+  /**
+   * Workflow engine (row 2.11a): starts the workflows bound to "on create" of the type, in
+   * the same transaction as the new record. Left out where no workflows are wired.
+   */
+  onCreated?: (entityKey: string, id: string) => Promise<void>;
 }
 
 /** The list filters of one record type, as the router hands them over. */
@@ -321,6 +326,9 @@ export class RecordService {
         if (stateCode !== null) {
           await this.deps.states?.recordStart(key, row.id, companyId, stateCode);
         }
+        // Step 6: workflows bound to "on create"; a workflow that cannot start (no one to
+        // approve) fails the create, so no record escapes its approval.
+        await this.deps.onCreated?.(key, row.id);
         return row;
       },
 

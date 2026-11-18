@@ -21,8 +21,9 @@
  *      transitions out cannot be made final.
  *   4. A transition joins two live states of its machine; its ends never change (delete it
  *      and add another), so the history of what was allowed stays readable in the audit.
- *   5. A transition's permission must be a known permission key and its reason list a live
- *      lookup list, so a typing mistake cannot lock a move for everyone.
+ *   5. A transition's permission must be a known permission key, its reason list a live
+ *      lookup list and its workflow (row 2.11a, started by the move) a live workflow, so a
+ *      typing mistake cannot lock a move for everyone.
  *   6. A state that a live transition uses is not deleted, and a machine with live states
  *      is not deleted.
  *
@@ -132,6 +133,7 @@ const transitionCreate = z.strictObject({
   requiredFields: stateRequiredFieldsSchema.default([]),
   reasonRequired: z.boolean().default(false),
   reasonLookupTypeId: z.uuid().nullable().default(null),
+  workflowDefinitionId: z.uuid().nullable().default(null),
 });
 const transitionUpdate = z
   .strictObject({
@@ -139,6 +141,7 @@ const transitionUpdate = z
     requiredFields: stateRequiredFieldsSchema,
     reasonRequired: z.boolean(),
     reasonLookupTypeId: z.uuid().nullable(),
+    workflowDefinitionId: z.uuid().nullable(),
   })
   .partial();
 const transitionItem = z
@@ -151,6 +154,7 @@ const transitionItem = z
     requiredFields: z.array(z.string()),
     reasonRequired: z.boolean(),
     reasonLookupTypeId: z.uuid().nullable(),
+    workflowDefinitionId: z.uuid().nullable(),
     ...stamps,
   })
   .meta({ id: 'StateTransition' });
@@ -243,6 +247,7 @@ export function toStateTransitionItem(row: StateTransitionRecord) {
     requiredFields: row.requiredFields,
     reasonRequired: row.reasonRequired,
     reasonLookupTypeId: row.reasonLookupTypeId,
+    workflowDefinitionId: row.workflowDefinitionId,
     ...rowStamps(row),
   };
 }
@@ -411,8 +416,18 @@ export function createStateTransitionRepository(): Repository<StateTransitionRec
   const assertReferences = async (body: {
     permissionKey?: string | null | undefined;
     reasonLookupTypeId?: string | null | undefined;
+    workflowDefinitionId?: string | null | undefined;
   }) => {
     const { db } = currentUnit();
+    if (typeof body.workflowDefinitionId === 'string') {
+      const workflow = await db.workflowDefinition.findFirst({
+        where: { id: body.workflowDefinitionId, deletedAt: null },
+        select: { id: true },
+      });
+      if (workflow === null) {
+        throw invalid('workflowDefinitionId', 'This workflow does not exist.', 'unknown_workflow');
+      }
+    }
     if (typeof body.permissionKey === 'string') {
       const known = await db.permission.findFirst({
         where: { key: body.permissionKey, isActive: true },
