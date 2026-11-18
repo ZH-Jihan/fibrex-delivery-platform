@@ -1,0 +1,188 @@
+// gl: general ledger. Row 2.14 (set-up): accounts, cost centres, tax codes, exchange rates,
+// fiscal years and periods. SQL source: migrations/20261118000300_gl_setup.
+// Model names carry a `Gl` prefix so they never clash with other modules' names.
+
+/// Chart of accounts (a tree). Codes never change; header accounts are not postable.
+model GlAccount {
+  id                  String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId            String    @map("tenant_id") @db.Uuid
+  companyId           String    @map("company_id") @db.Uuid
+  code                String
+  name                Json
+  type                String
+  parentId            String?   @map("parent_id") @db.Uuid
+  isPostable          Boolean   @default(true) @map("is_postable")
+  isControl           Boolean   @default(false) @map("is_control")
+  currencyRestriction String?   @map("currency_restriction") @db.Char(3)
+  requiresDimensions  String[]  @default([]) @map("requires_dimensions")
+  description         String?
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy           String?   @map("created_by") @db.Uuid
+  updatedAt           DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy           String?   @map("updated_by") @db.Uuid
+  version             Int       @default(1)
+  deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy           String?   @map("deleted_by") @db.Uuid
+  deleteReason        String?   @map("delete_reason")
+
+  company  Company     @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "account_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  parent   GlAccount?  @relation("GlAccountTree", fields: [companyId, parentId], references: [companyId, id], map: "account_parent_fk", onDelete: NoAction, onUpdate: NoAction)
+  children GlAccount[] @relation("GlAccountTree")
+  currency Currency?   @relation(fields: [currencyRestriction], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  taxCodes GlTaxCode[]
+
+  @@unique([companyId, id], map: "account_company_id_uq")
+  @@unique([companyId, code], map: "account_code_uq", where: raw("deleted_at IS NULL"))
+  @@index([parentId], map: "account_parent_idx", where: raw("deleted_at IS NULL"))
+  @@map("account")
+  @@schema("gl")
+}
+
+/// Cost centres (a tree), a journal-line dimension.
+model GlCostCentre {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  code         String
+  name         String
+  parentId     String?   @map("parent_id") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company  Company        @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "cost_centre_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  parent   GlCostCentre?  @relation("GlCostCentreTree", fields: [companyId, parentId], references: [companyId, id], map: "cost_centre_parent_fk", onDelete: NoAction, onUpdate: NoAction)
+  children GlCostCentre[] @relation("GlCostCentreTree")
+
+  @@unique([companyId, id], map: "cost_centre_company_id_uq")
+  @@unique([companyId, code], map: "cost_centre_code_uq", where: raw("deleted_at IS NULL"))
+  @@map("cost_centre")
+  @@schema("gl")
+}
+
+/// Tax codes; exactly one default per company (the seed's "NONE", 0 %).
+model GlTaxCode {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  code         String
+  name         String
+  rate         Decimal   @default(0) @db.Decimal(7, 4)
+  accountId    String?   @map("account_id") @db.Uuid
+  isDefault    Boolean   @default(false) @map("is_default")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company Company    @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "tax_code_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  account GlAccount? @relation(fields: [companyId, accountId], references: [companyId, id], map: "tax_code_account_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([companyId, id], map: "tax_code_company_id_uq")
+  @@unique([companyId, code], map: "tax_code_code_uq", where: raw("deleted_at IS NULL"))
+  @@unique([companyId], map: "tax_code_default_uq", where: raw("is_default AND deleted_at IS NULL"))
+  @@map("tax_code")
+  @@schema("gl")
+}
+
+/// 1 fromCurrency = rate toCurrency on rateDate (one per pair and day).
+model GlExchangeRate {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  fromCurrency String    @map("from_currency") @db.Char(3)
+  toCurrency   String    @map("to_currency") @db.Char(3)
+  rateDate     DateTime  @map("rate_date") @db.Date
+  rate         Decimal   @db.Decimal(18, 8)
+  source       String    @default("manual")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company Company  @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "exchange_rate_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  from    Currency @relation("GlExchangeRateFrom", fields: [fromCurrency], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  to      Currency @relation("GlExchangeRateTo", fields: [toCurrency], references: [code], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([companyId, id], map: "exchange_rate_company_id_uq")
+  @@unique([companyId, fromCurrency, toCurrency, rateDate], map: "exchange_rate_day_uq", where: raw("deleted_at IS NULL"))
+  @@map("exchange_rate")
+  @@schema("gl")
+}
+
+/// A fiscal year; its periods are created with it. The no-overlap exclusion constraint lives
+/// in the migration only.
+model GlFiscalYear {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  name         String
+  startDate    DateTime  @map("start_date") @db.Date
+  endDate      DateTime  @map("end_date") @db.Date
+  status       String    @default("open")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company Company          @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "fiscal_year_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  periods GlFiscalPeriod[]
+
+  @@unique([companyId, id], map: "fiscal_year_company_id_uq")
+  @@unique([companyId, name], map: "fiscal_year_name_uq", where: raw("deleted_at IS NULL"))
+  @@map("fiscal_year")
+  @@schema("gl")
+}
+
+/// A period of a fiscal year: open, closed or locked. The no-overlap exclusion constraint
+/// lives in the migration only.
+model GlFiscalPeriod {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  fiscalYearId String    @map("fiscal_year_id") @db.Uuid
+  periodNo     Int       @map("period_no") @db.SmallInt
+  startDate    DateTime  @map("start_date") @db.Date
+  endDate      DateTime  @map("end_date") @db.Date
+  status       String    @default("open")
+  closedBy     String?   @map("closed_by") @db.Uuid
+  closedAt     DateTime? @map("closed_at") @db.Timestamptz(6)
+  lockedBy     String?   @map("locked_by") @db.Uuid
+  lockedAt     DateTime? @map("locked_at") @db.Timestamptz(6)
+  reopenedBy   String?   @map("reopened_by") @db.Uuid
+  reopenedAt   DateTime? @map("reopened_at") @db.Timestamptz(6)
+  reopenReason String?   @map("reopen_reason")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company    Company      @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "fiscal_period_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  fiscalYear GlFiscalYear @relation(fields: [companyId, fiscalYearId], references: [companyId, id], map: "fiscal_period_year_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([companyId, id], map: "fiscal_period_company_id_uq")
+  @@unique([fiscalYearId, periodNo], map: "fiscal_period_no_uq", where: raw("deleted_at IS NULL"))
+  @@map("fiscal_period")
+  @@schema("gl")
+}

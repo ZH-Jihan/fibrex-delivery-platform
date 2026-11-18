@@ -5,7 +5,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | Phase | Title | Status | Accepted on | Notes |
 | --- | --- | --- | --- | --- |
 | 1 | Foundation A | Done (13 of 13 commits), awaiting acceptance | | Plan: `docs/phases/phase-01-plan.md` |
-| 2 | Foundation B | In progress (2.13 done, 2.14 next) | | Plan: `docs/phases/phase-02-plan.md` |
+| 2 | Foundation B | In progress (2.14 done, 2.15 next) | | Plan: `docs/phases/phase-02-plan.md` |
 | 3 | People and documents | Not started | | |
 | 4 | Performance and tracking | Not started | | |
 | 5 | Inventory and fleet | Not started | | |
@@ -76,6 +76,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | Review | Workflow permissions: `GET /delegations/{id}` now own-only (404 for others); the stand-in may cancel a delegation given to them; one person approves a step round once (no double vote through a stand-in or pass-on; passing to someone already on the step is refused); RLS test now covers `cfg` and `integration` tables and cross-tenant delegations. Seed top-up checked, no change | 360 API + 82 web + 83 shared + 28 formula tests pass (3 new); lint, typecheck clean |
 | 2.12 | Outbox and webhooks (migration `integration_events`; `kernel/events`: `EventOutbox.record` in the caller's transaction, `OutboxRelay` with job `outbox-relay` (5 s) + nudge after commit, consumers once-only via `event_consumption`, signed webhooks with backoff and per-attempt `webhook_delivery`; `/event-types`, `/events`, `/webhook-subscriptions` (+ rotate-secret), `/webhook-deliveries` (+ retry); workflow notifications now go outbox → `notify.rules`; screens `/organisation/webhooks`, `/organisation/events`). Next: row 2.13 Report engine base | 375 API + 87 web + 83 shared + 28 formula tests pass (15 + 5 new); lint, typecheck clean |
 | 2.13 | Report engine base (migration `cfg_reports`; `kernel/reports`, `packages/shared/src/reports`; `ReportDef` in manifests + `KERNEL_REPORTS`): `GET /reports`, `/reports/{key}/meta`, `POST .../run` (checked filters, sort, paging) and `.../export` (CSV, Excel, PDF; needs `platform.report.export`), `/saved-reports` (owner, sharing), generic page `/reports`, first report `integration.export_log`. Not built: `report_schedule`, per-report column choice on the page | 387 API + 93 web + 89 shared + 28 formula tests pass (12 + 6 + 6 new); lint, typecheck clean. Next: row 2.14 |
+| 2.14 | Ledger setup (migration `gl_setup`; `modules/gl`, `packages/shared/src/ledger`): `/accounts` (+ `/accounts/tree`; codes fixed, header parents of the same type, no cycles), `/cost-centres`, `/tax-codes` (one default), `/exchange-rates`, `/fiscal-years` with monthly periods, `/fiscal-periods` + close/lock/reopen (date order, reason, `unlock` for locked), `LedgerSetupService.rateOn/periodFor`, seed: standard QAR chart, `NONE` tax, this fiscal year. No screens yet (2.16). Next: row 2.15 Posting service (S) | 399 API + 100 shared + 93 web + 28 formula tests pass (12 + 11 new); lint, typecheck clean |
 
 ## Phase 1 summary
 

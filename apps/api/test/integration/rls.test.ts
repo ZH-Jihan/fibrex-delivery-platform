@@ -173,11 +173,11 @@ describe('grants: no physical deletes and no RLS bypass for the app role', () =>
     ]);
   });
 
-  it('every table in the cfg and integration schemas has RLS enabled and a policy', async () => {
+  it('every table in the cfg, integration and gl schemas has RLS enabled and a policy', async () => {
     const r = await owner.query<{ table: string }>(
       `SELECT n.nspname || '.' || c.relname AS table
          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname IN ('cfg', 'integration') AND c.relkind IN ('r', 'p')
+        WHERE n.nspname IN ('cfg', 'integration', 'gl') AND c.relkind IN ('r', 'p')
           -- Global catalogue written from code at start-up (no tenant column): reports.
           AND n.nspname || '.' || c.relname <> 'cfg.report_definition'
           AND (NOT c.relrowsecurity

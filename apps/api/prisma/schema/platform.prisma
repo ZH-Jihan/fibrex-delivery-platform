@@ -13,7 +13,10 @@ model Currency {
   updatedBy  String?  @map("updated_by") @db.Uuid
   version    Int      @default(1)
 
-  companies Company[]
+  companies       Company[]
+  glAccounts      GlAccount[]
+  glRatesFrom     GlExchangeRate[] @relation("GlExchangeRateFrom")
+  glRatesTo       GlExchangeRate[] @relation("GlExchangeRateTo")
 
   @@map("currency")
   @@schema("platform")
@@ -186,6 +189,12 @@ model Company {
   importJobs           ImportJob[]
   exportJobs           ExportJob[]
   webhookSubscriptions WebhookSubscription[]
+  glAccounts           GlAccount[]
+  glCostCentres        GlCostCentre[]
+  glTaxCodes           GlTaxCode[]
+  glExchangeRates      GlExchangeRate[]
+  glFiscalYears        GlFiscalYear[]
+  glFiscalPeriods      GlFiscalPeriod[]
 
   @@unique([tenantId, id], map: "company_tenant_id_uq")
   @@map("company")

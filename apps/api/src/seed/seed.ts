@@ -28,6 +28,7 @@ import {
   type PermissionDef,
 } from '../kernel/permissions/catalogue.js';
 import { FILES_PERMISSIONS } from '../modules/files/index.js';
+import { GL_PERMISSIONS, seedLedger } from '../modules/gl/index.js';
 import { NOTIFY_PERMISSIONS } from '../modules/notify/index.js';
 import { PARTY_PERMISSIONS } from '../modules/party/index.js';
 
@@ -51,6 +52,7 @@ export const ALL_PERMISSIONS: readonly PermissionDef[] = [
   ...PARTY_PERMISSIONS,
   ...FILES_PERMISSIONS,
   ...NOTIFY_PERMISSIONS,
+  ...GL_PERMISSIONS,
   ...JOB_PERMISSIONS,
 ];
 
@@ -276,6 +278,8 @@ export async function runSeed(pool: pg.Pool, opts: SeedOptions): Promise<SeedRes
     await seedRates(client, tenantId);
     // Starting notification rules for the workflow events (only those missing by name).
     await seedWorkflowNotificationRules(client, tenantId);
+    // Standard chart of accounts, tax code NONE and this fiscal year (only where missing).
+    await seedLedger(client, tenantId, companyId);
 
     await client.query('COMMIT');
     return { tenantId, companyId, superAdminId, superAdminCreated };
