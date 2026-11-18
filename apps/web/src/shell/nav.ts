@@ -10,6 +10,7 @@
 import { House } from 'lucide-react';
 import { adminManifest } from '../admin/manifest';
 import { auditManifest } from '../audit/manifest';
+import { ledgerManifest } from '../ledger/manifest';
 import { orgManifest } from '../org/manifest';
 import { peopleManifest } from '../people/manifest';
 import { reportsManifest } from '../reports/manifest';
@@ -27,6 +28,7 @@ export const WEB_MODULES: readonly WebModuleManifest[] = [
   orgManifest,
   peopleManifest,
   reportsManifest,
+  ledgerManifest,
 ];
 
 export const NAV: readonly NavGroup[] = buildNav(WEB_MODULES);

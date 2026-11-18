@@ -31,6 +31,9 @@ import { NumberSequencesPage } from './org/NumberSequencesPage';
 import { TemplatesPage } from './org/TemplatesPage';
 import { FormulasPage } from './org/FormulasPage';
 import { RateTablesPage } from './org/RateTablesPage';
+import { AccountsPage } from './ledger/AccountsPage';
+import { JournalsPage } from './ledger/JournalsPage';
+import { ManualJournalsPage } from './ledger/ManualJournalsPage';
 import { StateMachinesPage } from './org/StateMachinesPage';
 import { WorkflowBuilderPage } from './org/WorkflowBuilderPage';
 import { WorkflowBindingsPage } from './org/WorkflowBindingsPage';
@@ -198,6 +201,30 @@ function Gate() {
           element={
             <Guarded permission="platform.formula.read">
               <FormulasPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="ledger/accounts"
+          element={
+            <Guarded permission="gl.account.read">
+              <AccountsPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="ledger/journals"
+          element={
+            <Guarded permission="gl.journal.read">
+              <JournalsPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="ledger/manual-journals"
+          element={
+            <Guarded permission="gl.manual_journal.read">
+              <ManualJournalsPage />
             </Guarded>
           }
         />

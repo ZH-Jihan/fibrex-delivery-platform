@@ -38,6 +38,7 @@ describe('buildNav', () => {
       'platform',
       'party',
       'platform',
+      'gl',
     ]);
     expect(NAV.map((g) => [g.label, g.items.map((i) => i.to)])).toEqual([
       ['nav.admin', ['/users', '/roles', '/permission-matrix', '/audit', '/recycle-bin']],
@@ -64,6 +65,7 @@ describe('buildNav', () => {
       ],
       ['nav.people.group', ['/people']],
       ['nav.reports', ['/reports']],
+      ['nav.ledger', ['/ledger/accounts', '/ledger/journals', '/ledger/manual-journals']],
     ]);
     // Every entry has an icon and a permission; the shell relies on both.
     for (const item of NAV.flatMap((g) => g.items)) {
