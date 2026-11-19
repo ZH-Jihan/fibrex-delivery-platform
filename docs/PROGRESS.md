@@ -5,7 +5,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | Phase | Title | Status | Accepted on | Notes |
 | --- | --- | --- | --- | --- |
 | 1 | Foundation A | Done (13 of 13 commits), awaiting acceptance | | Plan: `docs/phases/phase-01-plan.md` |
-| 2 | Foundation B | In progress: rows 2.1 to 2.19a done; 2.19b (verify Playwright, mark done) and 2.20 still to build (awaiting acceptance only after row 2.20) | | Plan: `docs/phases/phase-02-plan.md` |
+| 2 | Foundation B | In progress: rows 2.1 to 2.19 done; only row 2.20 still to build (awaiting acceptance only after row 2.20) | | Plan: `docs/phases/phase-02-plan.md` |
 | 3 | People and documents | Not started | | |
 | 4 | Performance and tracking | Not started | | |
 | 5 | Inventory and fleet | Not started | | |
@@ -85,6 +85,8 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | 2.17b | Matching and bank screens (migration `gl_reconciliation`; `modules/gl/reconcile-router.ts`, shared `ledger/reconcile.ts`): `/bank-match-rules` CRUD, `/reconciliation-matches` (manual match, unmatch with reason; whole-amount pairing enforced by trigger), `POST /bank-statements/{id}/auto-match` (unique candidates only), candidates and reconciliation views, Excel (.xlsx) statements; screens `/ledger/cash-bank`, `statements`, `reconciliation`, `match-rules`. IBAN still never in any response, log or audit value (tested). Not built: party target on rules screen. Next: row 2.18 | 452 API + 130 shared + 106 web + 28 formula tests pass (9 + 7 + 3 new); lint, typecheck clean |
 | 2.18 | Reserved tables and retention (migration `cfg_reserved`: 11 `cfg` + `adapter_config`, `integration_health`, no engines; `kernel/retention`: `/retention-policies`, dry-run, `/retention-runs`, daily dry-run-only job; audit, gl, journal, payroll refused; never deletes, see DECISIONS). Next: row 2.19 | 466 API + 130 shared + 106 web + 28 formula tests pass (14 new); lint, typecheck clean |
 | 2.19a | Phase 2 journeys and OpenAPI check: Playwright journey (`e2e/phase2.spec.ts`) covering record-type builder (5 fields, publish), custom-record CRUD (create/detail/edit/delete/restore), CSV import 3 rows, export; multi-currency trial balance property test (USD+BDT postings base debit=credit); Phase 2 OpenAPI path check (`test/integration/openapi-phase2.test.ts`, stub deps); `ADDING_A_MODULE.md` section 9 "Using engines". **Remaining for 2.19b:** run `pnpm --filter @fibrex/web test:e2e` to verify the Playwright journey, fix any failures, then mark Phase 2 rows 2.1–2.19 done | 47 API + 23 web + 16 shared + 1 formula files pass (1 new API test file, 1 new E2E file); lint, typecheck clean |
+
+| 2.19b | Journeys pass: locators fixed in `e2e/phase2.spec.ts`; one app fix: `AuthContext.refreshAccess()` called after publishing a record type, so the new `custom.<key>.*` permissions show (the "New" button was missing until re-sign-in). Next: row 2.20 | 468 API + 107 web + 130 shared + 28 formula tests pass (1 new web); lint, typecheck clean; Playwright 8 pass |
 
 ## Phase 1 summary
 

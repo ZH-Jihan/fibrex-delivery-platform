@@ -146,9 +146,11 @@ export function EntityBuilderPage() {
 
   const publish = (r: EntityRow) => {
     api(`/entity-definitions/${r.id}/publish`, { method: 'POST', headers: ifMatch(r.version) })
-      .then(() => {
+      .then(async () => {
         loadEntities();
         loadFields();
+        // Publishing creates the type's `custom.<key>.*` permissions; pick them up now.
+        await auth.refreshAccess();
       })
       .catch((e: unknown) => {
         setError(e);

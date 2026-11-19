@@ -42,6 +42,8 @@ export interface AuthApi {
   adoptGrant: (grant: Grant) => Promise<void>;
   logout: () => Promise<void>;
   switchCompany: (companyId: string) => Promise<void>;
+  /** Re-read what the user may do (e.g. after publishing a record type adds `custom.<key>.*`). */
+  refreshAccess: () => Promise<void>;
 }
 
 const Context = createContext<AuthApi | null>(null);
@@ -168,8 +170,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await api<Grant>('/me/switch-company', { method: 'POST', body: { companyId } }),
         );
       },
+      refreshAccess: async () => {
+        if (grant !== null) await loadAccess(grant);
+      },
     }),
-    [status, grant, access, mfaToken, finishSignIn, adoptGrant, clear],
+    [status, grant, access, mfaToken, finishSignIn, adoptGrant, clear, loadAccess],
   );
 
   return <Context.Provider value={value}>{children}</Context.Provider>;

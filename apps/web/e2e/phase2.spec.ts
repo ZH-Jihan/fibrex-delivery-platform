@@ -30,8 +30,8 @@ test('admin builds a record type, works with records, imports and exports', asyn
   await signedInAs(page, ADMIN);
   await page.getByRole('navigation').getByRole('link', { name: 'Record types' }).click();
   await page.getByRole('button', { name: 'New record type' }).click();
-  await page.getByLabel('Key').fill(typeKey);
-  await page.getByLabel('Name (English)').fill(typeName);
+  await page.getByLabel('Key', { exact: true }).fill(typeKey);
+  await page.getByLabel('Name (English)', { exact: true }).fill(typeName);
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByRole('row', { name: new RegExp(typeKey) })).toHaveCount(1);
 
@@ -45,9 +45,9 @@ test('admin builds a record type, works with records, imports and exports', asyn
 
   const addField = async (key: string, label: string, type: string) => {
     await fieldsPanel.getByRole('button', { name: 'New field' }).click();
-    await page.getByLabel('Key').fill(key);
-    await page.getByLabel('Name (English)').fill(label);
-    await page.getByLabel('Type').selectOption(type);
+    await page.getByLabel('Key', { exact: true }).fill(key);
+    await page.getByLabel('Name (English)', { exact: true }).fill(label);
+    await page.getByLabel('Type', { exact: true }).selectOption(type);
     await page.getByRole('button', { name: 'Save' }).click();
     await expect(fieldsPanel.getByRole('row', { name: new RegExp(key) })).toHaveCount(1);
   };
@@ -100,15 +100,18 @@ test('admin builds a record type, works with records, imports and exports', asyn
   // 5. Edit the record                                                  //
   // ------------------------------------------------------------------ //
   await page.getByRole('row', { name: /ABC-001/ }).getByRole('button', { name: 'Edit' }).click();
-  await page.getByLabel('Mileage').fill('46500');
+  await page.getByRole('textbox', { name: 'Mileage', exact: true }).fill('46500');
   await page.getByRole('button', { name: 'Save' }).click();
+  // Wait for the reloaded list to show the new value: acting on the stale row would send an
+  // old version and the API would rightly answer 409.
   await expect(page.getByRole('row', { name: /ABC-001/ })).toHaveCount(1);
+  await expect(page.getByRole('row', { name: /ABC-001.*46500|46500.*ABC-001/ })).toHaveCount(1);
 
   // ------------------------------------------------------------------ //
   // 6. Delete with reason                                               //
   // ------------------------------------------------------------------ //
   await page.getByRole('row', { name: /ABC-001/ }).getByRole('button', { name: 'Delete' }).click();
-  await page.getByRole('dialog').getByRole('textbox').fill('phase 2 e2e journey clean-up');
+  await page.getByRole('dialog').getByRole('textbox').fill(`phase 2 e2e journey clean-up ${stamp}`);
   await page
     .getByRole('dialog')
     .getByRole('button', { name: /Delete|Confirm/ })
@@ -120,10 +123,16 @@ test('admin builds a record type, works with records, imports and exports', asyn
   // ------------------------------------------------------------------ //
   await page.getByRole('navigation').getByRole('link', { name: 'Recycle bin' }).click();
   await page.getByLabel('Record type').selectOption('cfg.custom_record');
-  const deleted = page.getByRole('row', { name: /ABC-001/ });
-  await expect(deleted).toHaveCount(1);
-  await deleted.getByRole('button', { name: 'Restore' }).click();
-  await expect(page.getByRole('row', { name: /ABC-001/ })).toHaveCount(0);
+  // The bin names a custom record by its number, or its id when the type has no numbering
+  // key, so the row is found by the reason given when it was deleted.
+  const byReason = page.getByRole('row', { name: new RegExp(`clean-up ${stamp}`) });
+  await expect(byReason).toHaveCount(1);
+  await byReason.getByRole('button', { name: 'Restore' }).click();
+  await expect(byReason).toHaveCount(0);
+  // The restored record is back in its list.
+  await page.getByRole('navigation').getByRole('link', { name: 'Records' }).click();
+  await page.getByRole('link', { name: new RegExp(typeName) }).click();
+  await expect(page.getByRole('row', { name: /ABC-001/ })).toHaveCount(1);
 
   // ------------------------------------------------------------------ //
   // 8. Import 3 rows via Data Exchange                                  //
@@ -146,14 +155,17 @@ test('admin builds a record type, works with records, imports and exports', asyn
 
   // Step 2: match the columns (auto-mapped).
   await expect(page.getByText('Step 2: match the columns')).toBeVisible();
+  // A CSV holds only text, so the user says which columns are a number and a yes/no.
+  await page.getByLabel('Clean-up: Year', { exact: true }).selectOption('number');
+  await page.getByLabel('Clean-up: Passed', { exact: true }).selectOption('boolean');
   await page.getByRole('button', { name: 'Check the rows' }).click();
 
   // Step 3: preview.
   await expect(page.getByText('Step 3: check the rows')).toBeVisible();
   await page.getByRole('button', { name: 'Import now' }).click();
 
-  // Step 4: result.
-  await expect(page.getByText('Step 4: result')).toBeVisible();
+  // Step 4: result. The commit runs in the background worker and the screen polls for it.
+  await expect(page.getByText('Step 4: result')).toBeVisible({ timeout: 30_000 });
 
   // Clean up temp file.
   fs.unlinkSync(csvPath);
@@ -164,8 +176,9 @@ test('admin builds a record type, works with records, imports and exports', asyn
   await page.getByRole('tab', { name: 'Export' }).click();
   await expect(page.getByRole('button', { name: 'Export and download' })).toBeVisible();
   await page.getByRole('button', { name: 'Export and download' }).click();
-  // The export is queued; wait for a row to appear in the recent exports list.
-  await expect(page.getByRole('cell', { name: new RegExp(typeKey) })).toHaveCount(1, {
+  // The recent-exports list shows the file with its row count: the restored record (1) plus
+  // the 3 imported rows. The list names no type, so the count is the proof.
+  await expect(page.getByRole('cell', { name: '4 rows', exact: true })).toHaveCount(1, {
     timeout: 15_000,
   });
 });

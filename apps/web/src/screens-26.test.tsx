@@ -111,6 +111,25 @@ describe('record-type builder', () => {
     });
   });
 
+  it('re-reads permissions after publishing so the new type permissions show at once', async () => {
+    const calls = stub({
+      ...signedIn(['platform.entity_definition.read', 'platform.entity_definition.publish']),
+      'GET /entity-definitions': () => json(200, { items: [entity], total: 1 }),
+      'GET /lookup-types': () => json(200, { items: [], total: 0 }),
+      'POST /entity-definitions/e1/publish': () => json(200, entity),
+    });
+    render(wrap(<EntityBuilderPage />));
+    await screen.findByText('inspection');
+    const reads = () => calls.filter((c) => c.path === '/me/permissions').length;
+    await waitFor(() => {
+      expect(reads()).toBe(1);
+    });
+    await userEvent.click(await screen.findByRole('button', { name: /publish/i }));
+    await waitFor(() => {
+      expect(reads()).toBe(2);
+    });
+  });
+
   it('saves a record type with only Key and Name (English) filled in', async () => {
     const calls = stub({
       ...signedIn(['platform.entity_definition.read', 'platform.entity_definition.create']),
