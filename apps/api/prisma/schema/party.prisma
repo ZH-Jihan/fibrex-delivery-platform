@@ -39,6 +39,9 @@ model Party {
   customRecords    CustomRecord[]
   glLines          GlJournalLine[]           @relation("GlLineParty")
   glEmployeeLines  GlJournalLine[]           @relation("GlLineEmployee")
+  employees        Employee[]                @relation("EmployeeParty")
+  sponsoredStaff   Employee[]                @relation("EmployeeSponsor")
+  recruitedStaff   Employee[]                @relation("EmployeeAgent")
 
   @@unique([companyId, id], map: "party_company_id_uq")
   @@unique([tenantId, id], map: "party_tenant_id_uq")

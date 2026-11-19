@@ -1,0 +1,103 @@
+// Schema `people`: employees and documents (PLAN 3.10). Row 3.1 adds employee, employment
+// period and placement (migration 20261120000000_people_employee). Exclusion constraints
+// (one placement and one employment period per day) live only in the SQL.
+
+/// The employment master. The person is the party; other modules reference `partyId`.
+model Employee {
+  id                     String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId               String    @map("tenant_id") @db.Uuid
+  companyId              String    @map("company_id") @db.Uuid
+  branchId               String?   @map("branch_id") @db.Uuid
+  partyId                String    @map("party_id") @db.Uuid
+  employeeCode           String    @map("employee_code")
+  statusCode             String    @default("active") @map("status_code")
+  sponsorship            String    @default("company")
+  sponsorPartyId         String?   @map("sponsor_party_id") @db.Uuid
+  recruitingAgentPartyId String?   @map("recruiting_agent_party_id") @db.Uuid
+  joiningDate            DateTime? @map("joining_date") @db.Date
+  customFields           Json      @default("{}") @map("custom_fields")
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy              String?   @map("created_by") @db.Uuid
+  updatedAt              DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy              String?   @map("updated_by") @db.Uuid
+  version                Int       @default(1)
+  deletedAt              DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy              String?   @map("deleted_by") @db.Uuid
+  deleteReason           String?   @map("delete_reason")
+
+  company         Company             @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "employee_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  branch          Branch?             @relation(fields: [companyId, branchId], references: [companyId, id], map: "employee_branch_fk", onDelete: NoAction, onUpdate: NoAction)
+  party           Party               @relation("EmployeeParty", fields: [companyId, partyId], references: [companyId, id], map: "employee_party_fk", onDelete: NoAction, onUpdate: NoAction)
+  sponsor         Party?              @relation("EmployeeSponsor", fields: [companyId, sponsorPartyId], references: [companyId, id], map: "employee_sponsor_fk", onDelete: NoAction, onUpdate: NoAction)
+  recruitingAgent Party?              @relation("EmployeeAgent", fields: [companyId, recruitingAgentPartyId], references: [companyId, id], map: "employee_agent_fk", onDelete: NoAction, onUpdate: NoAction)
+  periods         EmploymentPeriod[]
+  placements      EmployeePlacement[]
+
+  @@unique([companyId, id], map: "employee_company_id_uq")
+  @@unique([companyId, employeeCode], map: "employee_code_uq")
+  @@unique([companyId, partyId], map: "employee_party_uq", where: { deletedAt: null })
+  @@index([companyId, statusCode], map: "employee_status_idx")
+  @@index([customFields(ops: JsonbOps)], map: "employee_custom_fields_idx", type: Gin)
+  @@map("employee")
+  @@schema("people")
+}
+
+/// One spell of employment; a rehire adds a new period to the same employee.
+model EmploymentPeriod {
+  id             String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  employeeId     String    @map("employee_id") @db.Uuid
+  startDate      DateTime  @map("start_date") @db.Date
+  endDate        DateTime? @map("end_date") @db.Date
+  exitCaseId     String?   @map("exit_case_id") @db.Uuid
+  rehireEligible Boolean   @default(true) @map("rehire_eligible")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy      String?   @map("created_by") @db.Uuid
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  version        Int       @default(1)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy      String?   @map("deleted_by") @db.Uuid
+  deleteReason   String?   @map("delete_reason")
+
+  company  Company  @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "employment_period_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  employee Employee @relation(fields: [companyId, employeeId], references: [companyId, id], map: "employment_period_employee_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([employeeId], map: "employment_period_employee_idx")
+  @@map("employment_period")
+  @@schema("people")
+}
+
+/// Effective-dated profession, client platform, zone and team of an employee.
+model EmployeePlacement {
+  id               String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  companyId        String    @map("company_id") @db.Uuid
+  branchId         String?   @map("branch_id") @db.Uuid
+  employeeId       String    @map("employee_id") @db.Uuid
+  validFrom        DateTime  @default(dbgenerated("CURRENT_DATE")) @map("valid_from") @db.Date
+  validTo          DateTime? @map("valid_to") @db.Date
+  profession       String
+  clientPlatformId String?   @map("client_platform_id") @db.Uuid
+  orgUnitId        String?   @map("org_unit_id") @db.Uuid
+  teamId           String?   @map("team_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy        String?   @map("created_by") @db.Uuid
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy        String?   @map("updated_by") @db.Uuid
+  version          Int       @default(1)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy        String?   @map("deleted_by") @db.Uuid
+  deleteReason     String?   @map("delete_reason")
+
+  company  Company  @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "employee_placement_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  branch   Branch?  @relation(fields: [companyId, branchId], references: [companyId, id], map: "employee_placement_branch_fk", onDelete: NoAction, onUpdate: NoAction)
+  employee Employee @relation(fields: [companyId, employeeId], references: [companyId, id], map: "employee_placement_employee_fk", onDelete: NoAction, onUpdate: NoAction)
+  zone     OrgUnit? @relation("PlacementZone", fields: [orgUnitId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  team     OrgUnit? @relation("PlacementTeam", fields: [teamId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([employeeId], map: "employee_placement_employee_idx")
+  @@map("employee_placement")
+  @@schema("people")
+}

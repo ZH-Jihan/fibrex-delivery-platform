@@ -140,7 +140,13 @@ import {
   type NotificationView,
 } from './modules/notify/index.js';
 import { BankVault, createGlModule } from './modules/gl/index.js';
-import { PartyReferenceRegistry, PartyVault, createPartyModule } from './modules/party/index.js';
+import {
+  PartyReferenceRegistry,
+  PartyService,
+  PartyVault,
+  createPartyModule,
+} from './modules/party/index.js';
+import { EMPLOYEE_ENTITY, createPeopleModule } from './modules/people/index.js';
 
 const rootEnv = path.resolve(import.meta.dirname, '../../../.env');
 if (process.env.DATABASE_URL === undefined && existsSync(rootEnv)) {
@@ -322,6 +328,14 @@ async function main(): Promise<void> {
     label: 'Attached files',
     where: "entity_type = 'party.party'",
   });
+  // People (phase 3): the employee, its outside sponsor and its recruiting agent are parties.
+  for (const [column, label] of [
+    ['party_id', 'Employee record'],
+    ['sponsor_party_id', 'Employees sponsored'],
+    ['recruiting_agent_party_id', 'Employees recruited'],
+  ] as const) {
+    partyReferences.register({ schema: 'people', table: 'employee', column, label });
+  }
   const apiKeys = new ApiKeyResolver({ prisma, uow, redis, logger });
   // Business modules register a manifest (SPEC 2.13); the kernel's own permission keys are
   // given so the registry can check every menu entry and attachable points at a real key.
@@ -608,16 +622,32 @@ async function main(): Promise<void> {
         }),
       );
       // Module manifests. A new module is one more `modules.register(...)` line here.
+      const partyVault = new PartyVault(
+        new SecretBox(env.DATA_ENCRYPTION_KEY),
+        env.DATA_ENCRYPTION_KEY,
+      );
       modules.register(
         createPartyModule({
           uow,
           registry,
           permissions,
           audit,
-          vault: new PartyVault(new SecretBox(env.DATA_ENCRYPTION_KEY), env.DATA_ENCRYPTION_KEY),
+          vault: partyVault,
           references: partyReferences,
         }),
       );
+      // People (phase 3): employees on top of parties; the status is a kernel state machine.
+      const people = createPeopleModule({
+        uow,
+        registry,
+        permissions,
+        parties: new PartyService(partyVault),
+        numbering,
+        states,
+        onCreated: (key, id) => workflows.onCreated(key, id),
+      });
+      stateTargets.register(EMPLOYEE_ENTITY, people.employeeStateTarget);
+      modules.register(people.manifest);
       modules.register(createFilesModule({ uow, registry, permissions, files, attachables }));
       modules.register(createNotifyModule({ uow, registry, permissions, notify }));
       modules.register(

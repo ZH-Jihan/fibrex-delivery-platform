@@ -10,7 +10,8 @@
  * types, the attachable party, the People menu entry) for the kernel module registry.
  *
  * Depends on: ./party-router.ts, ./identifier-router.ts, ./bank-account-router.ts,
- * ./duplicates.ts, ./merge.ts, ./vault.ts, kernel/module-registry. Used by: src/main.ts.
+ * ./duplicates.ts, ./merge.ts, ./vault.ts, ./party-service.ts, kernel/module-registry.
+ * Used by: src/main.ts, modules/people (PartyService).
  */
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import type { AuditService } from '../../kernel/audit/audit-service.js';
@@ -33,6 +34,13 @@ import type { PartyVault } from './vault.js';
 
 export { PartyReferenceRegistry, type PartyReference } from './merge.js';
 export { PartyVault } from './vault.js';
+export {
+  PartyService,
+  type IdentityMatch,
+  type IdentityMatchReason,
+  type NewPerson,
+  type PartySummary,
+} from './party-service.js';
 
 export const PARTY_PERMISSIONS: readonly PermissionDef[] = [
   ...crudPermissions('party', 'party.party', 'parties'),

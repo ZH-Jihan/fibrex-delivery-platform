@@ -31,6 +31,7 @@ import { FILES_PERMISSIONS } from '../modules/files/index.js';
 import { GL_PERMISSIONS, seedLedger } from '../modules/gl/index.js';
 import { NOTIFY_PERMISSIONS } from '../modules/notify/index.js';
 import { PARTY_PERMISSIONS } from '../modules/party/index.js';
+import { PEOPLE_PERMISSIONS, seedEmployeeStatus } from '../modules/people/index.js';
 
 export interface SeedOptions {
   /** Plain password for the Super Admin. Only used when that user is created. */
@@ -50,6 +51,7 @@ export interface SeedResult {
 export const ALL_PERMISSIONS: readonly PermissionDef[] = [
   ...KERNEL_PERMISSIONS,
   ...PARTY_PERMISSIONS,
+  ...PEOPLE_PERMISSIONS,
   ...FILES_PERMISSIONS,
   ...NOTIFY_PERMISSIONS,
   ...GL_PERMISSIONS,
@@ -97,7 +99,7 @@ const ROLES: RoleDef[] = [
     holds: (k) =>
       isReadKey(k) ||
       OWN_DELEGATION_KEYS.has(k) ||
-      /^(party|files)\..*\.(create|update|delete|restore)$/.test(k),
+      /^(party|files|people)\..*\.(create|update|delete|restore)$/.test(k),
     mayGrant: ['viewer'],
   },
   {
@@ -280,6 +282,16 @@ export async function runSeed(pool: pg.Pool, opts: SeedOptions): Promise<SeedRes
     await seedWorkflowNotificationRules(client, tenantId);
     // Standard chart of accounts, tax code NONE and this fiscal year (only where missing).
     await seedLedger(client, tenantId, companyId);
+    // Employee status machine (active, inactive, blocked, terminated) when the tenant has none.
+    await seedEmployeeStatus(client, tenantId);
+    // Employee codes E0001, E0002 ... (owner's choice, phase 3 plan question 4).
+    await client.query(
+      `INSERT INTO platform.number_sequence (tenant_id, company_id, key, prefix, padding, reset_policy, format)
+       SELECT $1, $2, 'employee', '', 4, 'never', 'E{0000}'
+       WHERE NOT EXISTS (SELECT 1 FROM platform.number_sequence
+                         WHERE company_id = $2 AND key = 'employee' AND deleted_at IS NULL)`,
+      [tenantId, companyId],
+    );
 
     await client.query('COMMIT');
     return { tenantId, companyId, superAdminId, superAdminCreated };

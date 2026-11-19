@@ -220,6 +220,9 @@ model Company {
   glBankStatementLines GlBankStatementLine[]
   glBankMatchRules     GlBankMatchRule[]
   glReconciliationMatches GlReconciliationMatch[]
+  employees            Employee[]
+  employmentPeriods    EmploymentPeriod[]
+  employeePlacements   EmployeePlacement[]
 
   @@unique([tenantId, id], map: "company_tenant_id_uq")
   @@map("company")
@@ -247,6 +250,8 @@ model Branch {
   orgUnits      OrgUnit[]
   customRecords CustomRecord[]
   glLines       GlJournalLine[]
+  employees     Employee[]
+  placements    EmployeePlacement[]
 
   @@unique([companyId, id], map: "branch_company_id_uq")
   @@unique([companyId, code], map: "branch_code_uq", where: { deletedAt: null })
@@ -277,6 +282,8 @@ model OrgUnit {
   branch   Branch?   @relation(fields: [companyId, branchId], references: [companyId, id], map: "org_unit_branch_fk", onDelete: NoAction, onUpdate: NoAction)
   parent   OrgUnit?  @relation("OrgUnitTree", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   children OrgUnit[] @relation("OrgUnitTree")
+  zonePlacements EmployeePlacement[] @relation("PlacementZone")
+  teamPlacements EmployeePlacement[] @relation("PlacementTeam")
 
   @@unique([companyId, kind, code], map: "org_unit_code_uq", where: { deletedAt: null })
   @@index([parentId], map: "org_unit_parent_idx")
