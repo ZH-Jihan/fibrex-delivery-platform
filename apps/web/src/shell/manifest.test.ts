@@ -63,7 +63,10 @@ describe('buildNav', () => {
           '/organisation/record-types',
         ],
       ],
-      ['nav.people.group', ['/people', '/employees']],
+      [
+        'nav.people.group',
+        ['/people', '/employees', '/documents/expiring', '/documents/expiry-settings'],
+      ],
       ['nav.reports', ['/reports']],
       [
         'nav.ledger',

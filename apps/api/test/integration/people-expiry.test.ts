@@ -46,6 +46,8 @@ import {
 import { PermissionService } from '../../src/kernel/permissions/permission-service.js';
 import { createRedis } from '../../src/kernel/redis/client.js';
 import { AttachableRegistry } from '../../src/modules/files/index.js';
+import { createReportRouter } from '../../src/kernel/reports/report-router.js';
+import { ReportService } from '../../src/kernel/reports/report-service.js';
 import { NotifyService, syncEventTypes } from '../../src/modules/notify/index.js';
 import {
   PARTY_PERMISSIONS,
@@ -313,6 +315,20 @@ beforeAll(async () => {
       expiry = people.expiry;
       modules.register(people.manifest);
       modules.mount(api);
+      // Row 3.5: the people reports run through the real report router (no export here).
+      api.use(
+        createReportRouter({
+          uow,
+          registry,
+          permissions,
+          reports: new ReportService({
+            permissions,
+            storage: {} as never,
+            renderer: {} as never,
+            definitions: () => modules.reports(),
+          }),
+        }),
+      );
       for (const attachable of modules.attachables()) attachables.register(attachable);
     },
   });
@@ -340,6 +356,12 @@ beforeAll(async () => {
     documentTypeId: type(code),
     expiryDate: day(days),
   });
+  // Two active employees for the missing-documents and headcount reports (row 3.5).
+  await owner.query(
+    `INSERT INTO people.employee (tenant_id, company_id, party_id, employee_code, sponsorship) VALUES
+       ($1, $2, $3, 'E9001', 'company'), ($1, $2, $4, 'E9002', 'company')`,
+    [f.tenantA, f.companyA1, ids.rahim, ids.karim],
+  );
   await add('A', party(ids.rahim, 'passport', 20));
   await add('B', party(ids.rahim, 'qid', 14));
   await add('C', party(ids.karim, 'passport', 7));
@@ -577,5 +599,50 @@ describe('expiry settings', () => {
     });
     expect(created.status).toBe(201);
     expect((created.body as { status: string }).status).toBe('expiring');
+  });
+});
+
+describe('people reports (row 3.5)', () => {
+  interface Run { rows: Record<string, unknown>[]; total: number }
+  const run = (key: string, token: string, filters: Record<string, string> = {}) =>
+    auth(request(app).post(`${API_PREFIX}/reports/${key}/run`), token)
+      .set('Idempotency-Key', randomUUID())
+      .send({ filters, page: 1, pageSize: 100 });
+
+  it('expiring documents lists every current document with an expiry, with owner and code', async () => {
+    const res = await run('people.expiring_documents', alice, { withinDays: '365' });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const body = res.body as Run;
+    expect(body.total).toBeGreaterThanOrEqual(6); // earlier tests in this file may add more
+    const names = body.rows.map((r) => r.ownerName);
+    expect(names).toContain('Rahim Example');
+    expect(body.rows.find((r) => r.documentName === 'Trade licence')).toBeDefined();
+    expect(body.rows.find((r) => r.ownerName === 'Rahim Example')?.employeeCode).toBe('E9001');
+  });
+
+  it('missing documents: each active employee lacks the always-required types it has no copy of', async () => {
+    const res = await run('people.missing_documents', alice);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const body = res.body as Run;
+    // Six always-required types (agreement only applies outside sponsorship); each holds
+    // a passport and a QID, so four are missing apiece.
+    expect(body.total).toBe(8);
+    const rahim = body.rows.filter((r) => r.employeeCode === 'E9001').map((r) => r.documentName);
+    expect(rahim).toHaveLength(4);
+    expect(rahim).not.toContain('Passport');
+    expect(rahim).not.toContain('QID');
+  });
+
+  it('headcount groups by status', async () => {
+    const res = await run('people.headcount', alice, { groupBy: 'status' });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect((res.body as Run).rows).toEqual([{ group: 'active', count: 2 }]);
+  });
+
+  it('a user without the permission cannot run a report, and tenant B sees nothing of A', async () => {
+    // dave may read documents but not employees: headcount is refused.
+    expect((await run('people.headcount', dave)).status).toBe(403);
+    const other = await run('people.missing_documents', bob);
+    expect((other.body as Run).total).toBe(0);
   });
 });

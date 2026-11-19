@@ -53,6 +53,7 @@ import {
 import { createEmployeeStateTarget } from './employee-status.js';
 import { createExpiryRouter } from './expiry-router.js';
 import { EXPIRY_EVENT, ExpiryService, type ExpiryJobDeps } from './expiry-service.js';
+import { PEOPLE_REPORTS } from './people-reports.js';
 import {
   createPeriodRepository,
   createPlacementRepository,
@@ -180,7 +181,20 @@ export function createPeopleModule(deps: PeopleModuleDeps): PeopleModule {
         groupKey: 'nav.people.group',
         permission: 'people.employee.read',
       },
+      {
+        path: '/documents/expiring',
+        labelKey: 'nav.expiring',
+        groupKey: 'nav.people.group',
+        permission: 'people.document.read',
+      },
+      {
+        path: '/documents/expiry-settings',
+        labelKey: 'nav.expirySettings',
+        groupKey: 'nav.people.group',
+        permission: 'people.expiry_settings.read',
+      },
     ],
+    reports: PEOPLE_REPORTS,
     eventTypes: [
       {
         key: EXPIRY_EVENT,

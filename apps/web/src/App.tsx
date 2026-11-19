@@ -31,6 +31,7 @@ import { NumberSequencesPage } from './org/NumberSequencesPage';
 import { TemplatesPage } from './org/TemplatesPage';
 import { FormulasPage } from './org/FormulasPage';
 import { RateTablesPage } from './org/RateTablesPage';
+import { ExpiringPage, ExpirySettingsPage } from './people/ExpiryPages';
 import { AccountsPage } from './ledger/AccountsPage';
 import { JournalsPage } from './ledger/JournalsPage';
 import { ManualJournalsPage } from './ledger/ManualJournalsPage';
@@ -168,6 +169,22 @@ function Gate() {
           element={
             <Guarded permission="people.employee.read">
               <EmployeesPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="documents/expiring"
+          element={
+            <Guarded permission="people.document.read">
+              <ExpiringPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="documents/expiry-settings"
+          element={
+            <Guarded permission="people.expiry_settings.read">
+              <ExpirySettingsPage />
             </Guarded>
           }
         />

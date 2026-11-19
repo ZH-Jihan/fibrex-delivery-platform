@@ -3,7 +3,7 @@
  * apps/api/src/modules/party/index.ts (same path and permission key).
  * Depends on: shell/manifest.ts, lucide-react. Used by: shell/nav.ts.
  */
-import { Contact, IdCard } from 'lucide-react';
+import { BellRing, Contact, IdCard, TimerReset } from 'lucide-react';
 import type { WebModuleManifest } from '../shell/manifest';
 
 export const peopleManifest: WebModuleManifest = {
@@ -18,6 +18,18 @@ export const peopleManifest: WebModuleManifest = {
           label: 'nav.employees',
           permission: 'people.employee.read',
           icon: IdCard,
+        },
+        {
+          to: '/documents/expiring',
+          label: 'nav.expiring',
+          permission: 'people.document.read',
+          icon: TimerReset,
+        },
+        {
+          to: '/documents/expiry-settings',
+          label: 'nav.expirySettings',
+          permission: 'people.expiry_settings.read',
+          icon: BellRing,
         },
       ],
     },
