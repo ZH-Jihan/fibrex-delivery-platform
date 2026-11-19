@@ -376,3 +376,54 @@ describe('ledger.general_ledger and ledger.party_statement', () => {
     expect((await runReport('ledger.party_statement', alice, {})).status).toBe(400);
   });
 });
+
+describe('trial balance: multi-currency property', () => {
+  it('base-currency debits equal credits across QAR, USD and BDT postings', async () => {
+    // Insert USD and BDT currencies and their rates to QAR (3.64 and 0.034).
+    await owner.query(
+      `INSERT INTO platform.currency (code, name, minor_units) VALUES
+         ('USD', 'US Dollar', 2), ('BDT', 'Bangladeshi Taka', 2)
+       ON CONFLICT (code) DO NOTHING`,
+    );
+    await owner.query(
+      `INSERT INTO gl.exchange_rate (tenant_id, company_id, from_currency, to_currency, rate_date, rate)
+       VALUES ($1, $2, 'USD', 'QAR', '2026-07-01', 3.64),
+              ($1, $2, 'BDT', 'QAR', '2026-07-01', 0.034)
+       ON CONFLICT DO NOTHING`,
+      [f.tenantA, f.companyA1],
+    );
+
+    // Post a balanced USD journal and a balanced BDT journal (1220 needs a party dimension).
+    await uow.runAs(ctx, () =>
+      posting.post({
+        companyId: f.companyA1,
+        entryDate: '2026-07-02',
+        eventKey: 'test.fx_usd',
+        description: 'USD balanced entry',
+        lines: [
+          { accountCode: '1220', debit: '100.0000', currency: 'USD', dimensions: { party: riderOne } },
+          { accountCode: '1110', credit: '100.0000', currency: 'USD' },
+        ],
+      }),
+    );
+    await uow.runAs(ctx, () =>
+      posting.post({
+        companyId: f.companyA1,
+        entryDate: '2026-07-02',
+        eventKey: 'test.fx_bdt',
+        description: 'BDT balanced entry',
+        lines: [
+          { accountCode: '1220', debit: '1000.0000', currency: 'BDT', dimensions: { party: riderOne } },
+          { accountCode: '1110', credit: '1000.0000', currency: 'BDT' },
+        ],
+      }),
+    );
+
+    // The trial balance must remain balanced in base currency after FX conversion.
+    const res = await get('/ledger/balances', alice);
+    expect(res.status).toBe(200);
+    const body = res.body as Balances;
+    expect(body.totals.baseDebit).toBe(body.totals.baseCredit);
+    expect(body.totals.balance).toBe('0.0000');
+  });
+});

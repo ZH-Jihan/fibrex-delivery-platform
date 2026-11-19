@@ -64,3 +64,61 @@ In `index.ts`: `export const FLEET_PERMISSIONS = [...crudPermissions('fleet', 'f
 ## 8. Docs
 
 One line in `docs/PROGRESS.md`; a row in `docs/DECISIONS.md` only if a later phase depends on the choice.
+
+## 9. Using engines (Phase 2)
+
+Inject the service through your module's deps and call it inside a unit of work. Never bypass the service to query engine tables directly.
+
+### Formulas
+
+```typescript
+// In your module's index.ts deps: formulas: FormulaService
+const result = await formulas.evaluate('fleet.mileage_charge', onDate, { km: 450 });
+// result.value is NUMERIC(18,4) text; result.trace lists each step when explain: true is passed.
+```
+
+Declare the formula key in your module manifest's `formulaKeys` list so the formula builder validates it.
+
+### Rate tables
+
+```typescript
+// In your module's index.ts deps: rates: RateTableService
+const rate = await rates.resolve('fleet.fuel_surcharge', onDate, { region: 'north' });
+// Returns the NUMERIC(18,4) rate string, or null when no row matches.
+```
+
+### State machines
+
+```typescript
+// In your module's index.ts deps: states: StateService
+await states.transition({ entityType: 'fleet.vehicle', entityId: id, toCode: 'active' });
+// Throws if the transition is not allowed from the current state.
+```
+
+Declare `entityType` in `recycleTypes` if you want soft-deleted records restorable from the state machine.
+
+### Workflows
+
+```typescript
+// In your module's index.ts deps: workflows: WorkflowService
+await workflows.onCreated('fleet.vehicle', record.id);
+// Called after a successful create so an `on_create` binding fires immediately.
+```
+
+Pass `workflows.onCreated` and `workflows.onUpdated` as callbacks when you create records; never reach into the workflow tables directly.
+
+### Events (outbox)
+
+```typescript
+// In your module's index.ts deps: outbox: EventOutbox
+outbox.record({
+  eventType: 'fleet.vehicle.created',
+  companyId,
+  aggregateType: 'fleet.vehicle',
+  aggregateId: record.id,
+  payload: { plateNo: record.plate },
+});
+// Called inside the same unit of work as the write; the dispatcher delivers it after commit.
+```
+
+Declare the event type in the manifest's `eventTypes` list so subscribers can filter it and the outbox validates the type name.
