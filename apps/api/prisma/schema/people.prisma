@@ -192,6 +192,7 @@ model Document {
   documentType DocumentType? @relation(fields: [companyId, documentTypeId], references: [companyId, id], map: "document_type_fk", onDelete: NoAction, onUpdate: NoAction)
   replaces     Document?     @relation("DocumentRenewal", fields: [companyId, replacesId], references: [companyId, id], map: "document_replaces_fk", onDelete: NoAction, onUpdate: NoAction)
   renewals     Document[]    @relation("DocumentRenewal")
+  expiryAlerts ExpiryAlertLog[]
 
   @@unique([companyId, id], map: "document_company_id_uq")
   @@unique([replacesId], map: "document_replaces_uq", where: raw("replaces_id IS NOT NULL AND deleted_at IS NULL"))
@@ -199,5 +200,27 @@ model Document {
   @@index([companyId, expiryDate], map: "document_expiry_idx", where: raw("deleted_at IS NULL AND status <> 'replaced'"))
   @@index([companyId, numberHash], map: "document_number_hash_idx")
   @@map("document")
+  @@schema("people")
+}
+
+/// One alert per document, window and expiry date (insert-only; makes the daily job idempotent).
+model ExpiryAlertLog {
+  id         String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  companyId  String   @map("company_id") @db.Uuid
+  documentId String   @map("document_id") @db.Uuid
+  windowDays Int      @map("window_days")
+  expiryDate DateTime @map("expiry_date") @db.Date
+  alertedOn  DateTime @map("alerted_on") @db.Date
+  channels   String[]
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy  String?  @map("created_by") @db.Uuid
+
+  company  Company  @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "expiry_alert_log_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  document Document @relation(fields: [companyId, documentId], references: [companyId, id], map: "expiry_alert_log_document_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([documentId, windowDays, expiryDate], map: "expiry_alert_log_once_uq")
+  @@index([companyId, alertedOn], map: "expiry_alert_log_company_idx")
+  @@map("expiry_alert_log")
   @@schema("people")
 }

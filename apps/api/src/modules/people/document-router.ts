@@ -17,7 +17,8 @@
  *      AES-GCM under its own context, a keyed hash per type for exact lookup, and a mask.
  *      The plain value is never stored, never listed, never logged.
  *   4. Status is derived, never typed: on every write here, and daily by the expiry job
- *      (row 3.4). Expiring = within the type's largest alert window (default 14 days).
+ *      (row 3.4). Expiring = within the largest alert window of the type, else of the
+ *      company's expiry settings (default 14 days).
  *   5. One current document per owner and type. A second one is 409 `document_exists`;
  *      renewing marks the old one `replaced` (kept, with its files) and links the new one
  *      back to it. The database enforces the same rule (exclusion constraint).
@@ -29,7 +30,8 @@
  *
  * Depends on: express, zod, @fibrex/shared (document schemas, status rule), kernel/db,
  * kernel/http, kernel/audit, modules/party (PartyService, PartyVault and its helpers),
- * modules/files (attachment repository), ./dates.ts, ./document-type-router.ts.
+ * modules/files (attachment repository), ./dates.ts, ./document-type-router.ts,
+ * ./expiry-service.ts (company alert windows).
  * Used by: ./index.ts.
  */
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
@@ -67,6 +69,7 @@ import {
 } from '../party/index.js';
 import { fromDate, guardOverlap, isoToday, withDates } from './dates.js';
 import type { DocumentTypeRow } from './document-type-router.js';
+import { readExpirySettings } from './expiry-service.js';
 
 export type DocumentRow = NonNullable<Awaited<ReturnType<Db['document']['findFirst']>>>;
 
@@ -218,12 +221,15 @@ export function createDocumentRepository(deps: {
     }
   }
 
-  /** Rule 4. */
-  const statusOf = (expiry: string | null, type: DocumentTypeRow | null) =>
+  /** Rule 4: the type's own windows, else the company default (expiry settings, row 3.4). */
+  const statusOf = async (companyId: string, expiry: string | null, type: DocumentTypeRow | null) =>
     deriveDocumentStatus({
       expiryDate: expiry,
       today: isoToday(),
-      alertWindows: type === null || type.alertWindows.length === 0 ? null : type.alertWindows,
+      alertWindows:
+        type !== null && type.alertWindows.length > 0
+          ? type.alertWindows
+          : (await readExpirySettings(currentUnit().db, companyId)).windows,
       replaced: false,
     });
 
@@ -265,6 +271,7 @@ export function createDocumentRepository(deps: {
       );
     }
 
+    const status = await statusOf(companyId, expiryDate, type);
     return guardOverlap(() =>
       base.create(
         withDates(
@@ -277,7 +284,7 @@ export function createDocumentRepository(deps: {
             issueDate: data.issueDate ?? null,
             expiryDate,
             ...numberColumns(data.number, type?.code ?? 'custom'),
-            status: statusOf(expiryDate, type),
+            status,
             replacesId,
           },
           DATES,
@@ -326,7 +333,11 @@ export function createDocumentRepository(deps: {
       }
       // A replaced document stays replaced; any other gets its status again (rule 4).
       if (current.status !== 'replaced') {
-        next.status = statusOf(typeof expiryDate === 'string' ? expiryDate : null, type);
+        next.status = await statusOf(
+          current.companyId,
+          typeof expiryDate === 'string' ? expiryDate : null,
+          type,
+        );
       }
       return guardOverlap(() => base.update(id, version, withDates(next, DATES)));
     },

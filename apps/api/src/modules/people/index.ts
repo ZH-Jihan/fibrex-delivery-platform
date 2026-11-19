@@ -3,16 +3,19 @@
  *
  * Purpose: the employee master database (SPEC 3.2) on top of the party model. Row 3.1:
  * employees, employment periods and placements. Row 3.2: document types, requirements and
- * documents (sealed numbers, renewals, scans through the files module). Expiry alerts, OCR
- * and import follow in rows 3.4 to 3.8. An employee is a party with the `employee` role; other
+ * documents (sealed numbers, renewals, scans through the files module). Row 3.4: the expiry
+ * engine (daily job, alert settings, expiring list and calendar). OCR and import follow in
+ * rows 3.6 to 3.8. An employee is a party with the `employee` role; other
  * modules reference the `party_id`.
  *
  * `createPeopleModule` returns the module manifest (routes, permissions, recycle-bin types,
- * custom fields, attachable employee, menu entry) and the employee state target, which
- * src/main.ts registers with the kernel state service.
+ * custom fields, attachable employee, menu entry, event types), the employee state target,
+ * which src/main.ts registers with the kernel state service, and the expiry service, whose
+ * `run` src/main.ts schedules daily.
  *
  * Depends on: ./employee-router.ts, ./placement-router.ts, ./employee-status.ts,
- * ./document-type-router.ts, ./document-router.ts, modules/party (PartyService, PartyVault),
+ * ./document-type-router.ts, ./document-router.ts, ./expiry-service.ts, ./expiry-router.ts,
+ * ./expiry-seed.ts, modules/party (PartyService, PartyVault),
  * modules/files (AttachableRegistry), kernel/audit, kernel/module-registry, kernel/permissions,
  * kernel/numbering, kernel/states. Used by: src/main.ts, src/seed/seed.ts.
  */
@@ -48,6 +51,8 @@ import {
   createEmployeeRouter,
 } from './employee-router.js';
 import { createEmployeeStateTarget } from './employee-status.js';
+import { createExpiryRouter } from './expiry-router.js';
+import { EXPIRY_EVENT, ExpiryService, type ExpiryJobDeps } from './expiry-service.js';
 import {
   createPeriodRepository,
   createPlacementRepository,
@@ -58,6 +63,15 @@ export { EMPLOYEE_ENTITY } from './employee-router.js';
 export { seedEmployeeStatus } from './employee-status.js';
 export { DOCUMENT_ENTITY } from './document-router.js';
 export { seedDocumentTypes } from './document-type-router.js';
+export {
+  EXPIRY_EVENT,
+  ExpiryService,
+  consolidatedEmail,
+  type ExpiryItem,
+  type ExpiryJobDeps,
+  type ExpiryRunResult,
+} from './expiry-service.js';
+export { seedExpiryAlerts, OWNER_EXPIRY_EMAILS, EXPIRY_RULE_NAME } from './expiry-seed.js';
 
 export const PEOPLE_PERMISSIONS: readonly PermissionDef[] = [
   ...crudPermissions('people', 'people.employee', 'employees'),
@@ -72,6 +86,13 @@ export const PEOPLE_PERMISSIONS: readonly PermissionDef[] = [
     'people.document_number',
     'reveal',
     'Show the full number of a document (audited)',
+  ),
+  permission('people', 'people.expiry_settings', 'read', 'See the document expiry alert settings'),
+  permission(
+    'people',
+    'people.expiry_settings',
+    'update',
+    'Change the expiry email list and alert windows',
   ),
 ];
 
@@ -88,12 +109,18 @@ export interface PeopleModuleDeps {
   attachables: AttachableRegistry;
   states?: Pick<StateService, 'initialCode' | 'recordStart'>;
   onCreated?: (entityType: string, id: string) => Promise<void>;
+  /** The daily expiry job (src/main.ts); without it the expiry lists still work. */
+  expiryJob?: ExpiryJobDeps;
+  /** Fixed clock for the expiry engine (tests). */
+  now?: () => Date;
 }
 
 export interface PeopleModule {
   manifest: ModuleManifest;
   /** Register with the kernel `StateTargets` under `EMPLOYEE_ENTITY`. */
   employeeStateTarget: StateTarget;
+  /** Schedule `expiry.run()` daily (src/main.ts). */
+  expiry: ExpiryService;
 }
 
 export function createPeopleModule(deps: PeopleModuleDeps): PeopleModule {
@@ -104,6 +131,12 @@ export function createPeopleModule(deps: PeopleModuleDeps): PeopleModule {
   const documentTypes = createDocumentTypeRepository();
   const requirements = createRequirementRepository();
   const documents = createDocumentRepository({ parties: deps.parties, vault: deps.vault });
+  const expiry = new ExpiryService({
+    uow,
+    parties: deps.parties,
+    ...(deps.expiryJob === undefined ? {} : { job: deps.expiryJob }),
+    ...(deps.now === undefined ? {} : { now: deps.now }),
+  });
 
   // One recycle-bin entry; the cast only widens the row type, the repository is unchanged.
   const recycle = <TRow extends BaseRow>(
@@ -128,6 +161,8 @@ export function createPeopleModule(deps: PeopleModuleDeps): PeopleModule {
         types: documentTypes,
         requirements,
       }),
+      // Before the documents CRUD router: /documents/expiring is not a document id.
+      createExpiryRouter({ uow, registry, permissions, expiry }),
       createDocumentRouter({
         uow,
         registry,
@@ -144,6 +179,15 @@ export function createPeopleModule(deps: PeopleModuleDeps): PeopleModule {
         labelKey: 'nav.employees',
         groupKey: 'nav.people.group',
         permission: 'people.employee.read',
+      },
+    ],
+    eventTypes: [
+      {
+        key: EXPIRY_EVENT,
+        moduleKey: 'people',
+        label: 'Documents expiring',
+        description:
+          'Daily: documents reached an alert window or expired. Payload: date, expiringCount, expiredCount, expiring[], expired[].',
       },
     ],
     recycleTypes: [
@@ -184,5 +228,5 @@ export function createPeopleModule(deps: PeopleModuleDeps): PeopleModule {
       },
     ],
   };
-  return { manifest, employeeStateTarget: createEmployeeStateTarget(employees) };
+  return { manifest, employeeStateTarget: createEmployeeStateTarget(employees), expiry };
 }

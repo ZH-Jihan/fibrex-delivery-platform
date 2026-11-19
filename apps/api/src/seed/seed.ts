@@ -34,6 +34,7 @@ import { PARTY_PERMISSIONS } from '../modules/party/index.js';
 import {
   PEOPLE_PERMISSIONS,
   seedDocumentTypes,
+  seedExpiryAlerts,
   seedEmployeeStatus,
 } from '../modules/people/index.js';
 
@@ -298,6 +299,8 @@ export async function runSeed(pool: pg.Pool, opts: SeedOptions): Promise<SeedRes
     );
     // Standard document types and who must hold them (phase 3 plan question 3).
     await seedDocumentTypes(client, tenantId, companyId);
+    // Expiry alerts: the owner's email list, windows 14 and 7, in-app rule (phase 3 row 3.4).
+    await seedExpiryAlerts(client, tenantId, companyId);
 
     await client.query('COMMIT');
     return { tenantId, companyId, superAdminId, superAdminCreated };

@@ -226,6 +226,7 @@ model Company {
   documentTypes        DocumentType[]
   documentRequirements DocumentRequirement[]
   documents            Document[]
+  expiryAlertLogs      ExpiryAlertLog[]
 
   @@unique([tenantId, id], map: "company_tenant_id_uq")
   @@map("company")

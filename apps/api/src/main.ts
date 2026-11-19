@@ -648,8 +648,17 @@ async function main(): Promise<void> {
         attachables,
         states,
         onCreated: (key, id) => workflows.onCreated(key, id),
+        expiryJob: { prisma, messaging, outbox, logger },
       });
       stateTargets.register(EMPLOYEE_ENTITY, people.employeeStateTarget);
+      // Document expiry (row 3.4): daily; safe to run twice (the alert log is the guard).
+      scheduler.register({
+        name: 'document-expiry',
+        everyMs: 24 * 60 * 60_000,
+        run: async () => {
+          await people.expiry.run();
+        },
+      });
       modules.register(people.manifest);
       modules.register(createFilesModule({ uow, registry, permissions, files, attachables }));
       modules.register(createNotifyModule({ uow, registry, permissions, notify }));
