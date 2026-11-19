@@ -63,7 +63,7 @@ describe('buildNav', () => {
           '/organisation/record-types',
         ],
       ],
-      ['nav.people.group', ['/people']],
+      ['nav.people.group', ['/people', '/employees']],
       ['nav.reports', ['/reports']],
       [
         'nav.ledger',
