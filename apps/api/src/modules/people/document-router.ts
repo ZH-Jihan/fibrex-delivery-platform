@@ -90,6 +90,7 @@ const item = z
     expiryDate: date.nullable(),
     status: z.enum(DOCUMENT_STATUSES),
     replacesId: z.uuid().nullable(),
+    ocrJobId: z.uuid().nullable(),
     version: z.number().int(),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
@@ -129,6 +130,7 @@ export function toDocumentItem(row: DocumentRow) {
     expiryDate: fromDate(row.expiryDate),
     status: row.status as (typeof DOCUMENT_STATUSES)[number],
     replacesId: row.replacesId,
+    ocrJobId: row.ocrJobId,
     version: row.version,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -143,6 +145,8 @@ const invalid = (path: string, code: string, message: string) =>
 export interface DocumentRepository extends Repository<DocumentRow> {
   /** Rule 5: the renewal of `id` (expected at `version`); returns the new document. */
   renew(id: string, version: number, details: Record<string, unknown>): Promise<DocumentRow>;
+  /** Row 3.6: a new document confirmed from an OCR job (the job id is kept on it). */
+  createFromOcr(data: Record<string, unknown>, ocrJobId: string): Promise<DocumentRow>;
 }
 
 export function createDocumentRepository(deps: {
@@ -234,7 +238,11 @@ export function createDocumentRepository(deps: {
     });
 
   /** Inserts a new document (create and renewal share it). */
-  async function insert(data: Record<string, unknown>, replacesId: string | null) {
+  async function insert(
+    data: Record<string, unknown>,
+    replacesId: string | null,
+    ocrJobId: string | null = null,
+  ) {
     const ownerType = String(data.ownerType);
     const ownerId = String(data.ownerId);
     const companyId = await ownerCompany(ownerType, ownerId);
@@ -286,6 +294,7 @@ export function createDocumentRepository(deps: {
             ...numberColumns(data.number, type?.code ?? 'custom'),
             status,
             replacesId,
+            ocrJobId,
           },
           DATES,
         ),
@@ -301,6 +310,7 @@ export function createDocumentRepository(deps: {
   return {
     ...base,
     create: (data) => insert(data, null),
+    createFromOcr: (data, ocrJobId) => insert(data, null, ocrJobId),
 
     update: async (id, version, changes) => {
       const current = await base.get(id);

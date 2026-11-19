@@ -15,9 +15,9 @@ model FileObject {
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   createdBy    String?  @map("created_by") @db.Uuid
 
-  company     Company          @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "file_object_company_fk", onDelete: NoAction, onUpdate: NoAction)
-  attachments FileAttachment[]
-  rawInputs   RawInput[]
+  company            Company             @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "file_object_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  attachments        FileAttachment[]
+  rawInputs          RawInput[]
   generatedDocuments GeneratedDocument[]
   exportJobs         ExportJob[]
 
@@ -74,9 +74,9 @@ model RawInput {
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   createdBy    String?  @map("created_by") @db.Uuid
 
-  company Company     @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "raw_input_company_fk", onDelete: NoAction, onUpdate: NoAction)
-  file    FileObject? @relation(fields: [companyId, fileObjectId], references: [companyId, id], map: "raw_input_file_fk", onDelete: NoAction, onUpdate: NoAction)
-  importJobs ImportJob[]
+  company        Company           @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "raw_input_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  file           FileObject?       @relation(fields: [companyId, fileObjectId], references: [companyId, id], map: "raw_input_file_fk", onDelete: NoAction, onUpdate: NoAction)
+  importJobs     ImportJob[]
   bankStatements GlBankStatement[]
 
   @@index([companyId, kind, receivedAt(sort: Desc)], map: "raw_input_kind_idx")

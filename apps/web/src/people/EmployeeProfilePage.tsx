@@ -16,12 +16,15 @@
  *     it. The Approve button is therefore hidden for the requester and replaced by a note; the
  *     API and the database refuse it too. Payment uses only approved ("verified") accounts.
  *   - Only the last digits of an account number are shown.
+ *   - "Scan to fill in" (row 3.6) reads a scan with OCR and opens a confirm panel
+ *     (./OcrScan.tsx); the document is saved only when the person confirms.
  *
  * Depends on: api client, auth, i18n, ui (components, EntityForm, HistoryTab, toast),
- * data/upload, @fibrex/shared (documents, bank account form). Used by: App.tsx route.
+ * data/upload, ./OcrScan.tsx, @fibrex/shared (documents, bank account form). Used by: App.tsx
+ * route.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, FilePlus, Landmark, Upload } from 'lucide-react';
+import { ArrowLeft, FilePlus, Landmark, ScanText, Upload } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { bankAccountFormSchema, documentCreateSchema } from '@fibrex/shared';
 import { ApiError, api } from '../api/client';
@@ -32,6 +35,7 @@ import { Button, EmptyState, ErrorAlert, PageHeader, Pill, Skeleton } from '../u
 import { EntityForm, type FormField, type FormSchema } from '../ui/EntityForm';
 import { HistoryTab } from '../ui/HistoryTab';
 import { useToast } from '../ui/toast';
+import { OcrConfirmPanel, type OcrJob } from './OcrScan';
 
 interface Employee {
   id: string;
@@ -380,6 +384,7 @@ function DocumentsTab({ partyId }: { partyId: string }) {
   const [types, setTypes] = useState<DocumentType[]>([]);
   const [error, setError] = useState<unknown>(null);
   const [form, setForm] = useState<'none' | 'typed' | 'other'>('none');
+  const [ocrJob, setOcrJob] = useState<OcrJob | null>(null);
 
   const load = useCallback(() => {
     api<{ items: DocumentRow[] }>('/documents', { query: { ownerType: 'party', ownerId: partyId } })
@@ -431,15 +436,31 @@ function DocumentsTab({ partyId }: { partyId: string }) {
     }
   };
 
+  /** Row 3.6: upload, read with OCR, then show the confirm panel (nothing saved yet). */
+  const scanToFill = async (file: File) => {
+    try {
+      const fileObjectId = await uploadFile(file);
+      const job = await api<OcrJob>('/ocr/jobs', {
+        method: 'POST',
+        body: { fileObjectId, ownerId: partyId },
+      });
+      setForm('none');
+      setOcrJob(job);
+    } catch (e) {
+      setError(e);
+    }
+  };
+  const typeOptions = types.map((x) => ({
+    value: x.id,
+    label: x.name[lang] ?? x.name.en ?? x.code,
+  }));
+
   const typed: FormField[] = [
     {
       name: 'documentTypeId',
       label: t('employees.docs.type'),
       type: 'select',
-      options: [
-        { value: '', label: '' },
-        ...types.map((x) => ({ value: x.id, label: x.name[lang] ?? x.name.en ?? x.code })),
-      ],
+      options: [{ value: '', label: '' }, ...typeOptions],
     },
     { name: 'number', label: t('employees.docs.number') },
     { name: 'issueDate', label: t('employees.docs.issueDate'), hint: 'YYYY-MM-DD' },
@@ -470,8 +491,39 @@ function DocumentsTab({ partyId }: { partyId: string }) {
             }}
           >
             {t('employees.docs.addOther')}
-          </Button>
+          </Button>{' '}
+          {auth.can('people.ocr_job.create') ? (
+            <label className="btn">
+              <ScanText size={16} aria-hidden /> {t('employees.docs.scanToFill')}
+              <input
+                type="file"
+                hidden
+                accept="image/*,application/pdf"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (file !== undefined) void scanToFill(file);
+                }}
+              />
+            </label>
+          ) : null}
         </p>
+      ) : null}
+      {ocrJob !== null ? (
+        <OcrConfirmPanel
+          key={ocrJob.id}
+          job={ocrJob}
+          partyId={partyId}
+          typeOptions={typeOptions}
+          onCancel={() => {
+            setOcrJob(null);
+          }}
+          onDone={() => {
+            setOcrJob(null);
+            toast.show(t('ocr.saved'), 'success');
+            load();
+          }}
+        />
       ) : null}
       {form !== 'none' ? (
         <EntityForm

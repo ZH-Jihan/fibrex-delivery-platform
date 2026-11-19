@@ -128,6 +128,7 @@ import { sealAuditLog } from './kernel/audit/sealing-job.js';
 import { createRedis } from './kernel/redis/client.js';
 import { S3StorageAdapter } from './adapters/storage/s3.js';
 import { ChromiumPdfRenderer } from './adapters/pdf/chromium.js';
+import { StubOcrAdapter } from './adapters/ocr/stub.js';
 import { PdfQueue } from './kernel/templates/pdf-queue.js';
 import { AttachableRegistry, FilesService, createFilesModule } from './modules/files/index.js';
 import {
@@ -649,6 +650,8 @@ async function main(): Promise<void> {
         states,
         onCreated: (key, id) => workflows.onCreated(key, id),
         expiryJob: { prisma, messaging, outbox, logger },
+        // STUB OCR (demo values) until the owner chooses a provider: an adapter swap only.
+        ocr: { adapter: new StubOcrAdapter(), storage },
       });
       stateTargets.register(EMPLOYEE_ENTITY, people.employeeStateTarget);
       // Document expiry (row 3.4): daily; safe to run twice (the alert log is the guard).

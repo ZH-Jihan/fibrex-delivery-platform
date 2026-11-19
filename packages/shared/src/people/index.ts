@@ -173,3 +173,4 @@ export type EmployeeDuplicateCheckInput = z.infer<typeof employeeDuplicateCheckS
 export * from './documents.js';
 export * from './employee-form.js';
 export * from './expiry.js';
+export * from './ocr.js';

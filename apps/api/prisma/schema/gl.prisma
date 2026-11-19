@@ -25,12 +25,12 @@ model GlAccount {
   deletedBy           String?   @map("deleted_by") @db.Uuid
   deleteReason        String?   @map("delete_reason")
 
-  company  Company         @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "account_company_fk", onDelete: NoAction, onUpdate: NoAction)
-  parent   GlAccount?      @relation("GlAccountTree", fields: [companyId, parentId], references: [companyId, id], map: "account_parent_fk", onDelete: NoAction, onUpdate: NoAction)
-  children GlAccount[]     @relation("GlAccountTree")
-  currency Currency?       @relation(fields: [currencyRestriction], references: [code], onDelete: NoAction, onUpdate: NoAction)
-  taxCodes GlTaxCode[]
-  lines    GlJournalLine[]
+  company       Company           @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "account_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  parent        GlAccount?        @relation("GlAccountTree", fields: [companyId, parentId], references: [companyId, id], map: "account_parent_fk", onDelete: NoAction, onUpdate: NoAction)
+  children      GlAccount[]       @relation("GlAccountTree")
+  currency      Currency?         @relation(fields: [currencyRestriction], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  taxCodes      GlTaxCode[]
+  lines         GlJournalLine[]
   cashLocations GlCashLocation[]
   matchRules    GlBankMatchRule[]
 
@@ -253,12 +253,12 @@ model GlJournal {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   createdBy      String?  @map("created_by") @db.Uuid
 
-  company      Company         @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "journal_company_fk", onDelete: NoAction, onUpdate: NoAction)
-  fiscalPeriod GlFiscalPeriod  @relation(fields: [companyId, fiscalPeriodId], references: [companyId, id], map: "journal_period_fk", onDelete: NoAction, onUpdate: NoAction)
-  postingRule  GlPostingRule?  @relation(fields: [companyId, postingRuleId], references: [companyId, id], map: "journal_rule_fk", onDelete: NoAction, onUpdate: NoAction)
-  reversalOf   GlJournal?      @relation("GlJournalReversal", fields: [companyId, reversalOfId], references: [companyId, id], map: "journal_reversal_fk", onDelete: NoAction, onUpdate: NoAction)
-  reversals    GlJournal[]     @relation("GlJournalReversal")
-  lines        GlJournalLine[]
+  company        Company           @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "journal_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  fiscalPeriod   GlFiscalPeriod    @relation(fields: [companyId, fiscalPeriodId], references: [companyId, id], map: "journal_period_fk", onDelete: NoAction, onUpdate: NoAction)
+  postingRule    GlPostingRule?    @relation(fields: [companyId, postingRuleId], references: [companyId, id], map: "journal_rule_fk", onDelete: NoAction, onUpdate: NoAction)
+  reversalOf     GlJournal?        @relation("GlJournalReversal", fields: [companyId, reversalOfId], references: [companyId, id], map: "journal_reversal_fk", onDelete: NoAction, onUpdate: NoAction)
+  reversals      GlJournal[]       @relation("GlJournalReversal")
+  lines          GlJournalLine[]
   manualJournals GlManualJournal[]
 
   @@unique([companyId, id], map: "journal_company_id_uq")
@@ -444,10 +444,10 @@ model GlBankStatement {
   deletedBy            String?   @map("deleted_by") @db.Uuid
   deleteReason         String?   @map("delete_reason")
 
-  company     Company              @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "bank_statement_company_fk", onDelete: NoAction, onUpdate: NoAction)
-  bankAccount GlCompanyBankAccount @relation(fields: [companyId, companyBankAccountId], references: [companyId, id], map: "bank_statement_account_fk", onDelete: NoAction, onUpdate: NoAction)
-  rawInput    RawInput             @relation(fields: [rawInputId], references: [id], map: "bank_statement_raw_input_fk", onDelete: NoAction, onUpdate: NoAction)
-  currencyRef Currency             @relation(fields: [currency], references: [code], map: "bank_statement_currency_fk", onDelete: NoAction, onUpdate: NoAction)
+  company     Company               @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "bank_statement_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  bankAccount GlCompanyBankAccount  @relation(fields: [companyId, companyBankAccountId], references: [companyId, id], map: "bank_statement_account_fk", onDelete: NoAction, onUpdate: NoAction)
+  rawInput    RawInput              @relation(fields: [rawInputId], references: [id], map: "bank_statement_raw_input_fk", onDelete: NoAction, onUpdate: NoAction)
+  currencyRef Currency              @relation(fields: [currency], references: [code], map: "bank_statement_currency_fk", onDelete: NoAction, onUpdate: NoAction)
   lines       GlBankStatementLine[]
 
   @@unique([companyId, id], map: "bank_statement_company_id_uq")
@@ -479,9 +479,9 @@ model GlBankStatementLine {
   deletedBy    String?   @map("deleted_by") @db.Uuid
   deleteReason String?   @map("delete_reason")
 
-  company     Company         @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "bank_statement_line_company_fk", onDelete: NoAction, onUpdate: NoAction)
-  statement   GlBankStatement @relation(fields: [companyId, statementId], references: [companyId, id], map: "bank_statement_line_statement_fk", onDelete: NoAction, onUpdate: NoAction)
-  currencyRef Currency        @relation(fields: [currency], references: [code], map: "bank_statement_line_currency_fk", onDelete: NoAction, onUpdate: NoAction)
+  company     Company                 @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "bank_statement_line_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  statement   GlBankStatement         @relation(fields: [companyId, statementId], references: [companyId, id], map: "bank_statement_line_statement_fk", onDelete: NoAction, onUpdate: NoAction)
+  currencyRef Currency                @relation(fields: [currency], references: [code], map: "bank_statement_line_currency_fk", onDelete: NoAction, onUpdate: NoAction)
   matches     GlReconciliationMatch[]
 
   @@unique([companyId, id], map: "bank_statement_line_company_id_uq")
@@ -542,9 +542,9 @@ model GlReconciliationMatch {
   deletedBy       String?   @map("deleted_by") @db.Uuid
   deleteReason    String?   @map("delete_reason")
 
-  company       Company              @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "reconciliation_match_company_fk", onDelete: NoAction, onUpdate: NoAction)
-  statementLine GlBankStatementLine  @relation(fields: [companyId, statementLineId], references: [companyId, id], map: "reconciliation_match_line_fk", onDelete: NoAction, onUpdate: NoAction)
-  rule          GlBankMatchRule?     @relation(fields: [companyId, ruleId], references: [companyId, id], map: "reconciliation_match_rule_fk", onDelete: NoAction, onUpdate: NoAction)
+  company       Company             @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "reconciliation_match_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  statementLine GlBankStatementLine @relation(fields: [companyId, statementLineId], references: [companyId, id], map: "reconciliation_match_line_fk", onDelete: NoAction, onUpdate: NoAction)
+  rule          GlBankMatchRule?    @relation(fields: [companyId, ruleId], references: [companyId, id], map: "reconciliation_match_rule_fk", onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([companyId, id], map: "reconciliation_match_company_id_uq")
   @@unique([statementLineId], map: "reconciliation_match_line_uq", where: raw("deleted_at IS NULL"))

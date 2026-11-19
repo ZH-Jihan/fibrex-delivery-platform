@@ -4,8 +4,9 @@
  * Purpose: the employee master database (SPEC 3.2) on top of the party model. Row 3.1:
  * employees, employment periods and placements. Row 3.2: document types, requirements and
  * documents (sealed numbers, renewals, scans through the files module). Row 3.4: the expiry
- * engine (daily job, alert settings, expiring list and calendar). OCR and import follow in
- * rows 3.6 to 3.8. An employee is a party with the `employee` role; other
+ * engine (daily job, alert settings, expiring list and calendar). Row 3.6: OCR of scans
+ * (pre-fill, then a person confirms; mounted when src/main.ts passes an OCR adapter and the
+ * object store). Bulk upload and import follow in rows 3.7 and 3.8. An employee is a party with the `employee` role; other
  * modules reference the `party_id`.
  *
  * `createPeopleModule` returns the module manifest (routes, permissions, recycle-bin types,
@@ -15,11 +16,13 @@
  *
  * Depends on: ./employee-router.ts, ./placement-router.ts, ./employee-status.ts,
  * ./document-type-router.ts, ./document-router.ts, ./expiry-service.ts, ./expiry-router.ts,
- * ./expiry-seed.ts, modules/party (PartyService, PartyVault),
+ * ./expiry-seed.ts, ./ocr-router.ts, adapters/ocr, adapters/storage, modules/party (PartyService, PartyVault),
  * modules/files (AttachableRegistry), kernel/audit, kernel/module-registry, kernel/permissions,
  * kernel/numbering, kernel/states. Used by: src/main.ts, src/seed/seed.ts.
  */
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
+import type { OcrAdapter } from '../../adapters/ocr/interface.js';
+import type { StorageAdapter } from '../../adapters/storage/interface.js';
 import type { AuditService } from '../../kernel/audit/audit-service.js';
 import type { RecycleBinType } from '../../kernel/audit/recycle-bin.js';
 import type { BaseRow, Repository } from '../../kernel/db/repository.js';
@@ -53,6 +56,7 @@ import {
 import { createEmployeeStateTarget } from './employee-status.js';
 import { createExpiryRouter } from './expiry-router.js';
 import { EXPIRY_EVENT, ExpiryService, type ExpiryJobDeps } from './expiry-service.js';
+import { createOcrRouter } from './ocr-router.js';
 import { PEOPLE_REPORTS } from './people-reports.js';
 import {
   createPeriodRepository,
@@ -95,6 +99,8 @@ export const PEOPLE_PERMISSIONS: readonly PermissionDef[] = [
     'update',
     'Change the expiry email list and alert windows',
   ),
+  permission('people', 'people.ocr_job', 'create', 'Read a scan with OCR to pre-fill a document'),
+  permission('people', 'people.ocr_job', 'read', 'See OCR readings of scans'),
 ];
 
 export interface PeopleModuleDeps {
@@ -112,7 +118,9 @@ export interface PeopleModuleDeps {
   onCreated?: (entityType: string, id: string) => Promise<void>;
   /** The daily expiry job (src/main.ts); without it the expiry lists still work. */
   expiryJob?: ExpiryJobDeps;
-  /** Fixed clock for the expiry engine (tests). */
+  /** Row 3.6: the OCR adapter and the object store holding the scans; both or neither. */
+  ocr?: { adapter: OcrAdapter; storage: StorageAdapter };
+  /** Fixed clock for the expiry engine and OCR (tests). */
   now?: () => Date;
 }
 
@@ -164,6 +172,22 @@ export function createPeopleModule(deps: PeopleModuleDeps): PeopleModule {
       }),
       // Before the documents CRUD router: /documents/expiring is not a document id.
       createExpiryRouter({ uow, registry, permissions, expiry }),
+      ...(deps.ocr === undefined
+        ? []
+        : [
+            createOcrRouter({
+              uow,
+              registry,
+              permissions,
+              parties: deps.parties,
+              vault: deps.vault,
+              attachables: deps.attachables,
+              documents,
+              storage: deps.ocr.storage,
+              ocr: deps.ocr.adapter,
+              ...(deps.now === undefined ? {} : { now: deps.now }),
+            }),
+          ]),
       createDocumentRouter({
         uow,
         registry,

@@ -13,13 +13,13 @@ model Currency {
   updatedBy  String?  @map("updated_by") @db.Uuid
   version    Int      @default(1)
 
-  companies      Company[]
-  glAccounts     GlAccount[]
-  glRatesFrom    GlExchangeRate[] @relation("GlExchangeRateFrom")
-  glRatesTo      GlExchangeRate[] @relation("GlExchangeRateTo")
-  glJournalLines GlJournalLine[]
-  glCashLocations GlCashLocation[]
-  glBankStatements GlBankStatement[]
+  companies            Company[]
+  glAccounts           GlAccount[]
+  glRatesFrom          GlExchangeRate[]      @relation("GlExchangeRateFrom")
+  glRatesTo            GlExchangeRate[]      @relation("GlExchangeRateTo")
+  glJournalLines       GlJournalLine[]
+  glCashLocations      GlCashLocation[]
+  glBankStatements     GlBankStatement[]
   glBankStatementLines GlBankStatementLine[]
 
   @@map("currency")
@@ -168,65 +168,66 @@ model Company {
   tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   currency Currency @relation(fields: [baseCurrency], references: [code], onDelete: NoAction, onUpdate: NoAction)
 
-  branches             Branch[]
-  orgUnits             OrgUnit[]
-  modules              CompanyModule[]
-  settings             Setting[]
-  numberSequences      NumberSequence[]
-  linksFrom            InterCompanyLink[]        @relation("InterCompanyFrom")
-  linksTo              InterCompanyLink[]        @relation("InterCompanyTo")
-  memberships          CompanyMembership[]
-  permissionOverrides  UserPermissionOverride[]
-  dataScopes           DataScope[]
-  sessions             Session[]
-  apiClients           ApiClient[]
-  apiKeys              ApiKey[]
-  fileObjects          FileObject[]
-  fileAttachments      FileAttachment[]
-  rawInputs            RawInput[]
-  parties              Party[]
-  partyRoles           PartyRole[]
-  partyIdentifiers     PartyIdentifier[]
-  partyContacts        PartyContact[]
-  partyAddresses       PartyAddress[]
-  partyRelationships   PartyRelationship[]
-  partyBankAccounts    PartyBankAccount[]
-  partyDuplicates      PartyDuplicateCandidate[]
-  partyMerges          PartyMerge[]
-  customRecords        CustomRecord[]
-  recordLinks          RecordLink[]
-  templateVersions     TemplateVersion[]
-  generatedDocuments   GeneratedDocument[]
-  stateHistory         StateHistory[]
-  serviceRequests      ServiceRequest[]
-  workflowInstances    WorkflowInstance[]
-  workflowTasks        WorkflowTask[]
-  workflowEvents       WorkflowEvent[]
-  importJobs           ImportJob[]
-  exportJobs           ExportJob[]
-  webhookSubscriptions WebhookSubscription[]
-  glAccounts           GlAccount[]
-  glCostCentres        GlCostCentre[]
-  glTaxCodes           GlTaxCode[]
-  glExchangeRates      GlExchangeRate[]
-  glFiscalYears        GlFiscalYear[]
-  glFiscalPeriods      GlFiscalPeriod[]
-  glPostingRules       GlPostingRule[]
-  glJournals           GlJournal[]
-  glManualJournals     GlManualJournal[]
-  glCashLocations      GlCashLocation[]
-  glCompanyBankAccounts GlCompanyBankAccount[]
-  glBankStatements     GlBankStatement[]
-  glBankStatementLines GlBankStatementLine[]
-  glBankMatchRules     GlBankMatchRule[]
+  branches                Branch[]
+  orgUnits                OrgUnit[]
+  modules                 CompanyModule[]
+  settings                Setting[]
+  numberSequences         NumberSequence[]
+  linksFrom               InterCompanyLink[]        @relation("InterCompanyFrom")
+  linksTo                 InterCompanyLink[]        @relation("InterCompanyTo")
+  memberships             CompanyMembership[]
+  permissionOverrides     UserPermissionOverride[]
+  dataScopes              DataScope[]
+  sessions                Session[]
+  apiClients              ApiClient[]
+  apiKeys                 ApiKey[]
+  fileObjects             FileObject[]
+  fileAttachments         FileAttachment[]
+  rawInputs               RawInput[]
+  parties                 Party[]
+  partyRoles              PartyRole[]
+  partyIdentifiers        PartyIdentifier[]
+  partyContacts           PartyContact[]
+  partyAddresses          PartyAddress[]
+  partyRelationships      PartyRelationship[]
+  partyBankAccounts       PartyBankAccount[]
+  partyDuplicates         PartyDuplicateCandidate[]
+  partyMerges             PartyMerge[]
+  customRecords           CustomRecord[]
+  recordLinks             RecordLink[]
+  templateVersions        TemplateVersion[]
+  generatedDocuments      GeneratedDocument[]
+  stateHistory            StateHistory[]
+  serviceRequests         ServiceRequest[]
+  workflowInstances       WorkflowInstance[]
+  workflowTasks           WorkflowTask[]
+  workflowEvents          WorkflowEvent[]
+  importJobs              ImportJob[]
+  exportJobs              ExportJob[]
+  webhookSubscriptions    WebhookSubscription[]
+  glAccounts              GlAccount[]
+  glCostCentres           GlCostCentre[]
+  glTaxCodes              GlTaxCode[]
+  glExchangeRates         GlExchangeRate[]
+  glFiscalYears           GlFiscalYear[]
+  glFiscalPeriods         GlFiscalPeriod[]
+  glPostingRules          GlPostingRule[]
+  glJournals              GlJournal[]
+  glManualJournals        GlManualJournal[]
+  glCashLocations         GlCashLocation[]
+  glCompanyBankAccounts   GlCompanyBankAccount[]
+  glBankStatements        GlBankStatement[]
+  glBankStatementLines    GlBankStatementLine[]
+  glBankMatchRules        GlBankMatchRule[]
   glReconciliationMatches GlReconciliationMatch[]
-  employees            Employee[]
-  employmentPeriods    EmploymentPeriod[]
-  employeePlacements   EmployeePlacement[]
-  documentTypes        DocumentType[]
-  documentRequirements DocumentRequirement[]
-  documents            Document[]
-  expiryAlertLogs      ExpiryAlertLog[]
+  employees               Employee[]
+  employmentPeriods       EmploymentPeriod[]
+  employeePlacements      EmployeePlacement[]
+  documentTypes           DocumentType[]
+  documentRequirements    DocumentRequirement[]
+  documents               Document[]
+  expiryAlertLogs         ExpiryAlertLog[]
+  ocrJobs                 OcrJob[]
 
   @@unique([tenantId, id], map: "company_tenant_id_uq")
   @@map("company")
@@ -250,7 +251,7 @@ model Branch {
   deletedBy    String?   @map("deleted_by") @db.Uuid
   deleteReason String?   @map("delete_reason")
 
-  company       Company         @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "branch_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  company       Company             @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "branch_company_fk", onDelete: NoAction, onUpdate: NoAction)
   orgUnits      OrgUnit[]
   customRecords CustomRecord[]
   glLines       GlJournalLine[]
@@ -282,10 +283,10 @@ model OrgUnit {
   deletedBy    String?   @map("deleted_by") @db.Uuid
   deleteReason String?   @map("delete_reason")
 
-  company  Company   @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "org_unit_company_fk", onDelete: NoAction, onUpdate: NoAction)
-  branch   Branch?   @relation(fields: [companyId, branchId], references: [companyId, id], map: "org_unit_branch_fk", onDelete: NoAction, onUpdate: NoAction)
-  parent   OrgUnit?  @relation("OrgUnitTree", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  children OrgUnit[] @relation("OrgUnitTree")
+  company        Company             @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "org_unit_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  branch         Branch?             @relation(fields: [companyId, branchId], references: [companyId, id], map: "org_unit_branch_fk", onDelete: NoAction, onUpdate: NoAction)
+  parent         OrgUnit?            @relation("OrgUnitTree", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children       OrgUnit[]           @relation("OrgUnitTree")
   zonePlacements EmployeePlacement[] @relation("PlacementZone")
   teamPlacements EmployeePlacement[] @relation("PlacementTeam")
 

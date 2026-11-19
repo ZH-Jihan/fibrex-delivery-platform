@@ -6,7 +6,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | --- | --- | --- | --- | --- |
 | 1 | Foundation A | Done (13 of 13 commits), awaiting acceptance | | Plan: `docs/phases/phase-01-plan.md` |
 | 2 | Foundation B | Done (rows 2.1 to 2.20), accepted | 2026-11-19 | Plan: `docs/phases/phase-02-plan.md` |
-| 3 | People and documents | Not started | | |
+| 3 | People and documents | In progress (rows 3.1 to 3.6 done) | | Plan: `docs/phases/phase-03-plan.md` |
 | 4 | Performance and tracking | Not started | | |
 | 5 | Inventory and fleet | Not started | | |
 | 6 | Rates, loans and fund | Not started | | |
@@ -94,6 +94,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | 3.3b | Employee profile (`web/src/people/EmployeeProfilePage.tsx`, `/employees/:id`, "Open profile" on the list): tabs Profile (details, bank accounts with verify, approve by a second person only, reject with a reason), Documents (typed and "Add other document", scan upload, single-page replace), Placement (placements, employment periods), History; shared `bankAccountFormSchema`. Next: row 3.4 Expiry engine (S) | 489 API + 144 shared + 28 formula + 118 web tests pass (6 new); lint, typecheck clean; web needs `--testTimeout 30000` under load (known) |
 | 3.4 | Expiry engine (migration `people_expiry`: insert-only `expiry_alert_log` unique per document, window and expiry date, `-1` = expired in-app only; definer `people.expiry_companies()`; `ExpiryService` daily job `document-expiry`: status refresh, windows 14 and 7 by default, no email on the day or after, one consolidated email per company to the setting `people.expiry_alerts` (seeded with the owner list), outbox event `people.documents_expiring` with a seeded in-app rule for admin and manager; `GET /documents/expiring`, `GET /documents/expiry-calendar`, `GET`/`PUT /documents/expiry-settings`; document status uses the company windows). Next: row 3.5 Expiry screens and people reports (M) | 502 API (13 new) + 154 shared (10 new) + 28 formula + 118 web tests pass; lint, typecheck clean |
 | 3.5 | Expiry screens and people reports (`web/src/people/ExpiryPages.tsx`: red/amber/green list with days left, month calendar, alert settings; reports `people.expiring_documents`, `people.missing_documents`, `people.headcount` in `modules/people/people-reports.ts`, run on the Reports page) | 506 API (4 new) + 154 shared + 28 formula + 121 web (3 new) tests pass; lint, typecheck clean. Next: row 3.6 |
+| 3.6 | OCR adapter and confirm flow (migration `people_ocr`: `ocr_job` with per-field confidence, flags, number sealed + hash, `document.ocr_job_id`; `adapters/ocr` interface + STUB; `POST /ocr/jobs`, `GET /ocr/jobs/{id}`, `POST /ocr/jobs/{id}/confirm` (only path from OCR to a document); flags low confidence, name mismatch, expired, unreadable, cropped, duplicate; `kernel/adapters/adapter-health.ts` writes `integration_health`; web "Scan to fill in" confirm panel). Next: row 3.7 Bulk scan upload (M) | 512 API (6 new) + 161 shared (7 new) + 28 formula + 124 web (3 new) tests pass; Playwright `ocr.spec.ts` passes; lint, typecheck clean; `phase2.spec.ts` import step timed out once in the full e2e run, passes alone |
 
 ## Phase 1 summary
 
@@ -135,6 +136,8 @@ pnpm test
 ## Adapter stubs still to replace
 
 - `apps/api/src/adapters/messaging/stub.ts` (SMS and email): sign-in codes and password-reset links are written to the API log instead of being sent (text hidden in production). Email uses the SMTP adapter (`smtp.ts`) whenever `SMTP_HOST` is set; SMS gets a real provider in Phase 9.
+
+- `apps/api/src/adapters/ocr/stub.ts` (OCR): returns demo values (number from the file hash, name from the hint); used everywhere until the owner picks a provider; the confirm panel says so.
 
 - `apps/api/src/adapters/pdf/stub.ts` (tiny PDF, tests only; development and production use Chromium).
 

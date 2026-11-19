@@ -131,6 +131,7 @@ model DocumentType {
   company      Company               @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "document_type_company_fk", onDelete: NoAction, onUpdate: NoAction)
   requirements DocumentRequirement[]
   documents    Document[]
+  ocrJobs      OcrJob[]
 
   @@unique([companyId, id], map: "document_type_company_id_uq")
   @@unique([companyId, code], map: "document_type_code_uq", where: { deletedAt: null })
@@ -179,6 +180,7 @@ model Document {
   expiryDate      DateTime? @map("expiry_date") @db.Date
   status          String    @default("valid")
   replacesId      String?   @map("replaces_id") @db.Uuid
+  ocrJobId        String?   @map("ocr_job_id") @db.Uuid
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   createdBy       String?   @map("created_by") @db.Uuid
   updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
@@ -188,14 +190,16 @@ model Document {
   deletedBy       String?   @map("deleted_by") @db.Uuid
   deleteReason    String?   @map("delete_reason")
 
-  company      Company       @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "document_company_fk", onDelete: NoAction, onUpdate: NoAction)
-  documentType DocumentType? @relation(fields: [companyId, documentTypeId], references: [companyId, id], map: "document_type_fk", onDelete: NoAction, onUpdate: NoAction)
-  replaces     Document?     @relation("DocumentRenewal", fields: [companyId, replacesId], references: [companyId, id], map: "document_replaces_fk", onDelete: NoAction, onUpdate: NoAction)
-  renewals     Document[]    @relation("DocumentRenewal")
+  company      Company          @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "document_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  documentType DocumentType?    @relation(fields: [companyId, documentTypeId], references: [companyId, id], map: "document_type_fk", onDelete: NoAction, onUpdate: NoAction)
+  replaces     Document?        @relation("DocumentRenewal", fields: [companyId, replacesId], references: [companyId, id], map: "document_replaces_fk", onDelete: NoAction, onUpdate: NoAction)
+  renewals     Document[]       @relation("DocumentRenewal")
+  ocrJob       OcrJob?          @relation(fields: [companyId, ocrJobId], references: [companyId, id], map: "document_ocr_job_fk", onDelete: NoAction, onUpdate: NoAction)
   expiryAlerts ExpiryAlertLog[]
 
   @@unique([companyId, id], map: "document_company_id_uq")
   @@unique([replacesId], map: "document_replaces_uq", where: raw("replaces_id IS NOT NULL AND deleted_at IS NULL"))
+  @@unique([ocrJobId], map: "document_ocr_job_uq", where: raw("ocr_job_id IS NOT NULL"))
   @@index([ownerType, ownerId], map: "document_owner_idx")
   @@index([companyId, expiryDate], map: "document_expiry_idx", where: raw("deleted_at IS NULL AND status <> 'replaced'"))
   @@index([companyId, numberHash], map: "document_number_hash_idx")
@@ -222,5 +226,39 @@ model ExpiryAlertLog {
   @@unique([documentId, windowDays, expiryDate], map: "expiry_alert_log_once_uq")
   @@index([companyId, alertedOn], map: "expiry_alert_log_company_idx")
   @@map("expiry_alert_log")
+  @@schema("people")
+}
+
+/// One OCR read of a scan (row 3.6): fields with confidence and flags; a document only on confirm.
+model OcrJob {
+  id              String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
+  fileObjectId    String    @map("file_object_id") @db.Uuid
+  provider        String
+  status          String
+  ownerPartyId    String?   @map("owner_party_id") @db.Uuid
+  documentTypeId  String?   @map("document_type_id") @db.Uuid
+  result          Json      @default("[]")
+  flags           Json      @default("[]")
+  numberEncrypted Bytes?    @map("number_encrypted")
+  numberHash      String?   @map("number_hash")
+  error           String?
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy       String?   @map("created_by") @db.Uuid
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy       String?   @map("updated_by") @db.Uuid
+  version         Int       @default(1)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy       String?   @map("deleted_by") @db.Uuid
+  deleteReason    String?   @map("delete_reason")
+
+  company      Company       @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "ocr_job_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  documentType DocumentType? @relation(fields: [companyId, documentTypeId], references: [companyId, id], map: "ocr_job_type_fk", onDelete: NoAction, onUpdate: NoAction)
+  documents    Document[]
+
+  @@unique([companyId, id], map: "ocr_job_company_id_uq")
+  @@index([companyId, fileObjectId], map: "ocr_job_file_idx")
+  @@map("ocr_job")
   @@schema("people")
 }
