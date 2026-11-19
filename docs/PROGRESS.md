@@ -5,7 +5,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | Phase | Title | Status | Accepted on | Notes |
 | --- | --- | --- | --- | --- |
 | 1 | Foundation A | Done (13 of 13 commits), awaiting acceptance | | Plan: `docs/phases/phase-01-plan.md` |
-| 2 | Foundation B | Done (rows 2.1 to 2.20), awaiting acceptance | | Plan: `docs/phases/phase-02-plan.md` |
+| 2 | Foundation B | Done (rows 2.1 to 2.20), accepted | 2026-11-19 | Plan: `docs/phases/phase-02-plan.md` |
 | 3 | People and documents | Not started | | |
 | 4 | Performance and tracking | Not started | | |
 | 5 | Inventory and fleet | Not started | | |
