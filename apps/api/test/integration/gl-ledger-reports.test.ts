@@ -401,7 +401,12 @@ describe('trial balance: multi-currency property', () => {
         eventKey: 'test.fx_usd',
         description: 'USD balanced entry',
         lines: [
-          { accountCode: '1220', debit: '100.0000', currency: 'USD', dimensions: { party: riderOne } },
+          {
+            accountCode: '1220',
+            debit: '100.0000',
+            currency: 'USD',
+            dimensions: { party: riderOne },
+          },
           { accountCode: '1110', credit: '100.0000', currency: 'USD' },
         ],
       }),
@@ -413,7 +418,12 @@ describe('trial balance: multi-currency property', () => {
         eventKey: 'test.fx_bdt',
         description: 'BDT balanced entry',
         lines: [
-          { accountCode: '1220', debit: '1000.0000', currency: 'BDT', dimensions: { party: riderOne } },
+          {
+            accountCode: '1220',
+            debit: '1000.0000',
+            currency: 'BDT',
+            dimensions: { party: riderOne },
+          },
           { accountCode: '1110', credit: '1000.0000', currency: 'BDT' },
         ],
       }),

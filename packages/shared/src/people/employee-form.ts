@@ -137,3 +137,16 @@ export function employeeEditToUpdate(values: EmployeeEditFormValues): EmployeeUp
     joiningDate: values.joiningDate ?? null,
   });
 }
+
+/**
+ * The "add bank account" box on the employee profile (row 3.3b). The number goes to the API as
+ * typed; it seals it and shows only the last digits afterwards (SPEC 2.9, bank account rules).
+ */
+export const bankAccountFormSchema = z.strictObject({
+  kind: z.enum(['bank', 'wallet']),
+  bankName: z.string().trim().min(1).max(200).optional(),
+  number: z.string().trim().min(4).max(64),
+  accountName: z.string().trim().min(1).max(200),
+  walletProvider: z.string().trim().min(1).max(100).optional(),
+});
+export type BankAccountFormValues = z.infer<typeof bankAccountFormSchema>;

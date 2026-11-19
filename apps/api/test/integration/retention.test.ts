@@ -250,7 +250,9 @@ describe('protected data', () => {
 
   it('refuses to register a retention target for protected data', () => {
     const bad = fakeTarget('payroll.run', 1).target;
-    expect(() => { new RetentionTargets().register(bad); }).toThrow(/protected/i);
+    expect(() => {
+      new RetentionTargets().register(bad);
+    }).toThrow(/protected/i);
   });
 });
 

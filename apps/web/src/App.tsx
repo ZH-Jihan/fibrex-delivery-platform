@@ -56,6 +56,7 @@ import { RecycleBinPage } from './audit/RecycleBinPage';
 import { MePage } from './me/MePage';
 import { RecordsPage, RecordTypesIndexPage } from './records/RecordPages';
 import { EmployeesPage } from './people/EmployeesPage';
+import { EmployeeProfilePage } from './people/EmployeeProfilePage';
 import { PartiesPage } from './people/PartiesPage';
 import type { ReactNode } from 'react';
 import { ThemeProvider } from './theme/theme';
@@ -167,6 +168,14 @@ function Gate() {
           element={
             <Guarded permission="people.employee.read">
               <EmployeesPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="employees/:id"
+          element={
+            <Guarded permission="people.employee.read">
+              <EmployeeProfilePage />
             </Guarded>
           }
         />

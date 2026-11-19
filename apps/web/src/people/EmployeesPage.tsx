@@ -26,6 +26,7 @@ import {
   type EmployeeEditFormValues,
   type EmployeeFormValues,
 } from '@fibrex/shared';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { useI18n } from '../i18n';
@@ -269,7 +270,9 @@ export function EmployeesPage() {
             key: 'status',
             header: t('employees.status'),
             value: (e) => e.statusCode,
-            render: (e) => <Pill tone={STATUS_TONE[e.statusCode] ?? 'neutral'}>{e.statusCode}</Pill>,
+            render: (e) => (
+              <Pill tone={STATUS_TONE[e.statusCode] ?? 'neutral'}>{e.statusCode}</Pill>
+            ),
           },
           {
             key: 'sponsorship',
@@ -292,20 +295,25 @@ export function EmployeesPage() {
         loading={loading}
         error={error}
         exportName="employees"
-        actions={(e) =>
-          auth.can('people.employee.update') ? (
-            <Button
-              variant="link"
-              icon={Pencil}
-              onClick={() => {
-                setCreating(false);
-                setEditing(e);
-              }}
-            >
-              {t('common.edit')}
-            </Button>
-          ) : null
-        }
+        actions={(e) => (
+          <>
+            <Link to={`/employees/${e.id}`} className="btn btn-link">
+              {t('employees.open')}
+            </Link>
+            {auth.can('people.employee.update') ? (
+              <Button
+                variant="link"
+                icon={Pencil}
+                onClick={() => {
+                  setCreating(false);
+                  setEditing(e);
+                }}
+              >
+                {t('common.edit')}
+              </Button>
+            ) : null}
+          </>
+        )}
         toolbar={
           <>
             <select

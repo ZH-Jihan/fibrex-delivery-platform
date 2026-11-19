@@ -94,8 +94,7 @@ export const bn: Messages = {
   'numbering.nextValue': 'পরের মান',
   'numbering.nextValueHint': 'নম্বর বাদ দিতে বাড়ানো যায়, কমানো যায় না',
   'numbering.next': 'পরের নম্বর',
-  'numbering.deleteHint':
-    'কাউন্টার রিসাইকেল বিনে থাকে; সিরিজ ফেরত আনলে সেখান থেকেই চলবে।',
+  'numbering.deleteHint': 'কাউন্টার রিসাইকেল বিনে থাকে; সিরিজ ফেরত আনলে সেখান থেকেই চলবে।',
   'permission.platform.number_sequence.read': 'নম্বর সিরিজ দেখা',
   'permission.platform.number_sequence.create': 'নম্বর সিরিজ তৈরি',
   'permission.platform.number_sequence.update': 'নম্বর সিরিজ পরিবর্তন',
@@ -231,7 +230,8 @@ export const bn: Messages = {
   'templates.frozen': 'এই সংস্করণ প্রকাশিত, তাই বদলানো যাবে না। নতুন সংস্করণ করুন।',
   'templates.subject': 'বিষয়',
   'templates.body': 'মূল লেখা',
-  'templates.bodyHint': 'মানের জন্য {{field}} এবং তালিকার জন্য {{#each items}}...{{/each}} ব্যবহার করুন',
+  'templates.bodyHint':
+    'মানের জন্য {{field}} এবং তালিকার জন্য {{#each items}}...{{/each}} ব্যবহার করুন',
   'templates.css': 'স্টাইল (CSS)',
   'templates.paper': 'কাগজ',
   'templates.sample': 'নমুনা তথ্য (JSON)',
@@ -369,7 +369,8 @@ export const bn: Messages = {
   'states.choose': 'একটি অবস্থা বেছে নিন',
   'states.permission': 'অনুমতি',
   'states.permissionDefault': 'রেকর্ড পরিবর্তন',
-  'states.permissionHint': 'এই পরিবর্তনের জন্য যে অনুমতির কী লাগবে; খালি: যিনি রেকর্ড বদলাতে পারেন তিনিই পারবেন',
+  'states.permissionHint':
+    'এই পরিবর্তনের জন্য যে অনুমতির কী লাগবে; খালি: যিনি রেকর্ড বদলাতে পারেন তিনিই পারবেন',
   'states.requiredFields': 'আবশ্যক ঘর',
   'states.requiredFieldsHint': 'আগে পূরণ করতে হবে এমন ঘরের কী, কমা দিয়ে আলাদা করে',
   'states.reason': 'কারণ',
@@ -395,8 +396,7 @@ export const bn: Messages = {
   'wh.activate': 'চালু করুন',
   'wh.deactivate': 'বন্ধ করুন',
   'wh.rotate': 'নতুন গোপন কী',
-  'wh.rotateWarning':
-    'বর্তমান গোপন কী সাথে সাথে অকেজো হবে। গ্রহণকারী সিস্টেমকে নতুনটি দিতে হবে।',
+  'wh.rotateWarning': 'বর্তমান গোপন কী সাথে সাথে অকেজো হবে। গ্রহণকারী সিস্টেমকে নতুনটি দিতে হবে।',
   'wh.secretTitle': 'সই করার গোপন কী',
   'wh.secretOnce': 'এই গোপন কী এখনই গ্রহণকারী সিস্টেমে কপি করুন। এটি আর দেখানো হবে না।',
   'wh.secretSaved': 'আমি সংরক্ষণ করেছি',
@@ -591,8 +591,7 @@ export const bn: Messages = {
   'wf.branchKey': 'শাখার কী',
   'wf.branchNeedsTwo': 'একসাথে চলা দলে অন্তত দুটি শাখা লাগবে।',
   'wf.removeBranch': 'শাখা সরান',
-  'wf.groupHint':
-    'সব শাখাকে একসাথে জিজ্ঞাসা করা হয়; সবাই শেষ করলে তবেই পরের ধাপে যায়।',
+  'wf.groupHint': 'সব শাখাকে একসাথে জিজ্ঞাসা করা হয়; সবাই শেষ করলে তবেই পরের ধাপে যায়।',
 
   // Reports
   'nav.reports': 'রিপোর্ট',
@@ -745,8 +744,7 @@ export const bn: Messages = {
   'bank.bankName': 'ব্যাংক',
   'bank.location': 'ক্যাশ স্থান',
   'bank.iban': 'IBAN',
-  'bank.ibanHint':
-    'একবারই লিখুন। এটি এনক্রিপ্ট করে রাখা হয় এবং শুধু শেষ চারটি অক্ষর দেখানো হয়।',
+  'bank.ibanHint': 'একবারই লিখুন। এটি এনক্রিপ্ট করে রাখা হয় এবং শুধু শেষ চারটি অক্ষর দেখানো হয়।',
   'bank.ibanKeepHint': 'সংরক্ষিত নম্বর রাখতে খালি রাখুন।',
   'bank.wps': 'WPS নিয়োগকর্তার আইডি',
   'bank.deleteHint': '"{name}" মুছবেন? এটি রিসাইকেল বিনে যাবে।',

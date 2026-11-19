@@ -123,6 +123,8 @@ describe('OpenAPI: Phase 2 paths', () => {
     // Custom records (row 2.8a)
     expect(paths.some((p) => p.startsWith('/records'))).toBe(true);
     // Import / export (row 2.8b)
-    expect(paths.some((p) => p.startsWith('/import-mappings') || p.startsWith('/import-jobs'))).toBe(true);
+    expect(
+      paths.some((p) => p.startsWith('/import-mappings') || p.startsWith('/import-jobs')),
+    ).toBe(true);
   });
 });

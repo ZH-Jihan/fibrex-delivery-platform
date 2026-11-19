@@ -65,9 +65,7 @@ test('admin builds a record type, works with records, imports and exports', asyn
     .click();
   // After publishing the Publish button disappears (no unpublished changes).
   await expect(
-    page
-      .getByRole('row', { name: new RegExp(typeKey) })
-      .getByRole('button', { name: 'Publish' }),
+    page.getByRole('row', { name: new RegExp(typeKey) }).getByRole('button', { name: 'Publish' }),
   ).toHaveCount(0);
 
   // ------------------------------------------------------------------ //
@@ -92,14 +90,23 @@ test('admin builds a record type, works with records, imports and exports', asyn
   // ------------------------------------------------------------------ //
   // 4. Open detail view                                                 //
   // ------------------------------------------------------------------ //
-  await page.getByRole('row', { name: /ABC-001/ }).getByRole('button', { name: 'Open' }).click();
+  await page
+    .getByRole('row', { name: /ABC-001/ })
+    .getByRole('button', { name: 'Open' })
+    .click();
   await expect(page.getByRole('region', { name: 'Record details' })).toBeVisible();
-  await page.getByRole('region', { name: 'Record details' }).getByRole('button', { name: 'Back' }).click();
+  await page
+    .getByRole('region', { name: 'Record details' })
+    .getByRole('button', { name: 'Back' })
+    .click();
 
   // ------------------------------------------------------------------ //
   // 5. Edit the record                                                  //
   // ------------------------------------------------------------------ //
-  await page.getByRole('row', { name: /ABC-001/ }).getByRole('button', { name: 'Edit' }).click();
+  await page
+    .getByRole('row', { name: /ABC-001/ })
+    .getByRole('button', { name: 'Edit' })
+    .click();
   await page.getByRole('textbox', { name: 'Mileage', exact: true }).fill('46500');
   await page.getByRole('button', { name: 'Save' }).click();
   // Wait for the reloaded list to show the new value: acting on the stale row would send an
@@ -110,7 +117,10 @@ test('admin builds a record type, works with records, imports and exports', asyn
   // ------------------------------------------------------------------ //
   // 6. Delete with reason                                               //
   // ------------------------------------------------------------------ //
-  await page.getByRole('row', { name: /ABC-001/ }).getByRole('button', { name: 'Delete' }).click();
+  await page
+    .getByRole('row', { name: /ABC-001/ })
+    .getByRole('button', { name: 'Delete' })
+    .click();
   await page.getByRole('dialog').getByRole('textbox').fill(`phase 2 e2e journey clean-up ${stamp}`);
   await page
     .getByRole('dialog')
