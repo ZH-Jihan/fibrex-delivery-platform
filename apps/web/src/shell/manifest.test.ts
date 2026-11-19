@@ -65,7 +65,13 @@ describe('buildNav', () => {
       ],
       [
         'nav.people.group',
-        ['/people', '/employees', '/documents/expiring', '/documents/expiry-settings'],
+        [
+          '/people',
+          '/employees',
+          '/documents/expiring',
+          '/documents/bulk',
+          '/documents/expiry-settings',
+        ],
       ],
       ['nav.reports', ['/reports']],
       [

@@ -6,7 +6,7 @@
  * documents (sealed numbers, renewals, scans through the files module). Row 3.4: the expiry
  * engine (daily job, alert settings, expiring list and calendar). Row 3.6: OCR of scans
  * (pre-fill, then a person confirms; mounted when src/main.ts passes an OCR adapter and the
- * object store). Bulk upload and import follow in rows 3.7 and 3.8. An employee is a party with the `employee` role; other
+ * object store). Row 3.7: bulk scan upload (many scans, a suggested person and type each, staff confirm). Import follows in row 3.8. An employee is a party with the `employee` role; other
  * modules reference the `party_id`.
  *
  * `createPeopleModule` returns the module manifest (routes, permissions, recycle-bin types,
@@ -56,7 +56,8 @@ import {
 import { createEmployeeStateTarget } from './employee-status.js';
 import { createExpiryRouter } from './expiry-router.js';
 import { EXPIRY_EVENT, ExpiryService, type ExpiryJobDeps } from './expiry-service.js';
-import { createOcrRouter } from './ocr-router.js';
+import { createBulkUploadRouter } from './bulk-upload-router.js';
+import { createOcrEngine } from './ocr-router.js';
 import { PEOPLE_REPORTS } from './people-reports.js';
 import {
   createPeriodRepository,
@@ -101,6 +102,7 @@ export const PEOPLE_PERMISSIONS: readonly PermissionDef[] = [
   ),
   permission('people', 'people.ocr_job', 'create', 'Read a scan with OCR to pre-fill a document'),
   permission('people', 'people.ocr_job', 'read', 'See OCR readings of scans'),
+  ...crudPermissions('people', 'people.bulk_upload', 'bulk scan uploads'),
 ];
 
 export interface PeopleModuleDeps {
@@ -140,6 +142,22 @@ export function createPeopleModule(deps: PeopleModuleDeps): PeopleModule {
   const documentTypes = createDocumentTypeRepository();
   const requirements = createRequirementRepository();
   const documents = createDocumentRepository({ parties: deps.parties, vault: deps.vault });
+  // Rows 3.6 and 3.7 share one OCR engine, so a bulk confirm is the same path as a single one.
+  const ocrEngine =
+    deps.ocr === undefined
+      ? undefined
+      : createOcrEngine({
+          uow,
+          registry,
+          permissions,
+          parties: deps.parties,
+          vault: deps.vault,
+          attachables: deps.attachables,
+          documents,
+          storage: deps.ocr.storage,
+          ocr: deps.ocr.adapter,
+          ...(deps.now === undefined ? {} : { now: deps.now }),
+        });
   const expiry = new ExpiryService({
     uow,
     parties: deps.parties,
@@ -172,21 +190,11 @@ export function createPeopleModule(deps: PeopleModuleDeps): PeopleModule {
       }),
       // Before the documents CRUD router: /documents/expiring is not a document id.
       createExpiryRouter({ uow, registry, permissions, expiry }),
-      ...(deps.ocr === undefined
+      ...(ocrEngine === undefined
         ? []
         : [
-            createOcrRouter({
-              uow,
-              registry,
-              permissions,
-              parties: deps.parties,
-              vault: deps.vault,
-              attachables: deps.attachables,
-              documents,
-              storage: deps.ocr.storage,
-              ocr: deps.ocr.adapter,
-              ...(deps.now === undefined ? {} : { now: deps.now }),
-            }),
+            ocrEngine.router,
+            createBulkUploadRouter({ uow, registry, permissions, ocr: ocrEngine }),
           ]),
       createDocumentRouter({
         uow,
@@ -211,6 +219,16 @@ export function createPeopleModule(deps: PeopleModuleDeps): PeopleModule {
         groupKey: 'nav.people.group',
         permission: 'people.document.read',
       },
+      ...(ocrEngine === undefined
+        ? []
+        : [
+            {
+              path: '/documents/bulk',
+              labelKey: 'nav.bulkUpload',
+              groupKey: 'nav.people.group',
+              permission: 'people.bulk_upload.read',
+            },
+          ]),
       {
         path: '/documents/expiry-settings',
         labelKey: 'nav.expirySettings',

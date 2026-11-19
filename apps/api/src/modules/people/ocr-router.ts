@@ -122,7 +122,24 @@ export interface OcrRouterDeps {
   now?: () => Date;
 }
 
+/** What the bulk upload (row 3.7) reuses: the same read and the same confirm, no copy. */
+export interface OcrEngine {
+  router: Router;
+  /** Reads one uploaded scan and stores the job. Call inside a unit of work. */
+  createJob(db: Db, body: z.infer<typeof ocrJobCreateSchema>): Promise<OcrJobRow>;
+  /** Saves the checked values as a document (scan attached) and marks the job confirmed. */
+  confirmJob(
+    id: string,
+    body: z.infer<typeof documentCreateSchema>,
+  ): Promise<Awaited<ReturnType<DocumentRepository['createFromOcr']>>>;
+  toJobItem(row: OcrJobRow): Promise<z.infer<typeof jobItem>>;
+}
+
 export function createOcrRouter(deps: OcrRouterDeps): Router {
+  return createOcrEngine(deps).router;
+}
+
+export function createOcrEngine(deps: OcrRouterDeps): OcrEngine {
   const { uow, registry, permissions, parties, vault, documents, storage, ocr } = deps;
   const now = deps.now ?? (() => new Date());
   const jobs = createRepository<OcrJobRow>({ model: 'ocrJob', scope: 'company' });
@@ -324,36 +341,41 @@ export function createOcrRouter(deps: OcrRouterDeps): Router {
     res.json(out);
   });
 
+  /** Confirm steps (rules 1 and 6); the caller has checked permissions, inside a unit. */
+  async function confirmJob(id: string, body: z.infer<typeof documentCreateSchema>) {
+    const job = await jobs.get(id);
+    if (job.status === 'confirmed') {
+      throw new ConflictError('already_confirmed', 'This scan has already been saved.');
+    }
+    if (job.status === 'pending') {
+      throw new ConflictError('not_ready', 'The scan is still being read.');
+    }
+    // Rule 1: the person's values go through the normal document rules.
+    const document = await documents.createFromOcr(body, job.id);
+    if (document.companyId !== job.companyId) {
+      throw invalid('ownerId', 'company_mismatch', 'The scan belongs to another company');
+    }
+    // The scan becomes the document's first page (files module rules apply).
+    await attachments.create({
+      entityType: DOCUMENT_ENTITY,
+      entityId: document.id,
+      fileObjectId: job.fileObjectId,
+      purpose: 'document_page',
+      label: null,
+      companyId: document.companyId,
+    });
+    // Rule 6: the version check refuses a second, concurrent confirm.
+    await jobs.update(job.id, job.version, { status: 'confirmed' });
+    return document;
+  }
+
   router.post('/ocr/jobs/:id/confirm', async (req, res) => {
     const { id } = idParams.parse(req.params);
     const body = documentCreateSchema.parse(req.body);
     const row = await uow.run(async () => {
       await permissions.require('people.ocr_job.read');
       await permissions.require('people.document.create');
-      const job = await jobs.get(id);
-      if (job.status === 'confirmed') {
-        throw new ConflictError('already_confirmed', 'This scan has already been saved.');
-      }
-      if (job.status === 'pending') {
-        throw new ConflictError('not_ready', 'The scan is still being read.');
-      }
-      // Rule 1: the person's values go through the normal document rules.
-      const document = await documents.createFromOcr(body, job.id);
-      if (document.companyId !== job.companyId) {
-        throw invalid('ownerId', 'company_mismatch', 'The scan belongs to another company');
-      }
-      // The scan becomes the document's first page (files module rules apply).
-      await attachments.create({
-        entityType: DOCUMENT_ENTITY,
-        entityId: document.id,
-        fileObjectId: job.fileObjectId,
-        purpose: 'document_page',
-        label: null,
-        companyId: document.companyId,
-      });
-      // Rule 6: the version check refuses a second, concurrent confirm.
-      await jobs.update(job.id, job.version, { status: 'confirmed' });
-      return document;
+      return confirmJob(id, body);
     });
     res
       .status(201)
@@ -395,7 +417,7 @@ export function createOcrRouter(deps: OcrRouterDeps): Router {
       201: { description: 'The new document' },
     },
   });
-  return router;
+  return { router, createJob, confirmJob, toJobItem };
 }
 
 /**

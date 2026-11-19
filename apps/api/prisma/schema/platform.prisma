@@ -228,6 +228,8 @@ model Company {
   documents               Document[]
   expiryAlertLogs         ExpiryAlertLog[]
   ocrJobs                 OcrJob[]
+  bulkUploads             BulkUpload[]
+  bulkUploadItems         BulkUploadItem[]
 
   @@unique([tenantId, id], map: "company_tenant_id_uq")
   @@map("company")

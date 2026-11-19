@@ -58,12 +58,15 @@ export function OcrConfirmPanel({
   job,
   partyId,
   typeOptions,
+  confirmPath,
   onDone,
   onCancel,
 }: {
   job: OcrJob;
   partyId: string;
   typeOptions: readonly { value: string; label: string }[];
+  /** Where the checked values are sent; bulk upload (row 3.7) confirms through its item. */
+  confirmPath?: string;
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -132,7 +135,7 @@ export function OcrConfirmPanel({
         }}
         onCancel={onCancel}
         onSubmit={async (values) => {
-          await api(`/ocr/jobs/${job.id}/confirm`, {
+          await api(confirmPath ?? `/ocr/jobs/${job.id}/confirm`, {
             method: 'POST',
             body: { ownerType: 'party', ownerId: partyId, ...values },
           });

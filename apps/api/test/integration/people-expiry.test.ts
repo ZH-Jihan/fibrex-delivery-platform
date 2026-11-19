@@ -603,7 +603,10 @@ describe('expiry settings', () => {
 });
 
 describe('people reports (row 3.5)', () => {
-  interface Run { rows: Record<string, unknown>[]; total: number }
+  interface Run {
+    rows: Record<string, unknown>[];
+    total: number;
+  }
   const run = (key: string, token: string, filters: Record<string, string> = {}) =>
     auth(request(app).post(`${API_PREFIX}/reports/${key}/run`), token)
       .set('Idempotency-Key', randomUUID())

@@ -174,3 +174,4 @@ export * from './documents.js';
 export * from './employee-form.js';
 export * from './expiry.js';
 export * from './ocr.js';
+export * from './bulk-upload.js';

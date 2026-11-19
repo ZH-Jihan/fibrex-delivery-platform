@@ -31,6 +31,7 @@ import { NumberSequencesPage } from './org/NumberSequencesPage';
 import { TemplatesPage } from './org/TemplatesPage';
 import { FormulasPage } from './org/FormulasPage';
 import { RateTablesPage } from './org/RateTablesPage';
+import { BulkUploadPage } from './people/BulkUploadPage';
 import { ExpiringPage, ExpirySettingsPage } from './people/ExpiryPages';
 import { AccountsPage } from './ledger/AccountsPage';
 import { JournalsPage } from './ledger/JournalsPage';
@@ -177,6 +178,14 @@ function Gate() {
           element={
             <Guarded permission="people.document.read">
               <ExpiringPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="documents/bulk"
+          element={
+            <Guarded permission="people.bulk_upload.read">
+              <BulkUploadPage />
             </Guarded>
           }
         />

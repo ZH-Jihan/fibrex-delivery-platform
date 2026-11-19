@@ -132,6 +132,7 @@ model DocumentType {
   requirements DocumentRequirement[]
   documents    Document[]
   ocrJobs      OcrJob[]
+  bulkItems    BulkUploadItem[]
 
   @@unique([companyId, id], map: "document_type_company_id_uq")
   @@unique([companyId, code], map: "document_type_code_uq", where: { deletedAt: null })
@@ -256,9 +257,66 @@ model OcrJob {
   company      Company       @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "ocr_job_company_fk", onDelete: NoAction, onUpdate: NoAction)
   documentType DocumentType? @relation(fields: [companyId, documentTypeId], references: [companyId, id], map: "ocr_job_type_fk", onDelete: NoAction, onUpdate: NoAction)
   documents    Document[]
+  bulkItems    BulkUploadItem[]
 
   @@unique([companyId, id], map: "ocr_job_company_id_uq")
   @@index([companyId, fileObjectId], map: "ocr_job_file_idx")
   @@map("ocr_job")
+  @@schema("people")
+}
+
+model BulkUpload {
+  id            String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  companyId     String    @map("company_id") @db.Uuid
+  status        String    @default("open")
+  uploadedCount Int       @map("uploaded_count")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy     String?   @map("created_by") @db.Uuid
+  updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy     String?   @map("updated_by") @db.Uuid
+  version       Int       @default(1)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy     String?   @map("deleted_by") @db.Uuid
+  deleteReason  String?   @map("delete_reason")
+
+  company Company          @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "bulk_upload_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  items   BulkUploadItem[]
+
+  @@unique([companyId, id], map: "bulk_upload_company_id_uq")
+  @@map("bulk_upload")
+  @@schema("people")
+}
+
+model BulkUploadItem {
+  id                      String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId                String    @map("tenant_id") @db.Uuid
+  companyId               String    @map("company_id") @db.Uuid
+  bulkUploadId            String    @map("bulk_upload_id") @db.Uuid
+  fileObjectId            String    @map("file_object_id") @db.Uuid
+  ocrJobId                String    @map("ocr_job_id") @db.Uuid
+  suggestedPartyId        String?   @map("suggested_party_id") @db.Uuid
+  suggestedDocumentTypeId String?   @map("suggested_document_type_id") @db.Uuid
+  status                  String    @default("pending")
+  documentId              String?   @map("document_id") @db.Uuid
+  rejectReason            String?   @map("reject_reason")
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy               String?   @map("created_by") @db.Uuid
+  updatedAt               DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy               String?   @map("updated_by") @db.Uuid
+  version                 Int       @default(1)
+  deletedAt               DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy               String?   @map("deleted_by") @db.Uuid
+  deleteReason            String?   @map("delete_reason")
+
+  company      Company       @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "bulk_upload_item_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  upload       BulkUpload    @relation(fields: [companyId, bulkUploadId], references: [companyId, id], map: "bulk_upload_item_upload_fk", onDelete: NoAction, onUpdate: NoAction)
+  ocrJob       OcrJob        @relation(fields: [companyId, ocrJobId], references: [companyId, id], map: "bulk_upload_item_job_fk", onDelete: NoAction, onUpdate: NoAction)
+  documentType DocumentType? @relation(fields: [companyId, suggestedDocumentTypeId], references: [companyId, id], map: "bulk_upload_item_type_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([companyId, id], map: "bulk_upload_item_company_id_uq")
+  @@unique([ocrJobId], map: "bulk_upload_item_job_uq", where: { deletedAt: null })
+  @@index([companyId, bulkUploadId], map: "bulk_upload_item_upload_idx")
+  @@map("bulk_upload_item")
   @@schema("people")
 }
