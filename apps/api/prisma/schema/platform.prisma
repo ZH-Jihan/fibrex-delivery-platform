@@ -223,6 +223,9 @@ model Company {
   employees            Employee[]
   employmentPeriods    EmploymentPeriod[]
   employeePlacements   EmployeePlacement[]
+  documentTypes        DocumentType[]
+  documentRequirements DocumentRequirement[]
+  documents            Document[]
 
   @@unique([tenantId, id], map: "company_tenant_id_uq")
   @@map("company")

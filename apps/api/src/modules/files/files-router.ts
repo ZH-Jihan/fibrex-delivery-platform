@@ -147,11 +147,13 @@ export function createAttachmentRepository(deps: {
   permissions: PermissionService;
   attachables: AttachableRegistry;
 }): Repository<AttachmentRow> & {
-  createVersion(
-    previous: AttachmentRow,
-    fileObjectId: string,
-    label?: string,
-  ): Promise<AttachmentRow>;
+  /**
+   * Replaces the file of attachment `previousId` with a new version, after the checks every
+   * caller needs: the record type's attach permission, `previousId` is the latest version,
+   * and the new file is visible to the caller. Used by POST /attachments/{id}/versions and by
+   * modules that replace files of their own records (people documents).
+   */
+  replace(previousId: string, fileObjectId: string, label?: string): Promise<AttachmentRow>;
 } {
   const { permissions, attachables } = deps;
   const base = createRepository<AttachmentRow>({ model: 'fileAttachment', scope: 'company' });
@@ -201,8 +203,25 @@ export function createAttachmentRepository(deps: {
       await mustSeeFile(String(data.fileObjectId));
       return base.create({ ...data, versionNo: 1, supersedesId: null });
     },
-    createVersion: (previous, fileObjectId, label) =>
-      base.create({
+    replace: async (previousId, fileObjectId, label) => {
+      const { db } = currentUnit();
+      const previous = await db.fileAttachment.findFirst({ where: { id: previousId } });
+      if (previous === null) throw new NotFoundError();
+      await permissions.require(attachables.get(previous.entityType).attachPermission);
+      // Versions form one straight line: only the latest version may be replaced.
+      const successor = await db.fileAttachment.findFirst({
+        where: { supersedesId: previousId },
+        select: { id: true },
+      });
+      if (successor !== null) {
+        throw new ConflictError(
+          'not_latest_version',
+          'A newer version already exists. Replace the latest version instead.',
+          { latestHint: successor.id },
+        );
+      }
+      await mustSeeFile(fileObjectId);
+      return base.create({
         entityType: previous.entityType,
         entityId: previous.entityId,
         fileObjectId,
@@ -211,7 +230,8 @@ export function createAttachmentRepository(deps: {
         companyId: previous.companyId,
         versionNo: previous.versionNo + 1,
         supersedesId: previous.id,
-      }),
+      });
+    },
     update: async (id, version, changes) => {
       await guardRow(id, false);
       return base.update(id, version, changes);
@@ -256,32 +276,9 @@ export function createFilesRouter(deps: FilesRouterDeps): Router {
   router.post('/attachments/:id/versions', async (req, res) => {
     const { id } = idParams.parse(req.params);
     const body = versionCreate.parse(req.body);
-    const row = await uow.run(async (db) => {
+    const row = await uow.run(async () => {
       await permissions.require('files.attachment.create');
-      const previous = await db.fileAttachment.findFirst({ where: { id } });
-      if (previous === null) throw new NotFoundError();
-      await permissions.require(attachables.get(previous.entityType).attachPermission);
-      const successor = await db.fileAttachment.findFirst({
-        where: { supersedesId: id },
-        select: { id: true },
-      });
-      if (successor !== null) {
-        throw new ConflictError(
-          'not_latest_version',
-          'A newer version already exists. Replace the latest version instead.',
-          { latestHint: successor.id },
-        );
-      }
-      const file = await db.fileObject.findFirst({
-        where: { id: body.fileObjectId },
-        select: { id: true },
-      });
-      if (file === null) {
-        throw new ValidationError([
-          { path: 'fileObjectId', code: 'unknown_file', message: 'No such file' },
-        ]);
-      }
-      return repository.createVersion(previous, body.fileObjectId, body.label);
+      return repository.replace(id, body.fileObjectId, body.label);
     });
     res.status(201).json(toAttachmentItem(row));
   });

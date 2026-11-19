@@ -169,3 +169,5 @@ export const employeeDuplicateCheckSchema = z.strictObject({
   phones: z.array(phoneInputSchema).max(6).optional(),
 });
 export type EmployeeDuplicateCheckInput = z.infer<typeof employeeDuplicateCheckSchema>;
+
+export * from './documents.js';

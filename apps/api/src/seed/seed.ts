@@ -31,7 +31,11 @@ import { FILES_PERMISSIONS } from '../modules/files/index.js';
 import { GL_PERMISSIONS, seedLedger } from '../modules/gl/index.js';
 import { NOTIFY_PERMISSIONS } from '../modules/notify/index.js';
 import { PARTY_PERMISSIONS } from '../modules/party/index.js';
-import { PEOPLE_PERMISSIONS, seedEmployeeStatus } from '../modules/people/index.js';
+import {
+  PEOPLE_PERMISSIONS,
+  seedDocumentTypes,
+  seedEmployeeStatus,
+} from '../modules/people/index.js';
 
 export interface SeedOptions {
   /** Plain password for the Super Admin. Only used when that user is created. */
@@ -292,6 +296,8 @@ export async function runSeed(pool: pg.Pool, opts: SeedOptions): Promise<SeedRes
                          WHERE company_id = $2 AND key = 'employee' AND deleted_at IS NULL)`,
       [tenantId, companyId],
     );
+    // Standard document types and who must hold them (phase 3 plan question 3).
+    await seedDocumentTypes(client, tenantId, companyId);
 
     await client.query('COMMIT');
     return { tenantId, companyId, superAdminId, superAdminCreated };

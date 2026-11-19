@@ -56,6 +56,7 @@ import {
   createPeopleModule,
   seedEmployeeStatus,
 } from '../../src/modules/people/index.js';
+import { AttachableRegistry } from '../../src/modules/files/index.js';
 import { createFixture, type Fixture } from './fixtures.js';
 import { connectionUrl } from './global-setup.js';
 import { connect, testDatabase } from './helpers.js';
@@ -281,6 +282,9 @@ beforeAll(async () => {
         permissions,
         parties: new PartyService(vault),
         numbering: new NumberingService(),
+        vault,
+        audit,
+        attachables: new AttachableRegistry(),
         states,
       });
       targets.register(EMPLOYEE_ENTITY, people.employeeStateTarget);

@@ -13,7 +13,8 @@
  * Identifier types that are only platform rider ids (Falcon, Talabat ...) are not
  * sensitive: their value is also kept in plain text so staff can search and read them.
  *
- * Depends on: kernel/crypto/secret-box.ts. Used by: ./identifier-router.ts,
+ * Depends on: kernel/crypto/secret-box.ts. Used by: ./identifier-router.ts, modules/people
+ * (document numbers, same pattern: PLAN phase 3 decision "no new crypto"),
  * ./bank-account-router.ts.
  */
 import { createHmac } from 'node:crypto';
@@ -42,7 +43,8 @@ export function maskValue(normalised: string): string {
   return `${'*'.repeat(normalised.length - 4)}${normalised.slice(-4)}`;
 }
 
-export type SecretContext = 'party.identifier' | 'party.bank_account';
+/** Encryption context per use: a value sealed for one use cannot be opened as another. */
+export type SecretContext = 'party.identifier' | 'party.bank_account' | 'people.document';
 
 export class PartyVault {
   private readonly hashKey: Buffer;

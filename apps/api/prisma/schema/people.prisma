@@ -101,3 +101,103 @@ model EmployeePlacement {
   @@map("employee_placement")
   @@schema("people")
 }
+
+// Row 3.2 (migration 20261121000000_people_documents): document types, requirements and
+// documents. The exclusion constraint "one current document per owner and type" and the
+// CHECK rules (type or custom name, number vault, company owner) live only in the SQL.
+
+/// A kind of document (QID, passport ...). Seeded per company; administrators add more.
+model DocumentType {
+  id           String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  code         String
+  name         Json
+  appliesTo    String    @map("applies_to")
+  hasExpiry    Boolean   @default(true) @map("has_expiry")
+  hasNumber    Boolean   @default(true) @map("has_number")
+  multiPage    Boolean   @default(false) @map("multi_page")
+  alertWindows Int[]     @map("alert_windows")
+  isSystem     Boolean   @default(false) @map("is_system")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  version      Int       @default(1)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  deleteReason String?   @map("delete_reason")
+
+  company      Company               @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "document_type_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  requirements DocumentRequirement[]
+  documents    Document[]
+
+  @@unique([companyId, id], map: "document_type_company_id_uq")
+  @@unique([companyId, code], map: "document_type_code_uq", where: { deletedAt: null })
+  @@map("document_type")
+  @@schema("people")
+}
+
+/// Which document types a person must hold (feeds the missing-documents report).
+model DocumentRequirement {
+  id                  String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId            String    @map("tenant_id") @db.Uuid
+  companyId           String    @map("company_id") @db.Uuid
+  documentTypeId      String    @map("document_type_id") @db.Uuid
+  conditionExpr       String?   @map("condition_expr")
+  appliesToProfession String?   @map("applies_to_profession")
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy           String?   @map("created_by") @db.Uuid
+  updatedAt           DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy           String?   @map("updated_by") @db.Uuid
+  version             Int       @default(1)
+  deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy           String?   @map("deleted_by") @db.Uuid
+  deleteReason        String?   @map("delete_reason")
+
+  company      Company      @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "document_requirement_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  documentType DocumentType @relation(fields: [companyId, documentTypeId], references: [companyId, id], map: "document_requirement_type_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([documentTypeId], map: "document_requirement_type_idx")
+  @@map("document_requirement")
+  @@schema("people")
+}
+
+/// A document of a person, vehicle or the company; the number is sealed, hashed and masked.
+model Document {
+  id              String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
+  ownerType       String    @map("owner_type")
+  ownerId         String    @map("owner_id") @db.Uuid
+  documentTypeId  String?   @map("document_type_id") @db.Uuid
+  customName      String?   @map("custom_name")
+  numberEncrypted Bytes?    @map("number_encrypted")
+  numberHash      String?   @map("number_hash")
+  numberMasked    String?   @map("number_masked")
+  issueDate       DateTime? @map("issue_date") @db.Date
+  expiryDate      DateTime? @map("expiry_date") @db.Date
+  status          String    @default("valid")
+  replacesId      String?   @map("replaces_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy       String?   @map("created_by") @db.Uuid
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy       String?   @map("updated_by") @db.Uuid
+  version         Int       @default(1)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy       String?   @map("deleted_by") @db.Uuid
+  deleteReason    String?   @map("delete_reason")
+
+  company      Company       @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "document_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  documentType DocumentType? @relation(fields: [companyId, documentTypeId], references: [companyId, id], map: "document_type_fk", onDelete: NoAction, onUpdate: NoAction)
+  replaces     Document?     @relation("DocumentRenewal", fields: [companyId, replacesId], references: [companyId, id], map: "document_replaces_fk", onDelete: NoAction, onUpdate: NoAction)
+  renewals     Document[]    @relation("DocumentRenewal")
+
+  @@unique([companyId, id], map: "document_company_id_uq")
+  @@unique([replacesId], map: "document_replaces_uq", where: raw("replaces_id IS NOT NULL AND deleted_at IS NULL"))
+  @@index([ownerType, ownerId], map: "document_owner_idx")
+  @@index([companyId, expiryDate], map: "document_expiry_idx", where: raw("deleted_at IS NULL AND status <> 'replaced'"))
+  @@index([companyId, numberHash], map: "document_number_hash_idx")
+  @@map("document")
+  @@schema("people")
+}

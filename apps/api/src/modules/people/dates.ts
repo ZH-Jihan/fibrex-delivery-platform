@@ -5,7 +5,8 @@
  * constraints (one placement, one employment period per day) reach us as driver errors and
  * become a clear 409 here.
  *
- * Depends on: kernel/http/errors.ts. Used by: ./employee-router.ts, ./placement-router.ts.
+ * Depends on: kernel/http/errors.ts. Used by: ./employee-router.ts, ./placement-router.ts,
+ * ./document-router.ts.
  */
 import { ConflictError } from '../../kernel/http/errors.js';
 
@@ -45,6 +46,10 @@ const OVERLAPS: Record<string, { code: string; detail: string }> = {
   employment_period_no_overlap: {
     code: 'period_overlap',
     detail: 'The employee already has an employment period on these days.',
+  },
+  document_one_current: {
+    code: 'document_exists',
+    detail: 'This owner already has a current document of this type. Renew it instead.',
   },
 };
 

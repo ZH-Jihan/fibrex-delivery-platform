@@ -643,6 +643,9 @@ async function main(): Promise<void> {
         permissions,
         parties: new PartyService(partyVault),
         numbering,
+        vault: partyVault,
+        audit,
+        attachables,
         states,
         onCreated: (key, id) => workflows.onCreated(key, id),
       });
