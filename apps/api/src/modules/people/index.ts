@@ -6,7 +6,7 @@
  * documents (sealed numbers, renewals, scans through the files module). Row 3.4: the expiry
  * engine (daily job, alert settings, expiring list and calendar). Row 3.6: OCR of scans
  * (pre-fill, then a person confirms; mounted when src/main.ts passes an OCR adapter and the
- * object store). Row 3.7: bulk scan upload (many scans, a suggested person and type each, staff confirm). Import follows in row 3.8. An employee is a party with the `employee` role; other
+ * object store). Row 3.7: bulk scan upload (many scans, a suggested person and type each, staff confirm). Row 3.8: employee Excel import (a target on the generic import wizard). An employee is a party with the `employee` role; other
  * modules reference the `party_id`.
  *
  * `createPeopleModule` returns the module manifest (routes, permissions, recycle-bin types,
@@ -54,6 +54,8 @@ import {
   createEmployeeRouter,
 } from './employee-router.js';
 import { createEmployeeStateTarget } from './employee-status.js';
+import { createEmployeeImportTarget } from './employee-import.js';
+import type { ImportTarget } from '../../kernel/imports/import-targets.js';
 import { createExpiryRouter } from './expiry-router.js';
 import { EXPIRY_EVENT, ExpiryService, type ExpiryJobDeps } from './expiry-service.js';
 import { createBulkUploadRouter } from './bulk-upload-router.js';
@@ -122,6 +124,8 @@ export interface PeopleModuleDeps {
   expiryJob?: ExpiryJobDeps;
   /** Row 3.6: the OCR adapter and the object store holding the scans; both or neither. */
   ocr?: { adapter: OcrAdapter; storage: StorageAdapter };
+  /** Row 3.8: where the employee import target is registered (the kernel `ImportTargets`). */
+  importTargets?: { register(target: ImportTarget): void };
   /** Fixed clock for the expiry engine and OCR (tests). */
   now?: () => Date;
 }
@@ -139,6 +143,10 @@ export function createPeopleModule(deps: PeopleModuleDeps): PeopleModule {
   const employees = createEmployeeRepository(deps);
   const placements = createPlacementRepository();
   const periods = createPeriodRepository();
+  // Row 3.8: employees become importable on the generic wizard (Excel, preview, rollback).
+  deps.importTargets?.register(
+    createEmployeeImportTarget({ parties: deps.parties, repository: employees }),
+  );
   const documentTypes = createDocumentTypeRepository();
   const requirements = createRequirementRepository();
   const documents = createDocumentRepository({ parties: deps.parties, vault: deps.vault });

@@ -122,6 +122,23 @@ async function downloadFile(fileId: string): Promise<void> {
   window.location.assign(url);
 }
 
+/** Downloads the blank Excel template for a target (built by the API from its fields). */
+async function downloadTemplate(entityKey: string): Promise<void> {
+  const file = await api<{ fileName: string; contentBase64: string }>(
+    `/import-targets/${entityKey}/template`,
+  );
+  const bytes = Uint8Array.from(atob(file.contentBase64), (c) => c.charCodeAt(0));
+  const blob = new Blob([bytes], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = href;
+  link.download = file.fileName;
+  link.click();
+  URL.revokeObjectURL(href);
+}
+
 export function DataExchangePage() {
   const { t, language } = useI18n();
   const { can } = useAuth();
@@ -129,16 +146,27 @@ export function DataExchangePage() {
   const [types, setTypes] = useState<TypeItem[] | null>(null);
   const [error, setError] = useState<unknown>(null);
   const canImport = can('integration.import_job.create');
-  const canExport = can('integration.export_job.create');
-  const tab = params.get('tab') === 'export' || !canImport ? 'export' : 'import';
   const typeKey = params.get('type') ?? '';
+  // Module targets (employees) can be imported but have no bulk export.
+  const [moduleKeys, setModuleKeys] = useState<string[]>([]);
+  const isModuleTarget = moduleKeys.includes(typeKey);
+  const canExport = can('integration.export_job.create') && !isModuleTarget;
+  const tab =
+    params.get('tab') === 'export' && canExport ? 'export' : canImport ? 'import' : 'export';
 
   useEffect(() => {
-    api<{ items: (TypeItem & { status: string })[] }>('/entity-definitions', {
-      query: { kind: 'custom', page: 1, pageSize: 200 },
-    })
-      .then((r) => {
-        setTypes(r.items.filter((x) => x.status === 'published'));
+    Promise.all([
+      api<{ items: (TypeItem & { status: string })[] }>('/entity-definitions', {
+        query: { kind: 'custom', page: 1, pageSize: 200 },
+      }),
+      api<{ items: { key: string; label: string }[] }>('/import-targets'),
+    ])
+      .then(([custom, modules]) => {
+        setModuleKeys(modules.items.map((m) => m.key));
+        setTypes([
+          ...modules.items.map((m) => ({ key: m.key, name: { en: m.label } })),
+          ...custom.items.filter((x) => x.status === 'published'),
+        ]);
       })
       .catch((e: unknown) => {
         setError(e);
@@ -387,6 +415,18 @@ function ImportWizard({ entityKey }: { entityKey: string }) {
         <div className="card">
           <h2>{t('data.step1')}</h2>
           <p>{t('data.fileHint')}</p>
+          <p>
+            <Button
+              icon={Download}
+              onClick={() => {
+                void downloadTemplate(entityKey).catch((e: unknown) => {
+                  setError(e);
+                });
+              }}
+            >
+              {t('data.template')}
+            </Button>
+          </p>
           <label className="button" htmlFor="import-file">
             {t('data.chooseFile')}
           </label>

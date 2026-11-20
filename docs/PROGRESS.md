@@ -6,7 +6,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | --- | --- | --- | --- | --- |
 | 1 | Foundation A | Done (13 of 13 commits), awaiting acceptance | | Plan: `docs/phases/phase-01-plan.md` |
 | 2 | Foundation B | Done (rows 2.1 to 2.20), accepted | 2026-11-19 | Plan: `docs/phases/phase-02-plan.md` |
-| 3 | People and documents | In progress (rows 3.1 to 3.7 done) | | Plan: `docs/phases/phase-03-plan.md` |
+| 3 | People and documents | In progress (rows 3.1 to 3.8 done) | | Plan: `docs/phases/phase-03-plan.md` |
 | 4 | Performance and tracking | Not started | | |
 | 5 | Inventory and fleet | Not started | | |
 | 6 | Rates, loans and fund | Not started | | |
@@ -96,6 +96,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | 3.5 | Expiry screens and people reports (`web/src/people/ExpiryPages.tsx`: red/amber/green list with days left, month calendar, alert settings; reports `people.expiring_documents`, `people.missing_documents`, `people.headcount` in `modules/people/people-reports.ts`, run on the Reports page) | 506 API (4 new) + 154 shared + 28 formula + 121 web (3 new) tests pass; lint, typecheck clean. Next: row 3.6 |
 | 3.6 | OCR adapter and confirm flow (migration `people_ocr`: `ocr_job` with per-field confidence, flags, number sealed + hash, `document.ocr_job_id`; `adapters/ocr` interface + STUB; `POST /ocr/jobs`, `GET /ocr/jobs/{id}`, `POST /ocr/jobs/{id}/confirm` (only path from OCR to a document); flags low confidence, name mismatch, expired, unreadable, cropped, duplicate; `kernel/adapters/adapter-health.ts` writes `integration_health`; web "Scan to fill in" confirm panel). Next: row 3.7 Bulk scan upload (M) | 512 API (6 new) + 161 shared (7 new) + 28 formula + 124 web (3 new) tests pass; Playwright `ocr.spec.ts` passes; lint, typecheck clean; `phase2.spec.ts` import step timed out once in the full e2e run, passes alone |
 | 3.7 | Bulk scan upload (migration `people_bulk_upload`: `bulk_upload`, `bulk_upload_item`; `modules/people/bulk-upload-router.ts` on a shared `OcrEngine` from `ocr-router.ts`; `POST/GET /bulk-uploads`, items `confirm` and `reject`; person suggested only on one exact employee name match; whole batch refused if one file is not a scan; web `/documents/bulk` review page reusing the confirm panel) | 516 API (4 new) + 166 shared (5 new) + 28 formula + 126 web (2 new) tests pass; lint, typecheck clean; Playwright not run. Next: row 3.8 Employee Excel import (M) |
+| 3.8 | Employee Excel import (`modules/people/employee-import.ts`, target `people.employee` on the generic wizard; `GET /import-targets` and `/import-targets/{key}/template`; wizard lists employees and downloads the template): QID or passport match links the existing person, same-name phone match links, shared phone makes a new person, employee already on file is a row error; identifiers sealed by the vault; rollback soft-deletes the employee (person stays). Not in sheet: photo, platform IDs, zone, bank, sponsor and agent. Next: row 3.9 | 526 API (10 new) + 166 shared + 28 formula + 126 web tests pass; lint, typecheck clean; Playwright not run |
 
 ## Phase 1 summary
 

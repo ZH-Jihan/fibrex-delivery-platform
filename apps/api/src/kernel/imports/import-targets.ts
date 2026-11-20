@@ -42,6 +42,11 @@ export interface ImportTarget {
   /** The permission needed to read (and so export) records; a target without it cannot be exported. */
   readonly readPermission?: string;
   /**
+   * One example row for the downloadable template, keyed by field key. A target without it
+   * gets a template with headings only.
+   */
+  readonly templateExample?: Record<string, string>;
+  /**
    * One page of live records for a bulk export, each keyed by the field keys of `fields()`,
    * filtered by exact field values. Reads through the owning service so scoping applies.
    */
@@ -66,6 +71,11 @@ export class ImportTargets {
       throw new Error(`Import target registered twice: ${target.key}`);
     }
     this.registered.set(target.key, target);
+  }
+
+  /** Targets modules registered (custom record types are found by key only, not listed here). */
+  listRegistered(): ImportTarget[] {
+    return [...this.registered.values()];
   }
 
   /** The target for `entityKey`; 404 when nothing can be imported under that key. */

@@ -34,6 +34,7 @@ import type { ExportJobRow, ExportService } from './export-service.js';
 import type { ImportQueue } from './import-queue.js';
 import type { ImportJobRow, ImportRowRow, ImportService } from './import-service.js';
 import type { ImportTargets } from './import-targets.js';
+import { buildXlsx } from './xlsx-sheet.js';
 import type { Db } from '../db/prisma.js';
 
 export type MappingRow = NonNullable<Awaited<ReturnType<Db['importMapping']['findFirst']>>>;
@@ -256,6 +257,47 @@ export function createImportRouter(deps: ImportRouterDeps): Router {
     ),
   );
 
+  // Module targets (employees ...) the caller may import into; custom types come from
+  // /entity-definitions. A target the caller lacks the permission for is left out.
+  router.get('/import-targets', async (_req, res) => {
+    const items = await uow.run(async () => {
+      const allowed: { key: string; label: string }[] = [];
+      for (const target of targets.listRegistered()) {
+        try {
+          await permissions.require(target.createPermission);
+          allowed.push({ key: target.key, label: target.label });
+        } catch {
+          // Not allowed: the target is simply not offered.
+        }
+      }
+      return allowed;
+    });
+    res.json({ items });
+  });
+
+  // The blank Excel template: one heading per field (required ones marked with *), plus the
+  // target's example row. Sent as base64 so the web client's JSON call can carry it.
+  router.get('/import-targets/:entityKey/template', async (req, res) => {
+    const key = entityKey.parse(req.params.entityKey);
+    const described = await uow.run(() => service.describeTarget(key));
+    const target = await targets.resolve(key);
+    const columns = described.fields.map((f) => f.label);
+    const example: Record<string, string> = {};
+    for (const field of described.fields) {
+      const value = target.templateExample?.[field.key];
+      if (value !== undefined) example[field.label] = value;
+    }
+    const file = await buildXlsx(
+      described.label,
+      columns,
+      Object.keys(example).length > 0 ? [example] : [],
+    );
+    res.json({
+      fileName: `${key.replace(/\./g, '-')}-import-template.xlsx`,
+      contentBase64: file.toString('base64'),
+    });
+  });
+
   router.get('/import-targets/:entityKey', async (req, res) => {
     const key = entityKey.parse(req.params.entityKey);
     res.json(await uow.run(() => service.describeTarget(key)));
@@ -393,6 +435,26 @@ export function createImportRouter(deps: ImportRouterDeps): Router {
     pageSize: z.number().int(),
   });
   const body = (schema: z.ZodType) => ({ content: { 'application/json': { schema } } });
+  registerRoute(registry, {
+    method: 'get',
+    path: '/import-targets',
+    tags,
+    summary: 'Module record kinds (such as employees) the caller can import into',
+    responses: {
+      200: ok(z.object({ items: z.array(z.object({ key: z.string(), label: z.string() })) })),
+    },
+  });
+  registerRoute(registry, {
+    method: 'get',
+    path: '/import-targets/{entityKey}/template',
+    tags,
+    summary: 'A blank Excel import template (base64) with one heading per field',
+    request: { params: z.object({ entityKey }) },
+    responses: {
+      200: ok(z.object({ fileName: z.string(), contentBase64: z.string() })),
+      404: problem('This record type cannot be imported'),
+    },
+  });
   registerRoute(registry, {
     method: 'get',
     path: '/import-targets/{entityKey}',

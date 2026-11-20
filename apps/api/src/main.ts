@@ -647,6 +647,7 @@ async function main(): Promise<void> {
         vault: partyVault,
         audit,
         attachables,
+        importTargets,
         states,
         onCreated: (key, id) => workflows.onCreated(key, id),
         expiryJob: { prisma, messaging, outbox, logger },

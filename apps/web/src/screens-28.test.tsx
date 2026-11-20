@@ -74,6 +74,8 @@ const signedIn = (permissions: string[]) => ({
   'GET /me/permissions': () => json(200, { permissions }),
   'GET /entity-definitions': () =>
     json(200, { items: [{ key: 'vehicle', name: { en: 'Vehicle' }, status: 'published' }] }),
+  // Module targets (employees); none in these tests.
+  'GET /import-targets': () => json(200, { items: [] }),
 });
 
 const target = {

@@ -566,6 +566,7 @@ export const en = {
   'data.type': 'Record type',
   'data.chooseType': 'Choose a record type',
   'data.import': 'Import',
+  'data.template': 'Download Excel template',
   'data.export': 'Export',
   'data.step1': 'Step 1: choose the file',
   'data.step2': 'Step 2: match the columns',
