@@ -77,3 +77,23 @@ Draft Bangla for the Qatar-based office team. Needs review by a native speaker. 
 | Retention | সংরক্ষণের মেয়াদ | How long data is kept. Phase 2 only tests this; it deletes nothing. |
 | Role | ভূমিকা | A set of permissions given to users. |
 | Permission | অনুমতি | The right to do one thing, such as view or approve. |
+
+## People and documents
+
+| English | Bangla | Plain meaning |
+| --- | --- | --- |
+| Employee | কর্মী | A person who works for the company. Stored once as a person (party) with the employee role. |
+| QID | QID (কাতার আইডি) | Qatar ID number of a resident. Stored encrypted; only the last digits show. |
+| Istimara | ইসতিমারা (গাড়ির রেজিস্ট্রেশন কার্ড) | Vehicle registration card. A vehicle document; it is not offered for people. |
+| Health card | হেলথ কার্ড | The government health card of a person. A document with an expiry date. |
+| Sponsor | স্পনসর | The person or company that holds the worker's residence permit. "Company" or "outside sponsor". |
+| Sponsorship | স্পনসরশিপ | Whether the company or an outside sponsor sponsors the employee. |
+| Recruiting agent | নিয়োগ এজেন্ট | The agent who brought the employee to the company. |
+| Placement | প্লেসমেন্ট | The platform, profession and place where an employee is working, with start and end dates. |
+| Employment period | চাকরির সময়কাল | The dates between joining and leaving. A person can have more than one. |
+| Document type | নথির ধরন | A kind of document (QID, passport, health card). The business can add its own. |
+| Expiry | মেয়াদ শেষ | The date a document stops being valid. Red when expired, amber inside an alert window. |
+| Expiry alert | মেয়াদ শেষের সতর্কতা | The daily email and in-app message about documents about to expire. |
+| Scan | স্ক্যান | A photo or scan of a document. |
+| OCR (scan reading) | OCR (স্ক্যান পড়া) | Reading the values from a scan. Staff always check and confirm; nothing is saved without it. |
+| Bulk scan | একসাথে স্ক্যান আপলোড | Upload many scans at once; each is read and waits to be confirmed or rejected. |
