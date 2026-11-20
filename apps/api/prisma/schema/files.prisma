@@ -78,6 +78,7 @@ model RawInput {
   file           FileObject?       @relation(fields: [companyId, fileObjectId], references: [companyId, id], map: "raw_input_file_fk", onDelete: NoAction, onUpdate: NoAction)
   importJobs     ImportJob[]
   bankStatements GlBankStatement[]
+  syncRuns       SyncRun[]
 
   @@index([companyId, kind, receivedAt(sort: Desc)], map: "raw_input_kind_idx")
   @@map("raw_input")

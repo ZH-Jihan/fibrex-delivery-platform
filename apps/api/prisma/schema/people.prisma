@@ -254,8 +254,8 @@ model OcrJob {
   deletedBy       String?   @map("deleted_by") @db.Uuid
   deleteReason    String?   @map("delete_reason")
 
-  company      Company       @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "ocr_job_company_fk", onDelete: NoAction, onUpdate: NoAction)
-  documentType DocumentType? @relation(fields: [companyId, documentTypeId], references: [companyId, id], map: "ocr_job_type_fk", onDelete: NoAction, onUpdate: NoAction)
+  company      Company          @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "ocr_job_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  documentType DocumentType?    @relation(fields: [companyId, documentTypeId], references: [companyId, id], map: "ocr_job_type_fk", onDelete: NoAction, onUpdate: NoAction)
   documents    Document[]
   bulkItems    BulkUploadItem[]
 

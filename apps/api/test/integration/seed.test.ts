@@ -34,7 +34,13 @@ describe('seed', () => {
         Number((await owner.query<{ n: string }>(sql, [first.tenantId])).rows[0]?.n ?? 0);
       expect(await count(`SELECT count(*) n FROM iam.role WHERE tenant_id = $1`)).toBe(4);
       expect(await count(`SELECT count(*) n FROM platform.branch WHERE tenant_id = $1`)).toBe(1);
-      expect(await count(`SELECT count(*) n FROM party.party WHERE tenant_id = $1`)).toBe(6);
+      // Six demo parties plus the Snoonu client organisation (row 4.1).
+      expect(await count(`SELECT count(*) n FROM party.party WHERE tenant_id = $1`)).toBe(7);
+      expect(
+        await count(
+          `SELECT count(*) n FROM performance.client_platform WHERE tenant_id = $1 AND code = 'snoonu' AND cycle_start_day = 26`,
+        ),
+      ).toBe(1);
       expect(await count(`SELECT count(*) n FROM iam.user_account WHERE tenant_id = $1`)).toBe(1);
       // Client 18/14 and pay 14/10 QAR per order, once (row 2.9b).
       const rates = await owner.query<{ key: string; profession: string; value: string }>(

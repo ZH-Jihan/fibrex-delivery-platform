@@ -1,0 +1,263 @@
+// Schema `performance`: client platforms, report sync and daily performance (PLAN 3.11).
+// Row 4.1 (migration 20261125000000_performance_tracking). `daily_performance` is
+// partitioned by month; its retire-only trigger, CHECK constraints and partitions live
+// only in the SQL.
+
+/// A client platform (Snoonu ...). The client itself is an organisation party.
+model ClientPlatform {
+  id            String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  companyId     String    @map("company_id") @db.Uuid
+  partyId       String    @map("party_id") @db.Uuid
+  code          String
+  name          String
+  adapterKind   String    @map("adapter_kind")
+  /// Day the platform's performance month starts (Snoonu: 26); 1 = calendar month.
+  cycleStartDay Int       @default(1) @map("cycle_start_day") @db.SmallInt
+  status        String    @default("active")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy     String?   @map("created_by") @db.Uuid
+  updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy     String?   @map("updated_by") @db.Uuid
+  version       Int       @default(1)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy     String?   @map("deleted_by") @db.Uuid
+  deleteReason  String?   @map("delete_reason")
+
+  company              Company               @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "client_platform_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  party                Party                 @relation(fields: [companyId, partyId], references: [companyId, id], map: "client_platform_party_fk", onDelete: NoAction, onUpdate: NoAction)
+  syncSources          SyncSource[]
+  metricDefinitions    MetricDefinition[]
+  dailyPerformances    DailyPerformance[]
+  unmatchedIdentifiers UnmatchedIdentifier[]
+
+  @@unique([companyId, id], map: "client_platform_company_id_uq")
+  @@unique([companyId, code], map: "client_platform_code_uq", where: { deletedAt: null })
+  @@map("client_platform")
+  @@schema("performance")
+}
+
+/// Where a platform's report is read from; adapter settings sealed in `configEncrypted`.
+model SyncSource {
+  id               String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  companyId        String    @map("company_id") @db.Uuid
+  clientPlatformId String    @map("client_platform_id") @db.Uuid
+  name             String
+  adapterKind      String    @map("adapter_kind")
+  configEncrypted  Bytes?    @map("config_encrypted")
+  scheduleCron     String    @default("0 4 * * *") @map("schedule_cron")
+  timeZone         String    @default("Asia/Qatar") @map("time_zone")
+  active           Boolean   @default(true)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy        String?   @map("created_by") @db.Uuid
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy        String?   @map("updated_by") @db.Uuid
+  version          Int       @default(1)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy        String?   @map("deleted_by") @db.Uuid
+  deleteReason     String?   @map("delete_reason")
+
+  company        Company         @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "sync_source_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  clientPlatform ClientPlatform  @relation(fields: [companyId, clientPlatformId], references: [companyId, id], map: "sync_source_platform_fk", onDelete: NoAction, onUpdate: NoAction)
+  columnMappings ColumnMapping[]
+  runs           SyncRun[]
+
+  @@unique([companyId, id], map: "sync_source_company_id_uq")
+  @@index([clientPlatformId], map: "sync_source_platform_idx")
+  @@map("sync_source")
+  @@schema("performance")
+}
+
+/// Versioned sheet header to field map (with aliases).
+model ColumnMapping {
+  id             String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  syncSourceId   String    @map("sync_source_id") @db.Uuid
+  mappingVersion Int       @map("mapping_version")
+  mapping        Json      @default("{}")
+  validFrom      DateTime  @default(now()) @map("valid_from") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy      String?   @map("created_by") @db.Uuid
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  version        Int       @default(1)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy      String?   @map("deleted_by") @db.Uuid
+  deleteReason   String?   @map("delete_reason")
+
+  company    Company    @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "column_mapping_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  syncSource SyncSource @relation(fields: [companyId, syncSourceId], references: [companyId, id], map: "column_mapping_source_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([syncSourceId, mappingVersion], map: "column_mapping_version_uq")
+  @@map("column_mapping")
+  @@schema("performance")
+}
+
+/// A metric a platform's report carries (assigned, delivered, working_hours ...).
+model MetricDefinition {
+  id               String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  companyId        String    @map("company_id") @db.Uuid
+  clientPlatformId String    @map("client_platform_id") @db.Uuid
+  key              String
+  label            Json
+  unit             String
+  aggregation      String
+  isCore           Boolean   @default(false) @map("is_core")
+  sortOrder        Int       @default(0) @map("sort_order")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy        String?   @map("created_by") @db.Uuid
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy        String?   @map("updated_by") @db.Uuid
+  version          Int       @default(1)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy        String?   @map("deleted_by") @db.Uuid
+  deleteReason     String?   @map("delete_reason")
+
+  company        Company        @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "metric_definition_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  clientPlatform ClientPlatform @relation(fields: [companyId, clientPlatformId], references: [companyId, id], map: "metric_definition_platform_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([clientPlatformId, key], map: "metric_definition_key_uq", where: { deletedAt: null })
+  @@map("metric_definition")
+  @@schema("performance")
+}
+
+/// One sync run (scheduled, manual, re-import or uploaded file).
+model SyncRun {
+  id                String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  companyId         String    @map("company_id") @db.Uuid
+  syncSourceId      String    @map("sync_source_id") @db.Uuid
+  businessDate      DateTime  @map("business_date") @db.Date
+  trigger           String
+  status            String    @default("running")
+  rangeFrom         DateTime? @map("range_from") @db.Date
+  rangeTo           DateTime? @map("range_to") @db.Date
+  rowsRead          Int       @default(0) @map("rows_read")
+  matched           Int       @default(0)
+  unmatched         Int       @default(0)
+  errorsCount       Int       @default(0) @map("errors_count")
+  rawInputId        String?   @map("raw_input_id") @db.Uuid
+  snapshotSha256    String?   @map("snapshot_sha256")
+  snapshotReused    Boolean   @default(false) @map("snapshot_reused")
+  layoutChanged     Boolean   @default(false) @map("layout_changed")
+  supersededByRunId String?   @map("superseded_by_run_id") @db.Uuid
+  startedAt         DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt        DateTime? @map("finished_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy         String?   @map("created_by") @db.Uuid
+  updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy         String?   @map("updated_by") @db.Uuid
+  version           Int       @default(1)
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy         String?   @map("deleted_by") @db.Uuid
+  deleteReason      String?   @map("delete_reason")
+
+  company           Company            @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "sync_run_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  syncSource        SyncSource         @relation(fields: [companyId, syncSourceId], references: [companyId, id], map: "sync_run_source_fk", onDelete: NoAction, onUpdate: NoAction)
+  rawInput          RawInput?          @relation(fields: [rawInputId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  supersededBy      SyncRun?           @relation("SyncRunSuperseded", fields: [companyId, supersededByRunId], references: [companyId, id], map: "sync_run_superseded_fk", onDelete: NoAction, onUpdate: NoAction)
+  supersedes        SyncRun[]          @relation("SyncRunSuperseded")
+  errors            SyncRunError[]
+  dailyPerformances DailyPerformance[]
+
+  @@unique([companyId, id], map: "sync_run_company_id_uq")
+  @@unique([syncSourceId, businessDate, snapshotSha256], map: "sync_run_snapshot_uq", where: raw("snapshot_sha256 IS NOT NULL AND NOT snapshot_reused"))
+  @@index([syncSourceId, businessDate(sort: Desc), startedAt(sort: Desc)], map: "sync_run_source_date_idx")
+  @@map("sync_run")
+  @@schema("performance")
+}
+
+/// An error of a sync run (insert-only).
+model SyncRunError {
+  id        String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  syncRunId String   @map("sync_run_id") @db.Uuid
+  rowNo     Int?     @map("row_no")
+  code      String
+  message   String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy String?  @map("created_by") @db.Uuid
+
+  company Company @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "sync_run_error_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  syncRun SyncRun @relation(fields: [companyId, syncRunId], references: [companyId, id], map: "sync_run_error_run_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([syncRunId, rowNo], map: "sync_run_error_run_idx")
+  @@map("sync_run_error")
+  @@schema("performance")
+}
+
+/// One sheet row for one date (insert-only; a re-import retires rows via `isCurrent`).
+model DailyPerformance {
+  id               String    @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  companyId        String    @map("company_id") @db.Uuid
+  syncRunId        String    @map("sync_run_id") @db.Uuid
+  clientPlatformId String    @map("client_platform_id") @db.Uuid
+  businessDate     DateTime  @map("business_date") @db.Date
+  partyId          String?   @map("party_id") @db.Uuid
+  externalId       String    @map("external_id")
+  ordersCompleted  Int?      @map("orders_completed")
+  loginAt          DateTime? @map("login_at") @db.Timestamptz(6)
+  shiftStart       DateTime? @map("shift_start") @db.Time(6)
+  lateMinutes      Int?      @map("late_minutes")
+  workingMinutes   Int?      @map("working_minutes")
+  onlineMinutes    Int?      @map("online_minutes")
+  accepted         Int?
+  rejected         Int?
+  cancelled        Int?
+  earnings         Decimal?  @db.Decimal(18, 4)
+  cod              Decimal?  @db.Decimal(18, 4)
+  currency         String?   @db.Char(3)
+  metrics          Json      @default("{}")
+  isCurrent        Boolean   @default(true) @map("is_current")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy        String?   @map("created_by") @db.Uuid
+
+  company        Company        @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "daily_performance_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  syncRun        SyncRun        @relation(fields: [companyId, syncRunId], references: [companyId, id], map: "daily_performance_run_fk", onDelete: NoAction, onUpdate: NoAction)
+  clientPlatform ClientPlatform @relation(fields: [companyId, clientPlatformId], references: [companyId, id], map: "daily_performance_platform_fk", onDelete: NoAction, onUpdate: NoAction)
+  party          Party?         @relation(fields: [companyId, partyId], references: [companyId, id], map: "daily_performance_party_fk", onDelete: NoAction, onUpdate: NoAction)
+  currencyRef    Currency?      @relation(fields: [currency], references: [code], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([id, businessDate], map: "daily_performance_pk")
+  @@unique([clientPlatformId, externalId, businessDate], map: "daily_performance_current_external_uq", where: raw("is_current"))
+  @@unique([clientPlatformId, partyId, businessDate], map: "daily_performance_current_party_uq", where: raw("is_current AND party_id IS NOT NULL"))
+  @@index([companyId, businessDate, partyId], map: "daily_performance_date_idx")
+  @@index([syncRunId], map: "daily_performance_run_idx")
+  @@map("daily_performance")
+  @@schema("performance")
+}
+
+/// A platform id seen in the sheet with no person yet (the unmatched queue).
+model UnmatchedIdentifier {
+  id               String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  companyId        String    @map("company_id") @db.Uuid
+  clientPlatformId String    @map("client_platform_id") @db.Uuid
+  externalId       String    @map("external_id")
+  firstSeen        DateTime  @map("first_seen") @db.Date
+  lastSeen         DateTime  @map("last_seen") @db.Date
+  status           String    @default("open")
+  resolvedPartyId  String?   @map("resolved_party_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy        String?   @map("created_by") @db.Uuid
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy        String?   @map("updated_by") @db.Uuid
+  version          Int       @default(1)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy        String?   @map("deleted_by") @db.Uuid
+  deleteReason     String?   @map("delete_reason")
+
+  company        Company        @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "unmatched_identifier_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  clientPlatform ClientPlatform @relation(fields: [companyId, clientPlatformId], references: [companyId, id], map: "unmatched_identifier_platform_fk", onDelete: NoAction, onUpdate: NoAction)
+  resolvedParty  Party?         @relation(fields: [companyId, resolvedPartyId], references: [companyId, id], map: "unmatched_identifier_party_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([clientPlatformId, externalId], map: "unmatched_identifier_external_uq", where: { deletedAt: null })
+  @@index([companyId, status, lastSeen(sort: Desc)], map: "unmatched_identifier_status_idx")
+  @@map("unmatched_identifier")
+  @@schema("performance")
+}

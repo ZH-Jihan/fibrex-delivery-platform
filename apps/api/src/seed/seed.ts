@@ -37,6 +37,8 @@ import {
   seedExpiryAlerts,
   seedEmployeeStatus,
 } from '../modules/people/index.js';
+import { PERFORMANCE_PERMISSIONS, seedClientPlatforms } from '../modules/performance/index.js';
+import { TRACKING_PERMISSIONS } from '../modules/tracking/index.js';
 
 export interface SeedOptions {
   /** Plain password for the Super Admin. Only used when that user is created. */
@@ -60,6 +62,8 @@ export const ALL_PERMISSIONS: readonly PermissionDef[] = [
   ...FILES_PERMISSIONS,
   ...NOTIFY_PERMISSIONS,
   ...GL_PERMISSIONS,
+  ...PERFORMANCE_PERMISSIONS,
+  ...TRACKING_PERMISSIONS,
   ...JOB_PERMISSIONS,
 ];
 
@@ -301,6 +305,8 @@ export async function runSeed(pool: pg.Pool, opts: SeedOptions): Promise<SeedRes
     await seedDocumentTypes(client, tenantId, companyId);
     // Expiry alerts: the owner's email list, windows 14 and 7, in-app rule (phase 3 row 3.4).
     await seedExpiryAlerts(client, tenantId, companyId);
+    // Snoonu client platform (cycle 26th to 25th) and its Daily Report metrics (row 4.1).
+    await seedClientPlatforms(client, tenantId, companyId);
 
     await client.query('COMMIT');
     return { tenantId, companyId, superAdminId, superAdminCreated };

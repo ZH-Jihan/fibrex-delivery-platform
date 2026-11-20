@@ -7,7 +7,7 @@ Keep this file short (see CLAUDE.md rule 8). Full verification detail: `docs/pro
 | 1 | Foundation A | Done (13 of 13 commits), awaiting acceptance | | Plan: `docs/phases/phase-01-plan.md` |
 | 2 | Foundation B | Done (rows 2.1 to 2.20), accepted | 2026-11-19 | Plan: `docs/phases/phase-02-plan.md` |
 | 3 | People and documents | Done (rows 3.1 to 3.10), awaiting acceptance | | Plan: `docs/phases/phase-03-plan.md` |
-| 4 | Performance and tracking | Not started | | |
+| 4 | Performance and tracking | In progress (4.1 of 4.11 done) | | Plan: `docs/phases/phase-04-plan.md`. 4.1: `performance` and `tracking` schemas (11 tables, `daily_performance` partitioned and retire-only), Snoonu platform (`cycle_start_day` 26) and 7 metrics seeded, module manifests and permissions; API 542 tests (541 passed in the full run, `records.test.ts` numbering race flaky, passes alone). Next: 4.2 Snoonu sheet parser. |
 | 5 | Inventory and fleet | Not started | | |
 | 6 | Rates, loans and fund | Not started | | |
 | 7 | Payroll and payments | Not started | | |

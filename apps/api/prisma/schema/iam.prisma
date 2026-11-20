@@ -43,6 +43,8 @@ model UserAccount {
   delegationsGiven       WorkflowDelegation[]     @relation("WorkflowDelegationUser")
   delegationsReceived    WorkflowDelegation[]     @relation("WorkflowDelegationDelegate")
   party                  Party?                   @relation(fields: [tenantId, partyId], references: [tenantId, id], map: "user_account_party_fk", onDelete: NoAction, onUpdate: NoAction)
+  trackingEntries        TrackingEntry[]
+  callLogs               CallLog[]
 
   @@unique([tenantId, id], map: "user_account_tenant_id_uq")
   @@unique([tenantId, username], map: "user_account_username_uq", where: { deletedAt: null })

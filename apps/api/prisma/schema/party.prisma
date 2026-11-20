@@ -23,25 +23,32 @@ model Party {
   deletedBy       String?   @map("deleted_by") @db.Uuid
   deleteReason    String?   @map("delete_reason")
 
-  company          Company                   @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "party_company_fk", onDelete: NoAction, onUpdate: NoAction)
-  roles            PartyRole[]
-  identifiers      PartyIdentifier[]
-  contacts         PartyContact[]
-  addresses        PartyAddress[]
-  relationsFrom    PartyRelationship[]       @relation("RelationshipFrom")
-  relationsTo      PartyRelationship[]       @relation("RelationshipTo")
-  bankAccounts     PartyBankAccount[]
-  duplicatesA      PartyDuplicateCandidate[] @relation("DuplicateA")
-  duplicatesB      PartyDuplicateCandidate[] @relation("DuplicateB")
-  mergesAsSurvivor PartyMerge[]              @relation("MergeSurvivor")
-  mergesAsMerged   PartyMerge[]              @relation("MergeMerged")
-  users            UserAccount[]
-  customRecords    CustomRecord[]
-  glLines          GlJournalLine[]           @relation("GlLineParty")
-  glEmployeeLines  GlJournalLine[]           @relation("GlLineEmployee")
-  employees        Employee[]                @relation("EmployeeParty")
-  sponsoredStaff   Employee[]                @relation("EmployeeSponsor")
-  recruitedStaff   Employee[]                @relation("EmployeeAgent")
+  company                Company                   @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "party_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  roles                  PartyRole[]
+  identifiers            PartyIdentifier[]
+  contacts               PartyContact[]
+  addresses              PartyAddress[]
+  relationsFrom          PartyRelationship[]       @relation("RelationshipFrom")
+  relationsTo            PartyRelationship[]       @relation("RelationshipTo")
+  bankAccounts           PartyBankAccount[]
+  duplicatesA            PartyDuplicateCandidate[] @relation("DuplicateA")
+  duplicatesB            PartyDuplicateCandidate[] @relation("DuplicateB")
+  mergesAsSurvivor       PartyMerge[]              @relation("MergeSurvivor")
+  mergesAsMerged         PartyMerge[]              @relation("MergeMerged")
+  users                  UserAccount[]
+  customRecords          CustomRecord[]
+  glLines                GlJournalLine[]           @relation("GlLineParty")
+  glEmployeeLines        GlJournalLine[]           @relation("GlLineEmployee")
+  employees              Employee[]                @relation("EmployeeParty")
+  sponsoredStaff         Employee[]                @relation("EmployeeSponsor")
+  recruitedStaff         Employee[]                @relation("EmployeeAgent")
+  clientPlatforms        ClientPlatform[]
+  dailyPerformances      DailyPerformance[]
+  unmatchedResolutions   UnmatchedIdentifier[]
+  trackingEntries        TrackingEntry[]
+  ownedIdOperatorPeriods IdOperatorPeriod[]        @relation("IdOperatorOwner")
+  operatedIdPeriods      IdOperatorPeriod[]        @relation("IdOperatorOperator")
+  callLogs               CallLog[]
 
   @@unique([companyId, id], map: "party_company_id_uq")
   @@unique([tenantId, id], map: "party_tenant_id_uq")
@@ -101,8 +108,9 @@ model PartyIdentifier {
   deletedBy        String?   @map("deleted_by") @db.Uuid
   deleteReason     String?   @map("delete_reason")
 
-  company Company @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "party_identifier_company_fk", onDelete: NoAction, onUpdate: NoAction)
-  party   Party   @relation(fields: [companyId, partyId], references: [companyId, id], map: "party_identifier_party_fk", onDelete: NoAction, onUpdate: NoAction)
+  company         Company            @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "party_identifier_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  party           Party              @relation(fields: [companyId, partyId], references: [companyId, id], map: "party_identifier_party_fk", onDelete: NoAction, onUpdate: NoAction)
+  operatorPeriods IdOperatorPeriod[]
 
   @@index([partyId], map: "party_identifier_party_idx")
   @@index([tenantId, type, valueHash], map: "party_identifier_lookup_idx")

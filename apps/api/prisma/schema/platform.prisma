@@ -21,6 +21,8 @@ model Currency {
   glCashLocations      GlCashLocation[]
   glBankStatements     GlBankStatement[]
   glBankStatementLines GlBankStatementLine[]
+  dailyPerformances    DailyPerformance[]
+  idOperatorPeriods    IdOperatorPeriod[]
 
   @@map("currency")
   @@schema("platform")
@@ -230,6 +232,17 @@ model Company {
   ocrJobs                 OcrJob[]
   bulkUploads             BulkUpload[]
   bulkUploadItems         BulkUploadItem[]
+  clientPlatforms         ClientPlatform[]
+  syncSources             SyncSource[]
+  columnMappings          ColumnMapping[]
+  metricDefinitions       MetricDefinition[]
+  syncRuns                SyncRun[]
+  syncRunErrors           SyncRunError[]
+  dailyPerformances       DailyPerformance[]
+  unmatchedIdentifiers    UnmatchedIdentifier[]
+  trackingEntries         TrackingEntry[]
+  idOperatorPeriods       IdOperatorPeriod[]
+  callLogs                CallLog[]
 
   @@unique([tenantId, id], map: "company_tenant_id_uq")
   @@map("company")

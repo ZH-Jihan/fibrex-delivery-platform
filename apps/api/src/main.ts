@@ -148,6 +148,8 @@ import {
   createPartyModule,
 } from './modules/party/index.js';
 import { EMPLOYEE_ENTITY, createPeopleModule } from './modules/people/index.js';
+import { createPerformanceModule } from './modules/performance/index.js';
+import { createTrackingModule } from './modules/tracking/index.js';
 
 const rootEnv = path.resolve(import.meta.dirname, '../../../.env');
 if (process.env.DATABASE_URL === undefined && existsSync(rootEnv)) {
@@ -675,6 +677,9 @@ async function main(): Promise<void> {
           bankVault: new BankVault(new SecretBox(env.DATA_ENCRYPTION_KEY), env.DATA_ENCRYPTION_KEY),
         }),
       );
+      // Performance and tracking (phase 4): permission keys now; routers in rows 4.3 to 4.8.
+      modules.register(createPerformanceModule());
+      modules.register(createTrackingModule());
       for (const attachable of modules.attachables()) attachables.register(attachable);
       for (const type of modules.recycleTypes()) recycleBin.register(type);
       modules.mount(api);

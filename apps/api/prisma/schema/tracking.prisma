@@ -1,0 +1,96 @@
+// Schema `tracking`: daily status history, ID-operator periods and the call log
+// (PLAN 3.11, SPEC 3.3). Row 4.1 (migration 20261125000000_performance_tracking). The
+// reason rule (CHECK) and "one operator per id at a time" (exclusion) live only in the SQL.
+
+/// One status change of a person on a date; the current status is the latest row.
+model TrackingEntry {
+  id            String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  companyId     String    @map("company_id") @db.Uuid
+  partyId       String    @map("party_id") @db.Uuid
+  businessDate  DateTime  @map("business_date") @db.Date
+  statusCode    String    @map("status_code")
+  reasonId      String?   @map("reason_id") @db.Uuid
+  effectiveDate DateTime  @map("effective_date") @db.Date
+  note          String?
+  callerUserId  String?   @map("caller_user_id") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy     String?   @map("created_by") @db.Uuid
+  updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy     String?   @map("updated_by") @db.Uuid
+  version       Int       @default(1)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy     String?   @map("deleted_by") @db.Uuid
+  deleteReason  String?   @map("delete_reason")
+
+  company Company      @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "tracking_entry_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  party   Party        @relation(fields: [companyId, partyId], references: [companyId, id], map: "tracking_entry_party_fk", onDelete: NoAction, onUpdate: NoAction)
+  reason  LookupValue? @relation(fields: [tenantId, reasonId], references: [tenantId, id], map: "tracking_entry_reason_fk", onDelete: NoAction, onUpdate: NoAction)
+  caller  UserAccount? @relation(fields: [tenantId, callerUserId], references: [tenantId, id], map: "tracking_entry_caller_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([partyId, businessDate(sort: Desc), createdAt(sort: Desc)], map: "tracking_entry_party_idx")
+  @@index([companyId, businessDate], map: "tracking_entry_date_idx")
+  @@map("tracking_entry")
+  @@schema("tracking")
+}
+
+/// Another person working someone's platform id for a period (SPEC 3.3).
+model IdOperatorPeriod {
+  id                String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  companyId         String    @map("company_id") @db.Uuid
+  partyIdentifierId String    @map("party_identifier_id") @db.Uuid
+  ownerPartyId      String    @map("owner_party_id") @db.Uuid
+  operatorPartyId   String?   @map("operator_party_id") @db.Uuid
+  operatorName      String?   @map("operator_name")
+  operatorPhone     String?   @map("operator_phone")
+  fromDate          DateTime  @map("from_date") @db.Date
+  toDate            DateTime? @map("to_date") @db.Date
+  codAtHandover     Decimal?  @map("cod_at_handover") @db.Decimal(18, 4)
+  currency          String?   @db.Char(3)
+  ordersAtHandover  Int?      @map("orders_at_handover")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy         String?   @map("created_by") @db.Uuid
+  updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy         String?   @map("updated_by") @db.Uuid
+  version           Int       @default(1)
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy         String?   @map("deleted_by") @db.Uuid
+  deleteReason      String?   @map("delete_reason")
+
+  company         Company         @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "id_operator_period_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  partyIdentifier PartyIdentifier @relation(fields: [partyIdentifierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  owner           Party           @relation("IdOperatorOwner", fields: [companyId, ownerPartyId], references: [companyId, id], map: "id_operator_period_owner_fk", onDelete: NoAction, onUpdate: NoAction)
+  operator        Party?          @relation("IdOperatorOperator", fields: [companyId, operatorPartyId], references: [companyId, id], map: "id_operator_period_operator_fk", onDelete: NoAction, onUpdate: NoAction)
+  currencyRef     Currency?       @relation(fields: [currency], references: [code], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([partyIdentifierId], map: "id_operator_period_identifier_idx")
+  @@index([ownerPartyId], map: "id_operator_period_owner_idx")
+  @@map("id_operator_period")
+  @@schema("tracking")
+}
+
+/// One call from the morning call sheet (insert-only).
+model CallLog {
+  id           String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  partyId      String   @map("party_id") @db.Uuid
+  businessDate DateTime @map("business_date") @db.Date
+  callerUserId String?  @map("caller_user_id") @db.Uuid
+  outcomeId    String   @map("outcome_id") @db.Uuid
+  note         String?
+  at           DateTime @default(now()) @db.Timestamptz(6)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?  @map("created_by") @db.Uuid
+
+  company Company      @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "call_log_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  party   Party        @relation(fields: [companyId, partyId], references: [companyId, id], map: "call_log_party_fk", onDelete: NoAction, onUpdate: NoAction)
+  outcome LookupValue  @relation(fields: [tenantId, outcomeId], references: [tenantId, id], map: "call_log_outcome_fk", onDelete: NoAction, onUpdate: NoAction)
+  caller  UserAccount? @relation(fields: [tenantId, callerUserId], references: [tenantId, id], map: "call_log_caller_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([partyId, businessDate(sort: Desc)], map: "call_log_party_idx")
+  @@index([companyId, businessDate], map: "call_log_date_idx")
+  @@map("call_log")
+  @@schema("tracking")
+}
