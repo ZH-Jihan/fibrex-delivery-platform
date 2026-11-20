@@ -111,6 +111,43 @@ describe('ReportsPage', () => {
     expect(await screen.findByText(/no reports yet/i)).toBeInTheDocument();
   });
 
+  it('shows a lookup filter as a dropdown of names and sends the id', async () => {
+    const calls = stub({
+      ...signedIn([]),
+      'GET /reports': () => json(200, list),
+      'GET /reports/integration.export_log/meta': () =>
+        json(200, {
+          ...meta,
+          filters: [
+            {
+              key: 'documentTypeId',
+              label: 'Document type',
+              type: 'select',
+              lookup: '/document-types',
+            },
+          ],
+        }),
+      'GET /document-types': () =>
+        json(200, {
+          items: [
+            { id: '11111111-1111-4111-8111-111111111111', code: 'QID', name: { en: 'Qatar ID' } },
+            { id: '22222222-2222-4222-8222-222222222222', code: 'PP', name: { en: 'Passport' } },
+          ],
+        }),
+      'POST /reports/integration.export_log/run': () => json(200, rows),
+    });
+    render(wrap('/reports?report=integration.export_log'));
+    const select = await screen.findByLabelText('Document type');
+    expect(await screen.findByRole('option', { name: 'Passport' })).toBeInTheDocument();
+    await userEvent.selectOptions(select, 'Passport');
+    await userEvent.click(screen.getByRole('button', { name: /run report/i }));
+    await waitFor(() => {
+      expect(calls.find((c) => c.path.endsWith('/run'))?.body).toMatchObject({
+        filters: { documentTypeId: '22222222-2222-4222-8222-222222222222' },
+      });
+    });
+  });
+
   it('runs a report with checked filters, sorts it and shows the rows', async () => {
     const calls = stub({
       ...signedIn([]),

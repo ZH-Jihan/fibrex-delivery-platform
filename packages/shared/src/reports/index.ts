@@ -32,6 +32,11 @@ export interface ReportFilterSpec {
   type: ReportFilterType;
   /** Allowed values of a `select` filter. */
   options?: readonly { value: string; label: string }[];
+  /**
+   * A `select` whose choices come from a list endpoint (for example `/document-types`) instead
+   * of fixed `options`. The screen shows the names; the filter value stays the record id.
+   */
+  lookup?: string;
 }
 
 /** One cell of a result row. Dates and times are ISO text; money is a decimal string. */
@@ -104,7 +109,11 @@ export function checkReportFilters(
       problems.push({ key, message: 'Enter a number' });
     } else if (spec.type === 'boolean' && value !== 'true' && value !== 'false') {
       problems.push({ key, message: 'Choose yes or no' });
-    } else if (spec.type === 'select' && !(spec.options ?? []).some((o) => o.value === value)) {
+    } else if (
+      spec.type === 'select' &&
+      spec.lookup === undefined &&
+      !(spec.options ?? []).some((o) => o.value === value)
+    ) {
       problems.push({ key, message: 'Choose one of the listed values' });
     } else {
       clean[key] = value;

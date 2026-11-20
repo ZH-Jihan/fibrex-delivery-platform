@@ -151,3 +151,4 @@ pnpm test
 
 - Development only: the official Postgres image trusts connections made from *inside* its own container. Use `docker compose run --no-deps ... -h postgres` (a separate container) when testing passwords. The bootstrap `postgres` superuser can also log in over the local network. Neither applies to staging or production, which use managed PostgreSQL.
 - Phase 3.11 (done): Employee profile look (header with status pill, two-column details grid with phones, masked QID/passport, nationality, profession, agent), readable select options in dark theme, 'Choose…' placeholder; web tests 126 passed. Next: Phase 4 planning.
+- Phase 3.12 (done): Reports filters can be dropdowns fed by a list endpoint (`lookup`), used by Missing documents (document type names, value stays the id); Expiring documents toggle and label spacing fixed; web tests 127 passed. Next: Phase 4 planning.

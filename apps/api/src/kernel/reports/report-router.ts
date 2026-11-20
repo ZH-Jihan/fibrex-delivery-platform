@@ -58,6 +58,7 @@ const filterSpec = z.object({
   label: z.string(),
   type: z.string(),
   options: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
+  lookup: z.string().optional(),
 });
 const reportListItem = z.object({
   key: z.string(),

@@ -79,7 +79,7 @@ function formatCell(cell: ReportCell | undefined, type: ReportColumnSpec['type']
 }
 
 export function ReportsPage() {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const { can } = useAuth();
   const toast = useToast();
   const [params, setParams] = useSearchParams();
@@ -139,6 +139,38 @@ export function ReportsPage() {
     // `can` changes identity with every render of the auth context; the report key is the trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
+
+  // Choices of lookup filters (a dropdown of names whose value is the record id).
+  const [lookups, setLookups] = useState<Record<string, { value: string; label: string }[]>>({});
+  useEffect(() => {
+    setLookups({});
+    if (meta === null) return;
+    let cancelled = false;
+    for (const f of meta.filters) {
+      if (f.lookup === undefined) continue;
+      const path = f.lookup;
+      api<{ items: { id: string; code?: string; name: string | Record<string, string> }[] }>(path, {
+        query: { pageSize: 200 },
+      })
+        .then((r) => {
+          if (cancelled) return;
+          const options = r.items.map((i) => ({
+            value: i.id,
+            label:
+              typeof i.name === 'string'
+                ? i.name
+                : (i.name[language] ?? i.name.en ?? i.code ?? i.id),
+          }));
+          setLookups((l) => ({ ...l, [f.key]: options }));
+        })
+        .catch(() => {
+          if (!cancelled) setLookups((l) => ({ ...l, [f.key]: [] }));
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [meta, language]);
 
   /** Checks the filters with the shared rule; returns the cleaned values or null on a problem. */
   const checked = useCallback((): Record<string, string> | null => {
@@ -280,7 +312,9 @@ export function ReportsPage() {
                             { value: 'true', label: t('rep.yes') },
                             { value: 'false', label: t('rep.no') },
                           ]
-                        : [...(filter.options ?? [])];
+                        : filter.lookup !== undefined
+                          ? (lookups[filter.key] ?? [])
+                          : [...(filter.options ?? [])];
                     return (
                       <Select
                         key={filter.key}

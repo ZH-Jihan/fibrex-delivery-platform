@@ -135,28 +135,31 @@ export function ExpiringPage() {
   return (
     <div>
       <PageHeader title={t('expiry.title')} icon={TimerReset} description={t('expiry.intro')} />
-      <div className="toolbar" role="group" aria-label={t('expiry.view')}>
-        <Button
-          variant={view === 'list' ? 'primary' : 'default'}
-          onClick={() => {
-            setView('list');
-          }}
-        >
-          {t('expiry.viewList')}
-        </Button>
-        <Button
-          variant={view === 'calendar' ? 'primary' : 'default'}
-          icon={CalendarDays}
-          onClick={() => {
-            setView('calendar');
-          }}
-        >
-          {t('expiry.viewCalendar')}
-        </Button>
+      <div className="expiry-bar">
+        <div className="toggle-group" role="group" aria-label={t('expiry.view')}>
+          <Button
+            variant={view === 'list' ? 'primary' : 'default'}
+            onClick={() => {
+              setView('list');
+            }}
+          >
+            {t('expiry.viewList')}
+          </Button>
+          <Button
+            variant={view === 'calendar' ? 'primary' : 'default'}
+            icon={CalendarDays}
+            onClick={() => {
+              setView('calendar');
+            }}
+          >
+            {t('expiry.viewCalendar')}
+          </Button>
+        </div>
         {view === 'list' ? (
-          <label>
-            {t('expiry.within')}{' '}
+          <div className="field">
+            <label htmlFor="expiry-within">{t('expiry.within')}</label>
             <select
+              id="expiry-within"
               value={withinDays}
               onChange={(e) => {
                 setWithinDays(Number(e.target.value));
@@ -168,18 +171,19 @@ export function ExpiringPage() {
                 </option>
               ))}
             </select>
-          </label>
+          </div>
         ) : (
-          <label>
-            {t('expiry.month')}{' '}
+          <div className="field">
+            <label htmlFor="expiry-month">{t('expiry.month')}</label>
             <input
+              id="expiry-month"
               type="month"
               value={month}
               onChange={(e) => {
                 if (e.target.value !== '') setMonth(e.target.value);
               }}
             />
-          </label>
+          </div>
         )}
       </div>
       <ErrorAlert error={error} />

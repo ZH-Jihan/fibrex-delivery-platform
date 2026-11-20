@@ -155,7 +155,10 @@ export const missingDocumentsReport: ReportDef = {
     { key: 'profession', label: 'Profession', type: 'text', sortable: true },
     { key: 'documentName', label: 'Missing document', type: 'text', sortable: true },
   ],
-  filters: [{ key: 'documentTypeId', label: 'Document type id', type: 'text' }],
+  filters: [
+    // Shown as a dropdown of document type names; the value sent is the type id.
+    { key: 'documentTypeId', label: 'Document type', type: 'select', lookup: '/document-types' },
+  ],
   async run(db, input) {
     const now = today();
     const requirements = await db.documentRequirement.findMany({
