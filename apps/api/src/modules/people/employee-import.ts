@@ -54,29 +54,29 @@ export const EMPLOYEE_IMPORT_KEY = 'people.employee';
 
 /** Columns of the template, in order. `key` is what mappings and saved mappings refer to. */
 const FIELDS: ImportField[] = [
-  { key: 'displayName', label: 'Full name (English)', required: true },
-  { key: 'nameAr', label: 'Name (Arabic)', required: false },
-  { key: 'nameBn', label: 'Name (Bangla)', required: false },
+  { key: 'display_name', label: 'Full name (English)', required: true },
+  { key: 'name_ar', label: 'Name (Arabic)', required: false },
+  { key: 'name_bn', label: 'Name (Bangla)', required: false },
   { key: 'nationality', label: 'Nationality (2-letter code)', required: false },
-  { key: 'dateOfBirth', label: 'Date of birth', required: false },
+  { key: 'date_of_birth', label: 'Date of birth', required: false },
   { key: 'qid', label: 'QID number', required: false },
   { key: 'passport', label: 'Passport number', required: false },
   { key: 'phones', label: 'Phones', required: false },
   { key: 'whatsapp', label: 'WhatsApp', required: false },
   { key: 'email', label: 'Email', required: false },
-  { key: 'joiningDate', label: 'Joining date', required: false },
+  { key: 'joining_date', label: 'Joining date', required: false },
   { key: 'sponsorship', label: 'Sponsorship (company or outside)', required: false },
   { key: 'profession', label: 'Profession (rider or driver)', required: false },
 ];
 
 /** A made-up row for the template (never real data). */
 const EXAMPLE: Record<string, string> = {
-  displayName: 'Sample Worker',
+  display_name: 'Sample Worker',
   nationality: 'BD',
-  dateOfBirth: '1995-03-14',
+  date_of_birth: '1995-03-14',
   qid: '29000000000',
   phones: '+97455550000',
-  joiningDate: '2026-01-15',
+  joining_date: '2026-01-15',
   sponsorship: 'company',
   profession: 'rider',
 };
@@ -115,8 +115,8 @@ export function parseEmployeeRow(
   const bad = (path: string, code: string, message: string) => {
     issues.push({ path, code, message });
   };
-  const displayName = text(values.displayName);
-  if (displayName === undefined) bad('displayName', 'required', 'The full name is required.');
+  const displayName = text(values.display_name);
+  if (displayName === undefined) bad('display_name', 'required', 'The full name is required.');
 
   const phones = splitPhones(text(values.phones));
   for (const phone of phones) {
@@ -148,15 +148,15 @@ export function parseEmployeeRow(
   if (displayName === undefined || issues.length > 0) return { ok: false, issues };
 
   const names: Record<string, string> = { en: displayName };
-  const nameAr = text(values.nameAr);
-  const nameBn = text(values.nameBn);
+  const nameAr = text(values.name_ar);
+  const nameBn = text(values.name_bn);
   if (nameAr !== undefined) names.ar = nameAr;
   if (nameBn !== undefined) names.bn = nameBn;
   const qid = text(values.qid);
   const passport = text(values.passport);
-  const dateOfBirth = text(values.dateOfBirth);
+  const dateOfBirth = text(values.date_of_birth);
   const email = text(values.email);
-  const joiningDate = text(values.joiningDate);
+  const joiningDate = text(values.joining_date);
 
   const parsed = employeeCreateSchema.safeParse({
     person: {
@@ -264,20 +264,57 @@ export function createEmployeeImportTarget(deps: EmployeeImportDeps): ImportTarg
     return ids.length === 1 ? ids[0] : undefined;
   };
 
+  const validate = async (values: Record<string, ImportValue>): Promise<RowIssue[]> => {
+    const parsed = parseEmployeeRow(values);
+    if (!parsed.ok) return parsed.issues;
+    const companyId = previewCompany();
+    // With several companies the preview cannot pick one; the commit checks again.
+    if (companyId === undefined) return [];
+    const resolution = await resolve(companyId, parsed.row);
+    return resolution.kind === 'refuse' ? [resolution.issue] : [];
+  };
+
   return {
     key: EMPLOYEE_IMPORT_KEY,
     label: 'Employees',
     createPermission: 'people.employee.create',
     templateExample: EXAMPLE,
     fields: () => Promise.resolve(FIELDS),
-    validate: async (values) => {
-      const parsed = parseEmployeeRow(values);
-      if (!parsed.ok) return parsed.issues;
-      const companyId = previewCompany();
-      // With several companies the preview cannot pick one; the commit checks again.
-      if (companyId === undefined) return [];
-      const resolution = await resolve(companyId, parsed.row);
-      return resolution.kind === 'refuse' ? [resolution.issue] : [];
+    validate,
+    // Two rows of one file naming the same person pass the preview (the first is not in the
+    // database yet) and then fail the whole commit on the second. Catch it in the preview.
+    newPreviewValidator: () => {
+      const seen = new Set<string>();
+      return async (values) => {
+        const issues = [...(await validate(values))];
+        const parsed = parseEmployeeRow(values);
+        if (!parsed.ok) return issues;
+        const person = parsed.row.body.person;
+        const keys: { path: string; key: string; what: string }[] = [];
+        if (person?.qid !== undefined) {
+          keys.push({ path: 'qid', key: `qid:${person.qid}`, what: 'QID' });
+        }
+        if (person?.passport !== undefined) {
+          keys.push({ path: 'passport', key: `passport:${person.passport}`, what: 'passport' });
+        }
+        const name = parsed.row.displayName.trim().toLowerCase();
+        const phones = [...(person?.phones ?? []), ...(person?.whatsapp ? [person.whatsapp] : [])];
+        for (const phone of phones) {
+          keys.push({ path: 'phones', key: `phone:${phone}:${name}`, what: 'name and phone' });
+        }
+        for (const k of keys) {
+          if (seen.has(k.key)) {
+            issues.push({
+              path: k.path,
+              code: 'duplicate_in_file',
+              message: `The same ${k.what} appears in an earlier row of this file.`,
+            });
+          }
+        }
+        // Remember only rows that could be created, so a bad first row does not block a good one.
+        if (issues.length === 0) for (const k of keys) seen.add(k.key);
+        return issues;
+      };
     },
     create: async (values, companyId) => {
       const parsed = parseEmployeeRow(values);

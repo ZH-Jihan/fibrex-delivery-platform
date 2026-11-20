@@ -5,13 +5,13 @@ import { parseEmployeeRow } from './employee-import.js';
 describe('parseEmployeeRow', () => {
   it('turns a full row into the employee create body', () => {
     const result = parseEmployeeRow({
-      displayName: 'Test Worker',
-      nameAr: 'عامل',
+      display_name: 'Test Worker',
+      name_ar: 'عامل',
       nationality: 'bd',
-      dateOfBirth: '1995-03-14',
+      date_of_birth: '1995-03-14',
       qid: '29000000001',
       phones: '97455550001, +97455550002',
-      joiningDate: '2026-01-15',
+      joining_date: '2026-01-15',
       sponsorship: 'Company',
       profession: 'Rider',
     });
@@ -30,13 +30,13 @@ describe('parseEmployeeRow', () => {
   });
 
   it('accepts a phone Excel stored as a number', () => {
-    const result = parseEmployeeRow({ displayName: 'Num Phone', phones: 97455550003 });
+    const result = parseEmployeeRow({ display_name: 'Num Phone', phones: 97455550003 });
     expect(result.ok && result.row.body.person?.phones).toEqual(['+97455550003']);
   });
 
   it('reports every problem of a row with the field it belongs to', () => {
     const result = parseEmployeeRow({
-      displayName: 'Bad Row',
+      display_name: 'Bad Row',
       phones: '12',
       nationality: 'Qatar',
       sponsorship: 'friend',
@@ -52,6 +52,6 @@ describe('parseEmployeeRow', () => {
 
   it('requires the English name', () => {
     const result = parseEmployeeRow({ qid: '29000000002' });
-    expect(result).toMatchObject({ ok: false, issues: [{ path: 'displayName' }] });
+    expect(result).toMatchObject({ ok: false, issues: [{ path: 'display_name' }] });
   });
 });

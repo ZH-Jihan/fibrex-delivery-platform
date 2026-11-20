@@ -35,6 +35,12 @@ export interface ImportTarget {
   fields(): Promise<ImportField[]>;
   /** Problems with one normalised row; an empty list means the row can be created. Writes nothing. */
   validate(values: Record<string, ImportValue>): Promise<RowIssue[]>;
+  /**
+   * Optional: a checker for ONE preview run that also remembers the rows it has already seen,
+   * so it can refuse a row that repeats an earlier row of the same file (which `validate`,
+   * looking at the database only, cannot see). Called once per preview; rows arrive in order.
+   */
+  newPreviewValidator?(): (values: Record<string, ImportValue>) => Promise<RowIssue[]>;
   /** Creates the record inside the caller's unit of work and returns its id. */
   create(values: Record<string, ImportValue>, companyId: string): Promise<string>;
   /** Soft-deletes a record this import created (audited, recoverable). */

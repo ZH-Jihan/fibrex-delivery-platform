@@ -332,12 +332,14 @@ export class ImportService {
       if (chunk.length > 0) await db.importRow.createMany({ data: chunk });
       chunk = [];
     };
+    // A target may remember earlier rows of this file (for example the same QID twice).
+    const validateRow = target.newPreviewValidator?.() ?? ((v) => target.validate(v));
     for (const [index, raw] of sheet.rows.entries()) {
       const { values, issues } = normaliseRow(raw, mapping);
       const problems: RowIssue[] = [...issues];
       // Fields that failed to normalise are skipped here: their problem is already listed.
       const failed = new Set(issues.map((issue) => issue.path));
-      if (failed.size === 0) problems.push(...(await target.validate(values)));
+      if (failed.size === 0) problems.push(...(await validateRow(values)));
       if (problems.length === 0) valid += 1;
       else invalid += 1;
       chunk.push({

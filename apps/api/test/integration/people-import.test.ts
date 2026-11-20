@@ -65,14 +65,14 @@ const live = async (name: string) =>
 describe('employee import target', () => {
   it('lists the template fields with the English name required', async () => {
     const fields = await target.fields();
-    expect(fields[0]).toMatchObject({ key: 'displayName', required: true });
+    expect(fields[0]).toMatchObject({ key: 'display_name', required: true });
     expect(fields.map((x) => x.key)).toEqual(
-      expect.arrayContaining(['qid', 'passport', 'phones', 'joiningDate', 'sponsorship']),
+      expect.arrayContaining(['qid', 'passport', 'phones', 'joining_date', 'sponsorship']),
     );
   });
 
   it('creates an employee with a sealed QID and rolls it back', async () => {
-    const values = { displayName: 'Import One', qid: '29100000001', phones: '+97455560001' };
+    const values = { display_name: 'Import One', qid: '29100000001', phones: '+97455560001' };
     expect(await run(() => target.validate(values))).toEqual([]);
     const id = await run(() => target.create(values, f.companyA1));
     expect(await live('Import One')).toHaveLength(1);
@@ -92,9 +92,9 @@ describe('employee import target', () => {
   });
 
   it('refuses a row whose QID already belongs to an employee, naming the code', async () => {
-    await run(() => target.create({ displayName: 'Import Two', qid: '29100000002' }, f.companyA1));
+    await run(() => target.create({ display_name: 'Import Two', qid: '29100000002' }, f.companyA1));
     const issues = await run(() =>
-      target.validate({ displayName: 'Someone Else', qid: '29100000002' }),
+      target.validate({ display_name: 'Someone Else', qid: '29100000002' }),
     );
     expect(issues).toHaveLength(1);
     expect(issues[0]).toMatchObject({ code: 'already_employee' });
@@ -104,7 +104,7 @@ describe('employee import target', () => {
   it('links a person already on file with the same QID instead of making a second one', async () => {
     // The first import created the person, then it was rolled back: the party stays.
     const id = await run(() =>
-      target.create({ displayName: 'Import Three', qid: '29100000003' }, f.companyA1),
+      target.create({ display_name: 'Import Three', qid: '29100000003' }, f.companyA1),
     );
     await run(() => target.remove(id, 'Import rolled back: test'));
     const [before] = await owner
@@ -114,7 +114,7 @@ describe('employee import target', () => {
       )
       .then((r) => r.rows);
     const again = await run(() =>
-      target.create({ displayName: 'Import Three', qid: '29100000003' }, f.companyA1),
+      target.create({ display_name: 'Import Three', qid: '29100000003' }, f.companyA1),
     );
     const after = await owner.query<{ n: string }>(
       `SELECT count(*) AS n FROM party.party WHERE company_id = $1 AND display_name = 'Import Three'`,
@@ -127,22 +127,22 @@ describe('employee import target', () => {
 
   it('links by phone for the same name and creates a new person for a shared phone', async () => {
     await run(() =>
-      target.create({ displayName: 'Phone Owner', phones: '+97455560010' }, f.companyA1),
+      target.create({ display_name: 'Phone Owner', phones: '+97455560010' }, f.companyA1),
     );
     // Same phone, different name (family): allowed, a new person is made.
     await run(() =>
-      target.create({ displayName: 'Phone Cousin', phones: '+97455560010' }, f.companyA1),
+      target.create({ display_name: 'Phone Cousin', phones: '+97455560010' }, f.companyA1),
     );
     expect(await live('Phone Cousin')).toHaveLength(1);
     // Same phone and name as an existing employee: refused.
     const issues = await run(() =>
-      target.validate({ displayName: 'Phone Owner', phones: '+97455560010' }),
+      target.validate({ display_name: 'Phone Owner', phones: '+97455560010' }),
     );
     expect(issues[0]).toMatchObject({ code: 'already_employee' });
   });
 
   it('reports row problems without touching the database', async () => {
-    const issues = await run(() => target.validate({ displayName: 'Bad Phone', phones: '12' }));
+    const issues = await run(() => target.validate({ display_name: 'Bad Phone', phones: '12' }));
     expect(issues.map((i) => i.path)).toEqual(['phones']);
     expect(await live('Bad Phone')).toHaveLength(0);
   });
