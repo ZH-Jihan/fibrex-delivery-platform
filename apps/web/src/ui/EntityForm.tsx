@@ -130,7 +130,7 @@ export function EntityForm({
               value={text}
               disabled={f.readOnly}
               options={f.options ?? []}
-              placeholder=""
+              placeholder={f.options?.some((o) => o.value === '') ? undefined : t('common.choose')}
               {...extra}
               onChange={(e) => {
                 set(f.name, e.target.value);

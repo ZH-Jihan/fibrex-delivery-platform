@@ -151,7 +151,7 @@ export function EmployeesPage() {
     { value: 'company', label: t('employees.sponsorship.company') },
     { value: 'outside', label: t('employees.sponsorship.outside') },
   ];
-  const partyOptions: Option[] = [{ value: '', label: '' }, ...parties];
+  const partyOptions: Option[] = [{ value: '', label: t('common.choose') }, ...parties];
   const sharedFields: FormField[] = [
     {
       name: 'sponsorship',
@@ -186,7 +186,7 @@ export function EmployeesPage() {
       name: 'profession',
       label: t('employees.profession'),
       type: 'select',
-      options: [{ value: '', label: '' }, ...professions],
+      options: [{ value: '', label: t('common.choose') }, ...professions],
     },
     ...sharedFields,
     {

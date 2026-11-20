@@ -77,7 +77,7 @@ export function OcrConfirmPanel({
       name: 'documentTypeId',
       label: t('employees.docs.type'),
       type: 'select',
-      options: [{ value: '', label: '' }, ...typeOptions],
+      options: [{ value: '', label: t('common.choose') }, ...typeOptions],
       hint: confidenceText(t, r.documentTypeId),
     },
     { name: 'number', label: t('employees.docs.number'), hint: confidenceText(t, r.number) },

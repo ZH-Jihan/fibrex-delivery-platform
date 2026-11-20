@@ -23,7 +23,7 @@
  * data/upload, ./OcrScan.tsx, @fibrex/shared (documents, bank account form). Used by: App.tsx
  * route.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ArrowLeft, FilePlus, Landmark, ScanText, Upload } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { bankAccountFormSchema, documentCreateSchema } from '@fibrex/shared';
@@ -44,6 +44,7 @@ interface Employee {
   displayName: string;
   statusCode: string;
   sponsorship: string;
+  recruitingAgentPartyId: string | null;
   joiningDate: string | null;
   version: number;
 }
@@ -102,6 +103,12 @@ const BANK_TONE: Record<string, Tone> = {
   pending: 'warning',
   rejected: 'danger',
 };
+const STATUS_TONE: Record<string, Tone> = {
+  active: 'success',
+  inactive: 'neutral',
+  blocked: 'danger',
+  terminated: 'warning',
+};
 const ifMatch = (version: number) => ({ 'If-Match': `"${String(version)}"` });
 
 /** What a bank account row may do for this user: the approval rule in one place (tested). */
@@ -152,10 +159,16 @@ export function EmployeeProfilePage() {
   return (
     <>
       <PageHeader
-        title={
-          employee === null
-            ? t('employees.title')
-            : `${employee.employeeCode} ${employee.displayName}`
+        title={employee === null ? t('employees.title') : employee.displayName}
+        description={
+          employee === null ? undefined : (
+            <span className="profile-sub">
+              <span className="mono">{employee.employeeCode}</span>
+              <Pill tone={STATUS_TONE[employee.statusCode] ?? 'neutral'}>
+                {employee.statusCode}
+              </Pill>
+            </span>
+          )
         }
         actions={
           <Link to="/employees" className="btn btn-link">
@@ -195,18 +208,104 @@ export function EmployeeProfilePage() {
   );
 }
 
+interface PartyInfo {
+  nationalityCode: string | null;
+  displayName: string;
+}
+
+/** One label and value in the details grid; an empty value shows a dash. */
+function Detail({ label, children }: { label: string; children: ReactNode }) {
+  const empty = children === null || children === undefined || children === '';
+  return (
+    <div className="detail">
+      <dt>{label}</dt>
+      <dd>{empty ? '-' : children}</dd>
+    </div>
+  );
+}
+
+/** Profile tab: person details in a two-column card grid, then bank accounts. */
 function ProfileTab({ employee }: { employee: Employee }) {
   const { t } = useI18n();
+  const [party, setParty] = useState<PartyInfo | null>(null);
+  const [phones, setPhones] = useState<string[]>([]);
+  const [ids, setIds] = useState<{ type: string; valueMasked: string }[]>([]);
+  const [agent, setAgent] = useState<string | null>(null);
+  const [profession, setProfession] = useState<string | null>(null);
+
+  // Each lookup is independent and optional: a missing permission leaves a dash, not an error.
+  useEffect(() => {
+    api<PartyInfo>(`/parties/${employee.partyId}`)
+      .then(setParty)
+      .catch(() => {
+        setParty(null);
+      });
+    api<{ items: { kind: string; value: string; isPrimary: boolean }[] }>('/party-contacts', {
+      query: { partyId: employee.partyId },
+    })
+      .then((r) => {
+        setPhones(
+          r.items
+            .filter((c) => c.kind === 'phone')
+            .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary))
+            .map((c) => c.value),
+        );
+      })
+      .catch(() => {
+        setPhones([]);
+      });
+    api<{ items: { type: string; valueMasked: string }[] }>('/party-identifiers', {
+      query: { partyId: employee.partyId },
+    })
+      .then((r) => {
+        setIds(r.items);
+      })
+      .catch(() => {
+        setIds([]);
+      });
+    api<{ items: Placement[] }>(`/employees/${employee.id}/placements`)
+      .then((r) => {
+        const sorted = [...r.items].sort((a, b) => b.validFrom.localeCompare(a.validFrom));
+        setProfession(sorted[0]?.profession ?? null);
+      })
+      .catch(() => {
+        setProfession(null);
+      });
+    if (employee.recruitingAgentPartyId) {
+      api<PartyInfo>(`/parties/${employee.recruitingAgentPartyId}`)
+        .then((r) => {
+          setAgent(r.displayName);
+        })
+        .catch(() => {
+          setAgent(null);
+        });
+    }
+  }, [employee.id, employee.partyId, employee.recruitingAgentPartyId]);
+
+  const idOf = (type: string) => ids.find((i) => i.type === type)?.valueMasked ?? null;
+  const mono = (v: string | null) => (v === null ? null : <span className="mono">{v}</span>);
   return (
     <>
       <section className="card">
         <dl className="details">
-          <dt>{t('employees.status')}</dt>
-          <dd>{employee.statusCode}</dd>
-          <dt>{t('employees.sponsorship')}</dt>
-          <dd>{employee.sponsorship}</dd>
-          <dt>{t('employees.joiningDate')}</dt>
-          <dd>{employee.joiningDate ?? '-'}</dd>
+          <Detail label={t('employees.name')}>{employee.displayName}</Detail>
+          <Detail label={t('employees.status')}>
+            <Pill tone={STATUS_TONE[employee.statusCode] ?? 'neutral'}>{employee.statusCode}</Pill>
+          </Detail>
+          <Detail label={t('employees.phones')}>
+            {phones.length === 0 ? null : (
+              <span className="mono" dir="ltr">
+                {phones.join(', ')}
+              </span>
+            )}
+          </Detail>
+          <Detail label={t('people.nationality')}>{party?.nationalityCode}</Detail>
+          <Detail label={t('employees.qid')}>{mono(idOf('qid'))}</Detail>
+          <Detail label={t('employees.passport')}>{mono(idOf('passport'))}</Detail>
+          <Detail label={t('employees.profession')}>{profession}</Detail>
+          <Detail label={t('employees.agent')}>{agent}</Detail>
+          <Detail label={t('employees.sponsorship')}>{employee.sponsorship}</Detail>
+          <Detail label={t('employees.joiningDate')}>{employee.joiningDate}</Detail>
         </dl>
       </section>
       <BankSection partyId={employee.partyId} />
@@ -460,7 +559,7 @@ function DocumentsTab({ partyId }: { partyId: string }) {
       name: 'documentTypeId',
       label: t('employees.docs.type'),
       type: 'select',
-      options: [{ value: '', label: '' }, ...typeOptions],
+      options: [{ value: '', label: t('common.choose') }, ...typeOptions],
     },
     { name: 'number', label: t('employees.docs.number') },
     { name: 'issueDate', label: t('employees.docs.issueDate'), hint: 'YYYY-MM-DD' },
@@ -475,7 +574,7 @@ function DocumentsTab({ partyId }: { partyId: string }) {
     <section className="card">
       <ErrorAlert error={error} />
       {auth.can('people.document.create') ? (
-        <p>
+        <p className="doc-actions">
           <Button
             icon={FilePlus}
             onClick={() => {

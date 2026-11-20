@@ -214,7 +214,7 @@ export function SearchInput({ label, className, ...input }: SearchInputProps) {
 interface PageHeaderProps {
   title: string;
   icon?: LucideIcon;
-  description?: string;
+  description?: ReactNode;
   /** Buttons on the end side. */
   actions?: ReactNode;
 }
