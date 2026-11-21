@@ -41,6 +41,7 @@ import {
 import type { StorageAdapter } from '../../adapters/storage/interface.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import type { Db } from '../db/prisma.js';
+import { runWithContext, type RequestContext } from '../context/request-context.js';
 import { currentUnit, type DbContext, type UnitOfWork } from '../db/unit-of-work.js';
 import {
   BadRequestError,
@@ -434,6 +435,30 @@ export class ImportService {
    * preview in one transaction; see the file header for why it is all or nothing.
    */
   async runCommit(
+    context: DbContext,
+    jobId: string,
+  ): Promise<{ status: 'committed' | 'failed' | 'skipped'; created: number; error?: string }> {
+    // The worker has no HTTP request, but a target may call the permission check (the
+    // employee target moves status through the state machine, which checks the caller's
+    // permission) and that reads the request context. So the commit runs inside a context
+    // rebuilt from the job: the same person, tenant and company as the request that queued
+    // it. The permission check then uses the importing user's real access, and audit rows
+    // (written from the database context's user id) name that user.
+    const request: RequestContext = {
+      requestId: `import-${jobId}`,
+      startedAt: Date.now(),
+      ip: context.ip,
+      principal:
+        context.userId === undefined
+          ? undefined
+          : { kind: 'user', userId: context.userId, tenantId: context.tenantId },
+      companyIds: context.companyIds,
+      ...(context.roleKeys === undefined ? {} : { roleKeys: context.roleKeys }),
+    };
+    return runWithContext(request, () => this.commitInContext(context, jobId));
+  }
+
+  private async commitInContext(
     context: DbContext,
     jobId: string,
   ): Promise<{ status: 'committed' | 'failed' | 'skipped'; created: number; error?: string }> {
