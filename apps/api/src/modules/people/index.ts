@@ -157,7 +157,6 @@ export function createPeopleModule(deps: PeopleModuleDeps): PeopleModule {
     createEmployeeImportTarget({
       parties: deps.parties,
       repository: employees,
-      vault: deps.vault,
       ...(deps.states === undefined ? {} : { states: deps.states }),
     }),
   );

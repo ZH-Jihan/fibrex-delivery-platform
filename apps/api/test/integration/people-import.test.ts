@@ -62,7 +62,7 @@ beforeAll(async () => {
     permissions: { require: () => Promise.resolve() } as unknown as PermissionService,
     targets,
   });
-  target = createEmployeeImportTarget({ parties, repository, vault, states });
+  target = createEmployeeImportTarget({ parties, repository, states });
   ctx = { tenantId: f.tenantA, companyIds: [f.companyA1], userId: f.userA };
 });
 

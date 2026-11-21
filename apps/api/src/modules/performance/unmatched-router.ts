@@ -6,6 +6,7 @@
  *   POST /unmatched-identifiers/{id}/link              link the Falcon ID to an existing person
  *   POST /unmatched-identifiers/{id}/create-employee   make an employee from the sheet row, with the ID linked
  *   POST /unmatched-identifiers/{id}/ignore            close the row with a reason
+ *   POST /unmatched-identifiers/re-resolve             row 4.5c repair: re-check open rows (see reResolveOpenRows)
  *
  * Linking or creating is one transaction: the platform identifier (type `falcon_id` for Snoonu)
  * is added to the person with a valid-from date (default: the first date the id was seen), the
@@ -48,13 +49,30 @@ import { currentUnit, type UnitOfWork } from '../../kernel/db/unit-of-work.js';
 import { ConflictError, NotFoundError, UnprocessableError } from '../../kernel/http/errors.js';
 import { registerRoute } from '../../kernel/http/openapi.js';
 import type { PermissionService } from '../../kernel/permissions/permission-service.js';
-import type { PartyService } from '../party/index.js';
+import { createAuditService } from '../../kernel/audit/audit-service.js';
+import {
+  IDENTIFIER_START_UNKNOWN,
+  holderOn,
+  normaliseIdentifierValue,
+  type IdentifierHolder,
+  type PartyService,
+} from '../party/index.js';
 import type { EmployeeCandidate, EmployeeDirectory } from '../people/index.js';
 import { identifierTypeFor } from './sync-service.js';
 
 const idParams = z.object({ id: z.uuid() });
 const day = z.iso.date();
 const END_OF_TIME = '9999-12-31';
+
+const reResolveResult = z
+  .object({
+    openRowsChecked: z.number().int(),
+    identifiersBackdated: z.number().int(),
+    figureRowsAttached: z.number().int(),
+    rowsLinked: z.number().int(),
+    stillOpen: z.number().int(),
+  })
+  .meta({ id: 'UnmatchedReResolveResult' });
 
 const item = z
   .object({
@@ -132,6 +150,7 @@ type QueueRow = NonNullable<Awaited<ReturnType<Db['unmatchedIdentifier']['findFi
 
 export function createUnmatchedRouter(deps: UnmatchedRouterDeps): Router {
   const { uow, registry, permissions, parties, directory } = deps;
+  const audit = createAuditService();
   const router = Router();
 
   /** The open queue row of this id, or an error. */
@@ -193,7 +212,7 @@ export function createUnmatchedRouter(deps: UnmatchedRouterDeps): Router {
    * retire-only, so each row is retired and stored again with the person (same run, same
    * date and figures). Returns how many were attached and how many were left alone.
    */
-  async function attachRows(row: QueueRow, partyId: string, validFrom: string) {
+  async function attachRows(row: QueueRow, partyOn: (date: string) => string | null) {
     const { db, context } = currentUnit();
     const open = await db.dailyPerformance.findMany({
       where: {
@@ -203,7 +222,11 @@ export function createUnmatchedRouter(deps: UnmatchedRouterDeps): Router {
         isCurrent: true,
       },
     });
-    const eligible = open.filter((r) => fromDay(r.businessDate) >= validFrom);
+    // Each date goes to whoever held the id on that date (nobody = stays without a person).
+    const eligible = open.flatMap((r) => {
+      const partyId = partyOn(fromDay(r.businessDate));
+      return partyId === null ? [] : [{ r, partyId }];
+    });
     // One current row per person per date: dates where the person already has figures stay
     // unmatched (the person's other ID owns that date).
     const taken = new Set(
@@ -212,17 +235,17 @@ export function createUnmatchedRouter(deps: UnmatchedRouterDeps): Router {
         : await db.dailyPerformance.findMany({
             where: {
               clientPlatformId: row.clientPlatformId,
-              partyId,
+              partyId: { in: [...new Set(eligible.map((e) => e.partyId))] },
               isCurrent: true,
-              businessDate: { in: eligible.map((r) => r.businessDate) },
+              businessDate: { in: eligible.map((e) => e.r.businessDate) },
             },
-            select: { businessDate: true },
+            select: { partyId: true, businessDate: true },
           })
-      ).map((r) => fromDay(r.businessDate)),
+      ).map((r) => `${r.partyId ?? ''}|${fromDay(r.businessDate)}`),
     );
-    const move = eligible.filter((r) => !taken.has(fromDay(r.businessDate)));
+    const move = eligible.filter((e) => !taken.has(`${e.partyId}|${fromDay(e.r.businessDate)}`));
     // Retire first: the partial unique index allows one current row per id and date.
-    for (const r of move) {
+    for (const { r } of move) {
       await db.dailyPerformance.update({
         where: { id_businessDate: { id: r.id, businessDate: r.businessDate } },
         data: { isCurrent: false },
@@ -230,7 +253,7 @@ export function createUnmatchedRouter(deps: UnmatchedRouterDeps): Router {
     }
     if (move.length > 0) {
       await db.dailyPerformance.createMany({
-        data: move.map((r) => ({
+        data: move.map(({ r, partyId }) => ({
           tenantId: r.tenantId,
           companyId: r.companyId,
           syncRunId: r.syncRunId,
@@ -269,6 +292,142 @@ export function createUnmatchedRouter(deps: UnmatchedRouterDeps): Router {
       data: { status, resolvedPartyId: partyId, resolvedOn: toDay(today()) },
     });
   }
+
+  /**
+   * Who may receive this row's figures: the holder of the id on each date, from the same
+   * lookup the sync uses, limited to `partyId` (linking one person never hands dates to
+   * someone else).
+   */
+  async function holdersOf(row: QueueRow, idType: string, partyId: string) {
+    const holders = await parties.identifierHolders(
+      row.companyId,
+      idType,
+      [row.externalId],
+      IDENTIFIER_START_UNKNOWN,
+      END_OF_TIME,
+    );
+    return (date: string) => {
+      const holder = holderOn(holders, row.externalId, date);
+      return holder === partyId ? partyId : null;
+    };
+  }
+
+  /**
+   * Row 4.5c, one-time repair (idempotent): re-resolves the open queue rows against the
+   * identifiers that exist now. Before 4.5c the employee import dated a Falcon ID from the
+   * import day when the sheet had no joining date, so a sync of earlier days found no holder.
+   * In one transaction:
+   *   1. For each open row, find every period of its id (the one lookup, `identifierHolders`).
+   *   2. A period is moved back to "start unknown" only when all of these hold: its person's
+   *      employee was made by the employee import with no joining date; its start is the day
+   *      the identifier was written (the old default, never edited by hand; one day either way
+   *      for the time zone); and it is the earliest period of that id (nobody held it before,
+   *      so the one-holder rule cannot be broken). Anything else is left as it is.
+   *   3. The id's stored figure rows without a person get the holder of each date (retire and
+   *      copy, same rule as linking: one current row per person per date).
+   *   4. A row with no person-less figures left and a holder on its last-seen date is closed as
+   *      linked to that holder; otherwise it stays open for a person to decide.
+   * Running it again finds nothing more to do. Every change is audited by the table triggers,
+   * plus one `repair` audit entry with the counts.
+   */
+  async function reResolveOpenRows() {
+    const { db } = currentUnit();
+    const rows = await db.unmatchedIdentifier.findMany({
+      where: { status: 'open', deletedAt: null },
+      orderBy: { externalId: 'asc' },
+    });
+    const platforms = new Map(
+      (
+        await db.clientPlatform.findMany({
+          where: { id: { in: [...new Set(rows.map((r) => r.clientPlatformId))] } },
+          select: { id: true, code: true },
+        })
+      ).map((p) => [p.id, identifierTypeFor(p.code)]),
+    );
+
+    // Step 1: every period of every open id, per company and identifier type.
+    const holders: IdentifierHolder[] = [];
+    const groups = new Map<string, { companyId: string; idType: string; ids: string[] }>();
+    for (const row of rows) {
+      const idType = platforms.get(row.clientPlatformId);
+      if (idType === undefined) continue;
+      const key = `${row.companyId}|${idType}`;
+      const group = groups.get(key) ?? { companyId: row.companyId, idType, ids: [] };
+      group.ids.push(row.externalId);
+      groups.set(key, group);
+    }
+    for (const group of groups.values()) {
+      holders.push(
+        ...(await parties.identifierHolders(
+          group.companyId,
+          group.idType,
+          group.ids,
+          IDENTIFIER_START_UNKNOWN,
+          END_OF_TIME,
+        )),
+      );
+    }
+
+    // Step 2: move import-day starts back, only where it is safe (see above).
+    const imported = await directory.importedWithoutJoiningDate([
+      ...new Set(holders.map((h) => h.partyId)),
+    ]);
+    const dayDiff = (a: string, b: string) =>
+      Math.abs(new Date(`${a}T00:00:00Z`).getTime() - new Date(`${b}T00:00:00Z`).getTime()) /
+      86_400_000;
+    let identifiersBackdated = 0;
+    for (const h of holders) {
+      if (!imported.has(h.partyId)) continue;
+      if (h.validFrom <= IDENTIFIER_START_UNKNOWN || dayDiff(h.validFrom, h.createdOn) > 1)
+        continue;
+      const earlier = holders.some(
+        (o) =>
+          o.identifierId !== h.identifierId && o.value === h.value && o.validFrom < h.validFrom,
+      );
+      if (earlier) continue;
+      await parties.moveIdentifierStart(h.identifierId, h.version, IDENTIFIER_START_UNKNOWN);
+      h.validFrom = IDENTIFIER_START_UNKNOWN;
+      identifiersBackdated += 1;
+    }
+
+    // Steps 3 and 4: attach figures to each date's holder, close what is fully resolved.
+    let linked = 0;
+    let figureRowsAttached = 0;
+    for (const row of rows) {
+      if (!platforms.has(row.clientPlatformId)) continue;
+      const own = holders.filter((h) => h.value === normaliseIdentifierValue(row.externalId));
+      if (own.length === 0) continue;
+      const moved = await attachRows(row, (date) => holderOn(own, row.externalId, date));
+      figureRowsAttached += moved.attached;
+      const holder = holderOn(own, row.externalId, fromDay(row.lastSeen));
+      if (moved.leftUnmatched === 0 && holder !== null) {
+        await close(row, 'linked', holder);
+        linked += 1;
+      }
+    }
+    const result = {
+      openRowsChecked: rows.length,
+      identifiersBackdated,
+      figureRowsAttached,
+      rowsLinked: linked,
+      stillOpen: rows.length - linked,
+    };
+    await audit.record({
+      action: 'repair',
+      moduleKey: 'performance',
+      entityType: 'performance.unmatched_identifier',
+      meta: { repair: 're-resolve-open-rows', ...result },
+    });
+    return result;
+  }
+
+  router.post('/unmatched-identifiers/re-resolve', async (_req, res) => {
+    const result = await uow.run(async () => {
+      await permissions.require('performance.unmatched.resolve');
+      return reResolveOpenRows();
+    });
+    res.json(result);
+  });
 
   router.get('/unmatched-identifiers', async (req, res) => {
     const query = unmatchedListQuerySchema.parse(req.query);
@@ -412,7 +571,7 @@ export function createUnmatchedRouter(deps: UnmatchedRouterDeps): Router {
           row.clientPlatformId,
         );
       }
-      const moved = await attachRows(row, partyId, validFrom);
+      const moved = await attachRows(row, await holdersOf(row, idType, partyId));
       await close(row, 'linked', partyId);
       return {
         id,
@@ -487,7 +646,7 @@ export function createUnmatchedRouter(deps: UnmatchedRouterDeps): Router {
         validFrom,
         row.clientPlatformId,
       );
-      const moved = await attachRows(row, created.partyId, validFrom);
+      const moved = await attachRows(row, await holdersOf(row, idType, created.partyId));
       await close(row, 'created', created.partyId);
       return {
         id,
@@ -538,6 +697,14 @@ export function createUnmatchedRouter(deps: UnmatchedRouterDeps): Router {
     summary: 'Sheet IDs with no person, with what the sheet says about them',
     request: { query: unmatchedListQuerySchema },
     responses: { 200: { description: 'The queue', content: json(page) } },
+  });
+  registerRoute(registry, {
+    method: 'post',
+    path: '/unmatched-identifiers/re-resolve',
+    tags,
+    summary:
+      'Re-check every open ID against the identifiers held now and attach their figures (one-time repair, safe to repeat)',
+    responses: { 200: { description: 'What the repair did', content: json(reResolveResult) } },
   });
   registerRoute(registry, {
     method: 'get',

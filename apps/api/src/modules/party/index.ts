@@ -33,9 +33,16 @@ import { createPartyRepositories, createPartyRouter } from './party-router.js';
 import type { PartyVault } from './vault.js';
 
 export { PartyReferenceRegistry, type PartyReference } from './merge.js';
-export { PartyVault, maskValue, normaliseSecretValue } from './vault.js';
+export {
+  IDENTIFIER_START_UNKNOWN,
+  PartyVault,
+  maskValue,
+  normaliseIdentifierValue,
+  normaliseSecretValue,
+} from './vault.js';
 export {
   PartyService,
+  holderOn,
   type IdentifierHolder,
   type IdentityMatch,
   type IdentityMatchReason,

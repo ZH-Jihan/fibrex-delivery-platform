@@ -34,7 +34,7 @@ import { fromDate, guardExclusion, toDate, withDates } from './common.js';
 import {
   isSensitiveIdentifierType,
   maskValue,
-  normaliseSecretValue,
+  normaliseIdentifierValue,
   type PartyVault,
 } from './vault.js';
 
@@ -115,7 +115,7 @@ export function toIdentifierItem(row: IdentifierRow) {
 
 /** The columns that hold one identifier value, from the plain input (rule 1). */
 function valueColumns(vault: PartyVault, tenantId: string, identifierType: string, raw: string) {
-  const normalised = normaliseSecretValue(raw);
+  const normalised = normaliseIdentifierValue(raw);
   return {
     valueEncrypted: vault.seal(normalised, 'party.identifier'),
     valueHash: vault.hash(tenantId, `identifier:${identifierType}`, normalised),
@@ -181,7 +181,7 @@ export function createIdentifierRouter(deps: IdentifierRouterDeps): Router {
           valueHash: vault.hash(
             tenantId,
             `identifier:${query.type}`,
-            normaliseSecretValue(query.value),
+            normaliseIdentifierValue(query.value),
           ),
           ...(query.clientPlatformId === undefined
             ? {}

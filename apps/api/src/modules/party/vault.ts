@@ -37,6 +37,27 @@ export function normaliseSecretValue(value: string): string {
   return value.replace(/[\s-]+/g, '').toUpperCase();
 }
 
+/**
+ * The one normaliser for an identifier value, whoever reads it (the identifier API, the
+ * employee import, the platform sync, the unmatched queue). A spreadsheet cell may arrive as
+ * a number: a whole number is written without decimals or exponent (47370, never "47370.0"),
+ * then the usual rule applies (no spaces or dashes, upper case). Leading zeros are kept as
+ * given: a stored "047370" and a sheet "47370" are different ids, as on the platform itself.
+ */
+export function normaliseIdentifierValue(value: string | number | boolean): string {
+  const text =
+    typeof value === 'number' && Number.isInteger(value) ? BigInt(value).toString() : String(value);
+  return normaliseSecretValue(text.trim());
+}
+
+/**
+ * The start date of an identifier whose real start is not known (an employee imported with
+ * a platform id but no joining date: they held the id before the import, since a date nobody
+ * recorded). Matching a past day of a platform report then finds them; a period of another
+ * holder on those days is still refused by the one-holder-at-a-time rule.
+ */
+export const IDENTIFIER_START_UNKNOWN = '1900-01-01';
+
 /** "QA58DOHB00001234567890ABCDEFG" -> "*************************DEFG". */
 export function maskValue(normalised: string): string {
   if (normalised.length <= 4) return '*'.repeat(normalised.length);

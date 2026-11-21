@@ -1400,6 +1400,9 @@ export const en = {
   'unmatched.leftUnmatched':
     '{rows} days stayed unmatched (before the start date, or the person already had figures that day).',
   'unmatched.created': 'Employee {code} created and linked.',
+  'unmatched.recheck': 'Re-check open IDs',
+  'unmatched.rechecked':
+    'Checked {checked} open IDs: {linked} now linked, {rows} stored days attached, {open} still open.',
   'unmatched.ignored': 'Ignored.',
 } as const;
 

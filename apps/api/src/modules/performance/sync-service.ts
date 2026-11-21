@@ -60,7 +60,7 @@ import { currentUnit, type DbContext, type UnitOfWork } from '../../kernel/db/un
 import type { EventOutbox } from '../../kernel/events/outbox.js';
 import { NotFoundError, UnprocessableError } from '../../kernel/http/errors.js';
 import type { Logger } from '../../kernel/observability/logger.js';
-import { normaliseSecretValue, type PartyService } from '../party/index.js';
+import { holderOn, type PartyService } from '../party/index.js';
 import { addDays } from './cycle.js';
 import {
   excelFileSource,
@@ -651,14 +651,8 @@ export class SyncService {
       firstDate < report.dataThrough ? firstDate : report.dataThrough,
       lastDate > report.dataThrough ? lastDate : report.dataThrough,
     );
-    const holderOn = (identifier: string, date: string): string | null => {
-      const value = normaliseSecretValue(identifier);
-      const found = holders.find(
-        (h) =>
-          h.value === value && h.validFrom <= date && (h.validTo === null || h.validTo >= date),
-      );
-      return found?.partyId ?? null;
-    };
+    // The same lookup and normaliser as the import and the unmatched queue (party module).
+    const holderOnDate = (identifier: string, date: string) => holderOn(holders, identifier, date);
 
     // 3f. Compare with the current rows of those dates.
     const current =
@@ -702,14 +696,14 @@ export class SyncService {
       // A person with no stored date this run is still matched (or queued) as of the
       // newest date the sheet covers.
       if (days.length === 0) {
-        if (holderOn(person.identifier, report.dataThrough) === null) {
+        if (holderOnDate(person.identifier, report.dataThrough) === null) {
           noteUnmatched(unmatchedSeen, person, report.dataThrough);
         } else {
           matchedIds.add(person.identifier);
         }
       }
       for (const day of days) {
-        let partyId = holderOn(person.identifier, day.date);
+        let partyId = holderOnDate(person.identifier, day.date);
         if (partyId === null) {
           noteUnmatched(unmatchedSeen, person, day.date);
         } else {

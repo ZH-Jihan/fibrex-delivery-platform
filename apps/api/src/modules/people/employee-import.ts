@@ -30,7 +30,9 @@
  *   5. Row 3.13: two optional columns. "falcon_id" becomes a `falcon_id` party identifier for the
  *      Snoonu platform (read-only check first: an id another person already holds in an
  *      overlapping period is a row error and is never reassigned; the same person already
- *      holding it is fine). "status" (active, inactive, blocked, terminated) is applied through
+ *      holding it is fine). It is held from the joining date, or from "start unknown" when the
+ *      sheet has none (row 4.5c, see `falconStart`); the check and the sync use the same
+ *      `PartyService.identifierHolders` lookup. "status" (active, inactive, blocked, terminated) is applied through
  *      the employee status state machine after the employee exists, with the note "Imported".
  *      Staff without a profession (office staff) get no placement, hence no rider/driver
  *      document requirements (see the requirements seed in document-type-router.ts).
@@ -57,11 +59,15 @@ import { currentUnit } from '../../kernel/db/unit-of-work.js';
 import { ConflictError } from '../../kernel/http/errors.js';
 import type { ImportField, ImportTarget } from '../../kernel/imports/import-targets.js';
 import type { StateService } from '../../kernel/states/state-service.js';
-import { normaliseSecretValue, type PartyService, type PartyVault } from '../party/index.js';
-import { isoToday, toDate } from './dates.js';
+import {
+  IDENTIFIER_START_UNKNOWN,
+  normaliseIdentifierValue,
+  type PartyService,
+} from '../party/index.js';
 import { EMPLOYEE_ENTITY, companyFor, type EmployeeView } from './employee-router.js';
 
 export const EMPLOYEE_IMPORT_KEY = 'people.employee';
+const END_OF_TIME = '9999-12-31';
 
 /** Columns of the template, in order. `key` is what mappings and saved mappings refer to. */
 const FIELDS: ImportField[] = [
@@ -229,11 +235,20 @@ export function parseEmployeeRow(
   };
 }
 
+/**
+ * Business rule (row 4.5c): the date an imported Falcon ID is held from. The joining date when
+ * the sheet gives one; otherwise "since a date nobody recorded" (IDENTIFIER_START_UNKNOWN), never
+ * the import day. Staff are imported after they started riding, so the platform report already
+ * holds their past days; dating the id from the import day left every one of those days without
+ * a person (the first real Snoonu sync matched 0 of 42).
+ */
+function falconStart(row: ParsedRow): string {
+  return row.body.joiningDate ?? IDENTIFIER_START_UNKNOWN;
+}
+
 export interface EmployeeImportDeps {
   parties: PartyService;
   repository: Repository<EmployeeView>;
-  /** Hashes Falcon IDs for the "already held by someone else" check. */
-  vault: PartyVault;
   /** Applies the status column; without it a row naming a status other than active fails. */
   states?: Pick<StateService, 'transition'>;
 }
@@ -245,7 +260,7 @@ type Resolution =
   | { kind: 'refuse'; issue: RowIssue };
 
 export function createEmployeeImportTarget(deps: EmployeeImportDeps): ImportTarget {
-  const { parties, repository, vault, states } = deps;
+  const { parties, repository, states } = deps;
 
   /**
    * Step 5, read only: may this row's Falcon ID go to `partyId` (undefined = a person not made
@@ -260,7 +275,7 @@ export function createEmployeeImportTarget(deps: EmployeeImportDeps): ImportTarg
     row: ParsedRow,
     partyId: string | undefined,
   ): Promise<{ platformId: string } | 'held' | { issue: RowIssue }> {
-    const { db, context } = currentUnit();
+    const { db } = currentUnit();
     const platform = await db.clientPlatform.findFirst({
       where: { companyId, code: SNOONU_PLATFORM_CODE, deletedAt: null },
       select: { id: true },
@@ -274,29 +289,23 @@ export function createEmployeeImportTarget(deps: EmployeeImportDeps): ImportTarg
         },
       };
     }
-    const startsOn = toDate(row.body.joiningDate ?? isoToday());
-    const holders = await db.partyIdentifier.findMany({
-      where: {
-        type: FALCON_TYPE,
-        clientPlatformId: platform.id,
-        valueHash: vault.hash(
-          context.tenantId,
-          `identifier:${FALCON_TYPE}`,
-          normaliseSecretValue(row.falconId ?? ''),
-        ),
-        deletedAt: null,
-        // Overlaps a period that starts on `startsOn` and has no end.
-        OR: [{ validTo: null }, { validTo: { gte: startsOn } }],
-      },
-      select: { partyId: true, party: { select: { displayName: true } } },
-    });
+    // The same lookup the sync engine uses (one normaliser, one hash): anyone holding the id
+    // in a period that overlaps [start, open end).
+    const holders = await parties.identifierHolders(
+      companyId,
+      FALCON_TYPE,
+      [row.falconId ?? ''],
+      falconStart(row),
+      END_OF_TIME,
+    );
     const other = holders.find((h) => h.partyId !== partyId);
     if (other !== undefined) {
+      const name = (await parties.names([other.partyId])).get(other.partyId) ?? 'another person';
       return {
         issue: {
           path: 'falcon_id',
           code: 'falcon_id_in_use',
-          message: `Falcon ID ${row.falconId ?? ''} is already held by ${other.party.displayName}.`,
+          message: `Falcon ID ${row.falconId ?? ''} is already held by ${name} from ${other.validFrom}${other.validTo === null ? '' : ` to ${other.validTo}`}. Give a joining date after their period if the id was passed on.`,
         },
       };
     }
@@ -411,7 +420,7 @@ export function createEmployeeImportTarget(deps: EmployeeImportDeps): ImportTarg
         if (parsed.row.falconId !== undefined) {
           keys.push({
             path: 'falcon_id',
-            key: `falcon:${parsed.row.falconId.toUpperCase()}`,
+            key: `falcon:${normaliseIdentifierValue(parsed.row.falconId)}`,
             what: 'Falcon ID',
           });
         }
@@ -478,7 +487,7 @@ export function createEmployeeImportTarget(deps: EmployeeImportDeps): ImportTarg
           companyId,
           FALCON_TYPE,
           parsed.row.falconId,
-          parsed.row.body.joiningDate ?? undefined,
+          falconStart(parsed.row),
           falconPlatformId,
         );
       }

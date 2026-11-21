@@ -11,7 +11,7 @@
  * Everything is invented: tenant A, company A1, users alice (all), vic (read only),
  * rob (resolve, but cannot create employees).
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Express } from 'express';
 import type { Redis } from 'ioredis';
 import type pg from 'pg';
@@ -31,6 +31,12 @@ import { SecretBox } from '../../src/kernel/crypto/secret-box.js';
 import { createPool, type Pool } from '../../src/kernel/db/pool.js';
 import { createPrisma } from '../../src/kernel/db/prisma.js';
 import { UnitOfWork } from '../../src/kernel/db/unit-of-work.js';
+import { NotFoundError } from '../../src/kernel/http/errors.js';
+import { ExportService } from '../../src/kernel/imports/export-service.js';
+import { ImportQueue } from '../../src/kernel/imports/import-queue.js';
+import { createImportRouter } from '../../src/kernel/imports/import-router.js';
+import { ImportService } from '../../src/kernel/imports/import-service.js';
+import { ImportTargets } from '../../src/kernel/imports/import-targets.js';
 import { createAuditService } from '../../src/kernel/audit/audit-service.js';
 import { EventOutbox } from '../../src/kernel/events/outbox.js';
 import { ModuleRegistry } from '../../src/kernel/module-registry/index.js';
@@ -79,6 +85,8 @@ let redis: Redis;
 let f: Fixture;
 let app: Express;
 let queue: SyncQueue;
+let importQueue: ImportQueue;
+const storage = new MemoryStorageAdapter();
 let alice: string;
 let vic: string;
 let rob: string;
@@ -270,7 +278,7 @@ beforeAll(async () => {
   const parties = new PartyService(vault);
   const service = new SyncService({
     uow,
-    storage: new MemoryStorageAdapter(),
+    storage,
     parties,
     providers,
     outbox: new EventOutbox(),
@@ -307,6 +315,21 @@ beforeAll(async () => {
   });
   const permissions = new PermissionService(uow);
   const apiKeys = new ApiKeyResolver({ prisma, uow, redis, logger });
+  const importTargets = new ImportTargets(() => Promise.reject(new NotFoundError()));
+  const importService = new ImportService({ uow, storage, permissions, targets: importTargets });
+  // The queue name is shared by every test file, so this file runs the worker's own
+  // `process` (the same commit code) straight from enqueue instead of through Redis.
+  class InlineImportQueue extends ImportQueue {
+    override async enqueue(job: Parameters<ImportQueue['enqueue']>[0]): Promise<void> {
+      await this.process(job);
+    }
+  }
+  importQueue = new InlineImportQueue({
+    redisUrl: inject('redisUrl'),
+    service: importService,
+    logger,
+  });
+
   app = createApp({
     env,
     logger,
@@ -334,6 +357,7 @@ beforeAll(async () => {
         vault,
         audit: createAuditService(),
         attachables: new AttachableRegistry(),
+        importTargets,
       });
       modules.register(people.manifest);
       modules.register(
@@ -348,6 +372,18 @@ beforeAll(async () => {
         }),
       );
       modules.mount(api);
+      // Row 4.5c: the real employee import (routes and queue worker), as in main.ts.
+      api.use(
+        createImportRouter({
+          uow,
+          registry,
+          permissions,
+          service: importService,
+          exports: new ExportService({ storage, permissions, targets: importTargets }),
+          queue: importQueue,
+          targets: importTargets,
+        }),
+      );
     },
   });
 
@@ -366,6 +402,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await queue.getQueue().obliterate({ force: true });
   await queue.close();
+  await importQueue.close();
   const counters = await redis.keys('rl:*');
   if (counters.length > 0) await redis.del(...counters);
   await redis.quit();
@@ -735,5 +772,141 @@ describe('unmatched riders queue (row 4.5b)', () => {
     ).toBe(409);
     const stillUnmatched = await currentOf('91002');
     expect(stillUnmatched.every((r) => r.party_id === null)).toBe(true);
+  });
+});
+
+/** Puts a CSV in storage with its file_object row, as the signed upload would. */
+async function uploadCsv(csv: string): Promise<string> {
+  const bytes = Buffer.from(csv, 'utf8');
+  const key = `${f.tenantA}/${f.companyA1}/test/${randomUUID()}`;
+  storage.put(key, bytes);
+  const row = await owner.query<{ id: string }>(
+    `INSERT INTO files.file_object (tenant_id, company_id, bucket, object_key, sha256, size_bytes, mime_type, original_name)
+     VALUES ($1, $2, 'memory', $3, $4, $5, 'text/csv', 'employees.csv') RETURNING id`,
+    [f.tenantA, f.companyA1, key, createHash('sha256').update(bytes).digest('hex'), bytes.length],
+  );
+  return row.rows[0]?.id ?? '';
+}
+
+/** Imports employees through the real import routes (upload, preview, commit). */
+async function importEmployees(csv: string): Promise<void> {
+  const created = await post(alice, '/imports', {
+    entityKey: 'people.employee',
+    fileObjectId: await uploadCsv(csv),
+  });
+  expect(created.status).toBe(201);
+  const jobId = (created.body as { id: string }).id;
+  const previewed = await post(alice, `/imports/${jobId}/preview`, {
+    mapping: {
+      columnMap: { display_name: 'Name', falcon_id: 'Falcon ID', joining_date: 'Joining date' },
+      transforms: {},
+    },
+  });
+  expect(previewed.status).toBe(200);
+  expect(previewed.body).toMatchObject({ stats: { invalid: 0 } });
+  expect((await post(alice, `/imports/${jobId}/commit`)).status).toBe(202);
+  const job = (await get(alice, `/imports/${jobId}`)).body as { status: string };
+  expect(job.status).toBe('committed');
+}
+
+const partyWithFalcon = async (falconId: string) =>
+  (
+    await owner.query<{ party_id: string; valid_from: string }>(
+      `SELECT party_id, valid_from::text FROM party.party_identifier
+        WHERE type = 'falcon_id' AND value_plain = $1 AND deleted_at IS NULL`,
+      [falconId],
+    )
+  ).rows;
+
+const openQueueIds = async () =>
+  (
+    await owner.query<{ external_id: string }>(
+      `SELECT external_id FROM performance.unmatched_identifier
+        WHERE client_platform_id = $1 AND status = 'open' AND deleted_at IS NULL`,
+      [platformId],
+    )
+  ).rows.map((r) => r.external_id);
+
+describe('Falcon ID matching after the employee import (row 4.5c)', () => {
+  it('an employee imported with a Falcon ID and no joining date is matched on past sheet days', async () => {
+    // The CSV gives the id as text; the sheet holds it as a number cell (as the real files do).
+    await importEmployees(
+      ['Name,Falcon ID,Joining date', 'Import Match One,97501,', ''].join('\n'),
+    );
+    const held = await partyWithFalcon('97501');
+    expect(held).toHaveLength(1);
+    // Held since "start unknown", not since the import day.
+    expect(held[0]?.valid_from).toBe('1900-01-01');
+
+    await syncSheet(snoonuGrid({ people: [person(97501, { name: 'Import Match One' })] }));
+    const rows = await currentOf('97501');
+    expect(rows.length).toBeGreaterThan(15);
+    expect(rows.every((r) => r.party_id === held[0]?.party_id)).toBe(true);
+    expect(await openQueueIds()).not.toContain('97501');
+  });
+
+  it('re-resolve repairs ids dated from the import day, once, in one audited step', async () => {
+    await importEmployees(
+      [
+        'Name,Falcon ID,Joining date',
+        'Import Repair Two,97502,',
+        'Import Joined Three,97503,2026-11-05',
+        '',
+      ].join('\n'),
+    );
+    // The state the old import left behind: the id dated from the day it was written.
+    await owner.query(
+      `UPDATE party.party_identifier SET valid_from = created_at::date
+        WHERE type = 'falcon_id' AND value_plain = '97502'`,
+    );
+    await syncSheet(
+      snoonuGrid({
+        people: [
+          person(97502, { name: 'Import Repair Two' }),
+          person(97503, { name: 'Import Joined Three' }),
+        ],
+      }),
+    );
+    expect(await openQueueIds()).toEqual(expect.arrayContaining(['97502', '97503']));
+    expect((await currentOf('97502')).every((r) => r.party_id === null)).toBe(true);
+
+    // Read-only users cannot run it.
+    expect((await post(vic, '/unmatched-identifiers/re-resolve')).status).toBe(403);
+
+    const first = await post(alice, '/unmatched-identifiers/re-resolve');
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ identifiersBackdated: 1 });
+    const two = (await partyWithFalcon('97502'))[0];
+    expect(two?.valid_from).toBe('1900-01-01');
+    expect((await currentOf('97502')).every((r) => r.party_id === two?.party_id)).toBe(true);
+    expect(await openQueueIds()).not.toContain('97502');
+    expect((await queueRow('97502')).status).toBe('linked');
+
+    // A real joining date is kept: days before it stay unmatched and the row stays open.
+    const three = (await partyWithFalcon('97503'))[0];
+    expect(three?.valid_from).toBe('2026-11-05');
+    const threeRows = await currentOf('97503');
+    expect(threeRows.filter((r) => r.d < '2026-11-05').every((r) => r.party_id === null)).toBe(
+      true,
+    );
+    expect(threeRows.filter((r) => r.d >= '2026-11-05').every((r) => r.party_id !== null)).toBe(
+      true,
+    );
+    expect(await openQueueIds()).toContain('97503');
+
+    // Safe to repeat: nothing more to do.
+    const second = await post(alice, '/unmatched-identifiers/re-resolve');
+    expect(second.body).toMatchObject({
+      identifiersBackdated: 0,
+      figureRowsAttached: 0,
+      rowsLinked: 0,
+    });
+
+    const audit = await owner.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM audit.audit_log
+        WHERE tenant_id = $1 AND action = 'repair' AND entity_type = 'performance.unmatched_identifier'`,
+      [f.tenantA],
+    );
+    expect(Number(audit.rows[0]?.n)).toBeGreaterThanOrEqual(2);
   });
 });

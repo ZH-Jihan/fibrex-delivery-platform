@@ -19,7 +19,7 @@
  * Used by: App.tsx (route /performance/unmatched).
  */
 import { useCallback, useEffect, useState } from 'react';
-import { UserRoundSearch, Link2, UserPlus, EyeOff } from 'lucide-react';
+import { UserRoundSearch, Link2, UserPlus, EyeOff, RefreshCw } from 'lucide-react';
 import { sheetProfessionCode } from '@fibrex/shared';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
@@ -154,6 +154,36 @@ export function UnmatchedPage() {
     load();
   };
 
+  // Row 4.5c: re-check every open ID against the identifiers held now (safe to repeat).
+  const [rechecking, setRechecking] = useState(false);
+  const recheck = () => {
+    setRechecking(true);
+    api<{
+      openRowsChecked: number;
+      figureRowsAttached: number;
+      rowsLinked: number;
+      stillOpen: number;
+    }>('/unmatched-identifiers/re-resolve', { method: 'POST', body: {} })
+      .then((r) => {
+        toast.show(
+          t('unmatched.rechecked', {
+            checked: String(r.openRowsChecked),
+            linked: String(r.rowsLinked),
+            rows: String(r.figureRowsAttached),
+            open: String(r.stillOpen),
+          }),
+          'success',
+        );
+        load();
+      })
+      .catch((e: unknown) => {
+        setError(e);
+      })
+      .finally(() => {
+        setRechecking(false);
+      });
+  };
+
   const pages = data === null ? 1 : Math.max(1, Math.ceil(data.total / data.pageSize));
   return (
     <div>
@@ -161,6 +191,15 @@ export function UnmatchedPage() {
         title={t('unmatched.title')}
         icon={UserRoundSearch}
         description={t('unmatched.intro')}
+        {...(canResolve
+          ? {
+              actions: (
+                <Button icon={RefreshCw} onClick={recheck} disabled={rechecking}>
+                  {t('unmatched.recheck')}
+                </Button>
+              ),
+            }
+          : {})}
       />
       <ErrorAlert error={error} />
       <div className="toolbar">

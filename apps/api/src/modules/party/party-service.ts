@@ -20,7 +20,7 @@ import { NotFoundError } from '../../kernel/http/errors.js';
 import { detectDuplicates } from './duplicates.js';
 import { createIdentifierRepository } from './identifier-router.js';
 import { createPartyRepositories } from './party-router.js';
-import { normaliseSecretValue, type PartyVault } from './vault.js';
+import { normaliseIdentifierValue, type PartyVault } from './vault.js';
 
 export interface PartySummary {
   id: string;
@@ -51,6 +51,10 @@ export interface IdentityMatch {
 
 /** One holding period of an identifier value (`PartyService.identifierHolders`). */
 export interface IdentifierHolder {
+  identifierId: string;
+  version: number;
+  /** The day the identifier row was written (UTC), "YYYY-MM-DD". */
+  createdOn: string;
   /** The value as normalised (upper case, no spaces or dashes). */
   value: string;
   partyId: string;
@@ -68,6 +72,24 @@ export interface IdentityQuery {
 
 const toDay = (text: string) => new Date(`${text}T00:00:00.000Z`);
 const today = () => toDay(new Date().toISOString().slice(0, 10));
+
+/**
+ * Who held `value` on `date` ("YYYY-MM-DD"), from the periods `identifierHolders` returned;
+ * null when nobody did. The value is normalised the same way as at storage, so a caller may
+ * pass the raw sheet or form text. Used by the sync engine, the unmatched queue and its repair.
+ */
+export function holderOn(
+  holders: readonly IdentifierHolder[],
+  value: string,
+  date: string,
+): string | null {
+  const normalised = normaliseIdentifierValue(value);
+  const found = holders.find(
+    (h) =>
+      h.value === normalised && h.validFrom <= date && (h.validTo === null || h.validTo >= date),
+  );
+  return found?.partyId ?? null;
+}
 
 export class PartyService {
   readonly #vault: PartyVault;
@@ -200,7 +222,7 @@ export class PartyService {
     const { db, context } = currentUnit();
     const byHash = new Map<string, string>();
     for (const value of values) {
-      const normalised = normaliseSecretValue(value);
+      const normalised = normaliseIdentifierValue(value);
       if (normalised === '') continue;
       byHash.set(this.#vault.hash(context.tenantId, `identifier:${type}`, normalised), normalised);
     }
@@ -214,14 +236,34 @@ export class PartyService {
         OR: [{ validTo: null }, { validTo: { gte: toDay(from) } }],
         party: { deletedAt: null },
       },
-      select: { partyId: true, valueHash: true, validFrom: true, validTo: true },
+      select: {
+        id: true,
+        version: true,
+        partyId: true,
+        valueHash: true,
+        validFrom: true,
+        validTo: true,
+        createdAt: true,
+      },
     });
     return rows.map((row) => ({
+      identifierId: row.id,
+      version: row.version,
+      createdOn: row.createdAt.toISOString().slice(0, 10),
       value: byHash.get(row.valueHash) ?? '',
       partyId: row.partyId,
       validFrom: row.validFrom.toISOString().slice(0, 10),
       validTo: row.validTo === null ? null : row.validTo.toISOString().slice(0, 10),
     }));
+  }
+
+  /**
+   * Moves the start of one identifier period (versioned update through the identifier
+   * repository: the change is audited by the table trigger, and a start that would overlap
+   * another holder's period is refused with 409 by the one-holder-at-a-time rule).
+   */
+  async moveIdentifierStart(identifierId: string, version: number, validFrom: string) {
+    await this.#identifiers.update(identifierId, version, { validFrom });
   }
 
   /** Scores the party against the rest of its company (party_duplicate_candidate). */
@@ -257,7 +299,7 @@ export class PartyService {
           valueHash: this.#vault.hash(
             context.tenantId,
             `identifier:${reason}`,
-            normaliseSecretValue(raw),
+            normaliseIdentifierValue(raw),
           ),
           deletedAt: null,
           validFrom: { lte: day },

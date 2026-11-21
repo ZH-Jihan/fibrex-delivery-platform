@@ -57,6 +57,12 @@ export interface EmployeeDirectory {
   /** One employee by id. */
   get(employeeId: string): Promise<EmployeeCandidate | null>;
   create(input: NewEmployeeFromSheet): Promise<CreatedEmployee>;
+  /**
+   * Row 4.5c: of these persons, the ones whose live employee record was made by the employee
+   * import with no joining date (their platform ids were dated from the import day before the
+   * fix, see employee-import.ts `falconStart`). Used only by the one-time unmatched repair.
+   */
+  importedWithoutJoiningDate(partyIds: readonly string[]): Promise<Set<string>>;
 }
 
 /** Lower-case words of three or more letters or digits. */
@@ -165,6 +171,23 @@ export function createEmployeeDirectory(repository: Repository<EmployeeView>): E
         select,
       });
       return row === null ? null : toCandidate(row);
+    },
+
+    async importedWithoutJoiningDate(partyIds) {
+      if (partyIds.length === 0) return new Set<string>();
+      const { db } = currentUnit();
+      const employees = await db.employee.findMany({
+        where: { partyId: { in: [...partyIds] }, joiningDate: null, deletedAt: null },
+        select: { id: true, partyId: true },
+      });
+      if (employees.length === 0) return new Set<string>();
+      // The import records every employee it created (integration.import_result).
+      const imported = await db.importResult.findMany({
+        where: { createdEntityId: { in: employees.map((e) => e.id) } },
+        select: { createdEntityId: true },
+      });
+      const ids = new Set(imported.map((r) => r.createdEntityId));
+      return new Set(employees.filter((e) => ids.has(e.id)).map((e) => e.partyId));
     },
 
     async get(employeeId) {
