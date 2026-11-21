@@ -2152,3 +2152,96 @@ input[hidden] {
 .nowrap {
   white-space: nowrap;
 }
+
+/* ---------- Performance reports (row 4.6a) ---------- */
+.link-button {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  cursor: pointer;
+  text-align: inherit;
+}
+.link-button:hover {
+  color: var(--primary);
+}
+/* A row of toggle buttons (This cycle / Last cycle / Date range). */
+.pick-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.pick-group .btn[aria-pressed='true'] {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-text);
+}
+.row-muted td {
+  color: var(--text-faint);
+}
+.totals-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+}
+.totals-strip > div {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+}
+.totals-strip dt {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.totals-strip dd {
+  margin: 0;
+  font-size: var(--text-xl, 1.5rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.chart-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-4);
+}
+.day-bars {
+  margin: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+  min-inline-size: 0;
+}
+.day-bars figcaption {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  margin-block-end: var(--space-2);
+}
+.day-bars-svg {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  max-block-size: 140px;
+}
+.day-bars-primary .day-bars-bar {
+  fill: var(--primary);
+}
+.day-bars-accent .day-bars-bar {
+  fill: var(--accent);
+}
+.day-bars-axis {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+.day-bars-none {
+  fill: var(--text-faint);
+}
+.day-bars-max,
+.day-bars-date {
+  fill: var(--text-muted);
+  font-size: 8px;
+}

@@ -62,6 +62,7 @@ import { EmployeeProfilePage } from './people/EmployeeProfilePage';
 import { PartiesPage } from './people/PartiesPage';
 import { GoogleCallbackPage, GoogleConnectionPage } from './performance/GoogleConnectionPage';
 import { MappingEditorPage } from './performance/MappingEditor';
+import { PerformanceReportsPage } from './performance/PerformanceReportsPage';
 import { SyncRunDetailPage } from './performance/SyncRunDetailPage';
 import { SyncRunsPage } from './performance/SyncRunsPage';
 import { SyncSourcesPage } from './performance/SyncSourcesPage';
@@ -200,6 +201,30 @@ function Gate() {
           element={
             <Guarded permission="people.expiry_settings.read">
               <ExpirySettingsPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="performance/reports/daily"
+          element={
+            <Guarded permission="performance.report.view">
+              <PerformanceReportsPage kind="daily" />
+            </Guarded>
+          }
+        />
+        <Route
+          path="performance/reports/cycle"
+          element={
+            <Guarded permission="performance.report.view">
+              <PerformanceReportsPage kind="cycle" />
+            </Guarded>
+          }
+        />
+        <Route
+          path="performance/reports/top-bottom"
+          element={
+            <Guarded permission="performance.report.view">
+              <PerformanceReportsPage kind="topBottom" />
             </Guarded>
           }
         />

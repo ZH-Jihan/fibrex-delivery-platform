@@ -35,6 +35,7 @@ import { Button, EmptyState, ErrorAlert, PageHeader, Pill, Skeleton } from '../u
 import { EntityForm, type FormField, type FormSchema } from '../ui/EntityForm';
 import { HistoryTab } from '../ui/HistoryTab';
 import { useToast } from '../ui/toast';
+import { PersonPerformanceTab } from '../performance/PersonPerformanceTab';
 import { OcrConfirmPanel, type OcrJob } from './OcrScan';
 
 interface Employee {
@@ -89,7 +90,7 @@ export interface BankAccount {
   reviewNote: string | null;
   version: number;
 }
-type Tab = 'profile' | 'documents' | 'placement' | 'history';
+type Tab = 'profile' | 'documents' | 'placement' | 'performance' | 'history';
 type Tone = 'success' | 'neutral' | 'danger' | 'warning';
 
 const DOC_TONE: Record<string, Tone> = {
@@ -144,6 +145,7 @@ export function EmployeeProfilePage() {
   const { id = '' } = useParams();
   const { t } = useI18n();
   const [employee, setEmployee] = useState<Employee | null>(null);
+  const { can } = useAuth();
   const [error, setError] = useState<unknown>(null);
   const [tab, setTab] = useState<Tab>('profile');
 
@@ -155,7 +157,14 @@ export function EmployeeProfilePage() {
       });
   }, [id]);
 
-  const tabs: Tab[] = ['profile', 'documents', 'placement', 'history'];
+  // Performance figures need their own permission (row 4.6a).
+  const tabs: Tab[] = [
+    'profile',
+    'documents',
+    'placement',
+    ...(can('performance.report.view') ? (['performance'] as const) : []),
+    'history',
+  ];
   return (
     <>
       <PageHeader
@@ -199,6 +208,7 @@ export function EmployeeProfilePage() {
           {tab === 'profile' ? <ProfileTab employee={employee} /> : null}
           {tab === 'documents' ? <DocumentsTab partyId={employee.partyId} /> : null}
           {tab === 'placement' ? <PlacementTab employeeId={employee.id} /> : null}
+          {tab === 'performance' ? <PersonPerformanceTab partyId={employee.partyId} /> : null}
           {tab === 'history' ? (
             <HistoryTab entityType="people.employee" entityId={employee.id} />
           ) : null}

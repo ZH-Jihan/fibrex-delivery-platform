@@ -30,6 +30,8 @@ import type { GoogleConnectionService } from './google-connection.js';
 import { createGoogleRouter } from './google-router.js';
 import type { PartyService } from '../party/index.js';
 import type { EmployeeDirectory } from '../people/index.js';
+import { createPerformanceReportRouter } from './performance-report-router.js';
+import { PERFORMANCE_REPORTS } from './performance-reports.js';
 import { createSyncSourceRouter } from './sync-source-router.js';
 import { createUnmatchedRouter } from './unmatched-router.js';
 import type { SyncQueue } from './sync-queue.js';
@@ -58,6 +60,12 @@ export {
   type GoogleConnectionStatus,
 } from './google-connection.js';
 export { GOOGLE_MANAGE } from './google-router.js';
+export {
+  PERFORMANCE_REPORTS,
+  qatarToday,
+  thisAndLastCycle,
+  yesterdayInQatar,
+} from './performance-reports.js';
 export { SyncQueue, SYNC_QUEUE, type SyncJob, type SyncQueueOptions } from './sync-queue.js';
 export { seedSyncAlertRule, SYNC_PROBLEM_RULE_NAME } from './sync-alert-seed.js';
 
@@ -84,6 +92,12 @@ export const PERFORMANCE_PERMISSIONS: readonly PermissionDef[] = [
     'Link, create or ignore an unmatched platform id',
   ),
   permission('performance', 'performance.daily', 'read', 'See daily performance figures'),
+  permission(
+    'performance',
+    'performance.report',
+    'view',
+    'See the performance reports and a person’s performance history',
+  ),
   permission(
     'performance',
     'performance.google_connection',
@@ -113,6 +127,7 @@ export function createPerformanceModule(deps?: PerformanceModuleDeps): ModuleMan
     key: 'performance',
     label: 'Performance',
     permissions: PERFORMANCE_PERMISSIONS,
+    reports: PERFORMANCE_REPORTS,
     eventTypes: [
       {
         key: SYNC_PROBLEM_EVENT,
@@ -132,6 +147,11 @@ export function createPerformanceModule(deps?: PerformanceModuleDeps): ModuleMan
               permissions: deps.permissions,
               service: deps.sync,
               queue: deps.syncQueue,
+            }),
+            createPerformanceReportRouter({
+              uow: deps.uow,
+              registry: deps.registry,
+              permissions: deps.permissions,
             }),
             ...(deps.parties === undefined || deps.employees === undefined
               ? []
