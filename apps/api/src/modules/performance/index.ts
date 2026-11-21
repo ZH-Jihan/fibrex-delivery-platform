@@ -6,7 +6,8 @@
  * declares the schema, the permission keys and the starting data; the sync engine, its
  * screens and the reports arrive in rows 4.2 to 4.6 and add their routers here.
  *
- * Depends on: kernel/module-registry, kernel/permissions, ./platform-seed.ts.
+ * Depends on: kernel/module-registry, kernel/permissions, ./platform-seed.ts, ./cycle.ts,
+ * ./report-adapter.ts and ./snoonu-parser.ts (row 4.2: the Snoonu report adapter).
  * Used by: src/main.ts, src/seed/seed.ts.
  */
 import type { ModuleManifest } from '../../kernel/module-registry/index.js';
@@ -22,6 +23,9 @@ export {
   SNOONU_CYCLE_START_DAY,
   SNOONU_METRICS,
 } from './platform-seed.js';
+export { addDays, blockDate, cycleContaining, type Cycle } from './cycle.js';
+export * from './report-adapter.js';
+export { parseDailyReport, snoonuReportAdapter } from './snoonu-parser.js';
 
 export const PERFORMANCE_PERMISSIONS: readonly PermissionDef[] = [
   ...crudPermissions('performance', 'performance.client_platform', 'client platforms'),
