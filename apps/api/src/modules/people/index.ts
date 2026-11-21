@@ -118,7 +118,7 @@ export interface PeopleModuleDeps {
   audit: AuditService;
   /** Filled by main.ts from every manifest; read lazily when a document file is added. */
   attachables: AttachableRegistry;
-  states?: Pick<StateService, 'initialCode' | 'recordStart'>;
+  states?: Pick<StateService, 'initialCode' | 'recordStart' | 'transition'>;
   onCreated?: (entityType: string, id: string) => Promise<void>;
   /** The daily expiry job (src/main.ts); without it the expiry lists still work. */
   expiryJob?: ExpiryJobDeps;
@@ -145,7 +145,12 @@ export function createPeopleModule(deps: PeopleModuleDeps): PeopleModule {
   const periods = createPeriodRepository();
   // Row 3.8: employees become importable on the generic wizard (Excel, preview, rollback).
   deps.importTargets?.register(
-    createEmployeeImportTarget({ parties: deps.parties, repository: employees }),
+    createEmployeeImportTarget({
+      parties: deps.parties,
+      repository: employees,
+      vault: deps.vault,
+      ...(deps.states === undefined ? {} : { states: deps.states }),
+    }),
   );
   const documentTypes = createDocumentTypeRepository();
   const requirements = createRequirementRepository();

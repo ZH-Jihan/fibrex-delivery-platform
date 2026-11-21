@@ -11,6 +11,7 @@
  * Every document number below is made up.
  */
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import type { Express } from 'express';
 import type { Redis } from 'ioredis';
 import type pg from 'pg';
@@ -372,21 +373,77 @@ describe('document types and requirements', () => {
     ]);
     expect(items.find((t) => t.code === 'istimara')?.appliesTo).toBe('vehicle');
 
-    const reqs = await owner.query<{ code: string; condition_expr: string | null }>(
-      `SELECT t.code, r.condition_expr FROM people.document_requirement r
+    const reqs = await owner.query<{
+      code: string;
+      condition_expr: string | null;
+      applies_to_profession: string | null;
+    }>(
+      `SELECT t.code, r.condition_expr, r.applies_to_profession FROM people.document_requirement r
          JOIN people.document_type t ON t.id = r.document_type_id
-        WHERE r.company_id = $1 ORDER BY t.code`,
+        WHERE r.company_id = $1 ORDER BY t.code, r.applies_to_profession NULLS FIRST`,
       [f.companyA1],
     );
+    // QID and passport for everyone; the rest only for riders and drivers (row 3.13).
     expect(reqs.rows).toEqual([
-      { code: 'agreement', condition_expr: 'sponsorship == "outside"' },
-      { code: 'driving_licence', condition_expr: null },
-      { code: 'food_handling', condition_expr: null },
-      { code: 'health_card', condition_expr: null },
-      { code: 'insurance', condition_expr: null },
-      { code: 'passport', condition_expr: null },
-      { code: 'qid', condition_expr: null },
+      {
+        code: 'agreement',
+        condition_expr: 'sponsorship == "outside"',
+        applies_to_profession: 'driver',
+      },
+      {
+        code: 'agreement',
+        condition_expr: 'sponsorship == "outside"',
+        applies_to_profession: 'rider',
+      },
+      { code: 'driving_licence', condition_expr: null, applies_to_profession: 'driver' },
+      { code: 'driving_licence', condition_expr: null, applies_to_profession: 'rider' },
+      { code: 'food_handling', condition_expr: null, applies_to_profession: 'driver' },
+      { code: 'food_handling', condition_expr: null, applies_to_profession: 'rider' },
+      { code: 'health_card', condition_expr: null, applies_to_profession: 'driver' },
+      { code: 'health_card', condition_expr: null, applies_to_profession: 'rider' },
+      { code: 'insurance', condition_expr: null, applies_to_profession: 'driver' },
+      { code: 'insurance', condition_expr: null, applies_to_profession: 'rider' },
+      { code: 'passport', condition_expr: null, applies_to_profession: null },
+      { code: 'qid', condition_expr: null, applies_to_profession: null },
     ]);
+  });
+
+  it('the row 3.13 migration fixes old all-employee requirements once, without duplicates', async () => {
+    // Put the company back into its row 3.2 state: field requirements with no profession.
+    await owner.query(
+      `DELETE FROM people.document_requirement WHERE company_id = $1 AND applies_to_profession = 'driver'`,
+      [f.companyA1],
+    );
+    await owner.query(
+      `UPDATE people.document_requirement SET applies_to_profession = NULL
+        WHERE company_id = $1 AND applies_to_profession = 'rider'`,
+      [f.companyA1],
+    );
+    const sql = readFileSync(
+      new URL(
+        '../../prisma/migrations/20261126000000_people_requirements_by_role/migration.sql',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+    const count = async () =>
+      (
+        await owner.query<{ n: string }>(
+          `SELECT count(*) AS n FROM people.document_requirement
+            WHERE company_id = $1 AND deleted_at IS NULL`,
+          [f.companyA1],
+        )
+      ).rows[0]?.n;
+    await owner.query(sql);
+    expect(await count()).toBe('12');
+    await owner.query(sql); // running it again changes nothing
+    expect(await count()).toBe('12');
+    const bare = await owner.query(
+      `SELECT 1 FROM people.document_requirement r JOIN people.document_type t ON t.id = r.document_type_id
+        WHERE r.company_id = $1 AND r.applies_to_profession IS NULL AND t.code NOT IN ('qid', 'passport')`,
+      [f.companyA1],
+    );
+    expect(bare.rowCount).toBe(0);
   });
 
   it('keeps standard types, lets admins add their own and checks requirement formulas', async () => {

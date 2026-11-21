@@ -135,6 +135,7 @@ export class PartyService {
     type: string,
     value: string,
     validFrom?: string,
+    clientPlatformId?: string,
   ): Promise<void> {
     await this.#identifiers.create({
       partyId,
@@ -142,6 +143,7 @@ export class PartyService {
       type,
       value,
       ...(validFrom === undefined ? {} : { validFrom }),
+      ...(clientPlatformId === undefined ? {} : { clientPlatformId }),
     });
   }
 

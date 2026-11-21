@@ -362,6 +362,12 @@ beforeAll(async () => {
        ($1, $2, $3, 'E9001', 'company'), ($1, $2, $4, 'E9002', 'company')`,
     [f.tenantA, f.companyA1, ids.rahim, ids.karim],
   );
+  // Rahim is a rider (field documents required); Karim has no placement, like office staff.
+  await owner.query(
+    `INSERT INTO people.employee_placement (tenant_id, company_id, employee_id, profession)
+     SELECT $1, $2, id, 'rider' FROM people.employee WHERE employee_code = 'E9001' AND company_id = $2`,
+    [f.tenantA, f.companyA1],
+  );
   await add('A', party(ids.rahim, 'passport', 20));
   await add('B', party(ids.rahim, 'qid', 14));
   await add('C', party(ids.karim, 'passport', 7));
@@ -623,17 +629,21 @@ describe('people reports (row 3.5)', () => {
     expect(body.rows.find((r) => r.ownerName === 'Rahim Example')?.employeeCode).toBe('E9001');
   });
 
-  it('missing documents: each active employee lacks the always-required types it has no copy of', async () => {
+  it('missing documents: riders lack field documents, office staff only QID and passport', async () => {
     const res = await run('people.missing_documents', alice);
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     const body = res.body as Run;
-    // Six always-required types (agreement only applies outside sponsorship); each holds
-    // a passport and a QID, so four are missing apiece.
-    expect(body.total).toBe(8);
+    // Rahim is a rider: driving licence, food handling, health card and insurance are required
+    // (agreement only applies outside sponsorship) and he holds a passport and a QID, so four
+    // are missing. Karim has no rider or driver placement (office staff): QID and passport
+    // only, both held, so nothing is flagged, in particular no health card.
+    expect(body.total).toBe(4);
     const rahim = body.rows.filter((r) => r.employeeCode === 'E9001').map((r) => r.documentName);
     expect(rahim).toHaveLength(4);
+    expect(rahim).toContain('Health card');
     expect(rahim).not.toContain('Passport');
     expect(rahim).not.toContain('QID');
+    expect(body.rows.filter((r) => r.employeeCode === 'E9002')).toEqual([]);
   });
 
   it('headcount groups by status', async () => {

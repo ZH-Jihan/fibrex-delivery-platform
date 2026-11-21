@@ -27,13 +27,22 @@
  *      stays in `party` on purpose: if the same sheet is imported again, matching by QID links
  *      that person instead of making a second one.
  *
- * Not in the sheet (done on screen after the import): photo, platform IDs, zone and team,
+ *   5. Row 3.13: two optional columns. "falcon_id" becomes a `falcon_id` party identifier for the
+ *      Snoonu platform (read-only check first: an id another person already holds in an
+ *      overlapping period is a row error and is never reassigned; the same person already
+ *      holding it is fine). "status" (active, inactive, blocked, terminated) is applied through
+ *      the employee status state machine after the employee exists, with the note "Imported".
+ *      Staff without a profession (office staff) get no placement, hence no rider/driver
+ *      document requirements (see the requirements seed in document-type-router.ts).
+ *
+ * Not in the sheet (done on screen after the import): photo, other platform IDs, zone and team,
  * bank or wallet details (a second person approves them), emergency contact, address, sponsor
  * party and recruiting agent (they are parties, not text). Custom fields can be added in a
  * later template change.
  *
  * Depends on: @fibrex/shared (people schemas), kernel/imports (ImportTarget), kernel/db,
- * modules/party (PartyService), ./employee-router (repository, company rule).
+ * modules/party (PartyService, PartyVault), kernel/states (StateService.transition),
+ * ./employee-router (repository, company rule).
  * Used by: ./index.ts (registers it when src/main.ts passes the import targets).
  */
 import {
@@ -47,8 +56,10 @@ import type { Repository } from '../../kernel/db/repository.js';
 import { currentUnit } from '../../kernel/db/unit-of-work.js';
 import { ConflictError } from '../../kernel/http/errors.js';
 import type { ImportField, ImportTarget } from '../../kernel/imports/import-targets.js';
-import type { PartyService } from '../party/index.js';
-import { companyFor, type EmployeeView } from './employee-router.js';
+import type { StateService } from '../../kernel/states/state-service.js';
+import { normaliseSecretValue, type PartyService, type PartyVault } from '../party/index.js';
+import { isoToday, toDate } from './dates.js';
+import { EMPLOYEE_ENTITY, companyFor, type EmployeeView } from './employee-router.js';
 
 export const EMPLOYEE_IMPORT_KEY = 'people.employee';
 
@@ -67,7 +78,15 @@ const FIELDS: ImportField[] = [
   { key: 'joining_date', label: 'Joining date', required: false },
   { key: 'sponsorship', label: 'Sponsorship (company or outside)', required: false },
   { key: 'profession', label: 'Profession (rider or driver)', required: false },
+  { key: 'falcon_id', label: 'Falcon ID (Snoonu)', required: false },
+  { key: 'status', label: 'Status (active, inactive, blocked, terminated)', required: false },
 ];
+
+/** The Snoonu platform code (performance.client_platform) a Falcon ID belongs to. */
+const SNOONU_PLATFORM_CODE = 'snoonu';
+const FALCON_TYPE = 'falcon_id';
+const IMPORT_STATUSES = ['active', 'inactive', 'blocked', 'terminated'] as const;
+type ImportStatus = (typeof IMPORT_STATUSES)[number];
 
 /** A made-up row for the template (never real data). */
 const EXAMPLE: Record<string, string> = {
@@ -79,6 +98,8 @@ const EXAMPLE: Record<string, string> = {
   joining_date: '2026-01-15',
   sponsorship: 'company',
   profession: 'rider',
+  falcon_id: '100200',
+  status: 'active',
 };
 
 const text = (v: ImportValue | undefined): string | undefined => {
@@ -105,6 +126,10 @@ function splitPhones(raw: string | undefined): string[] {
 interface ParsedRow {
   body: EmployeeCreateInput;
   displayName: string;
+  /** Blank = no Falcon ID (office staff, or not yet issued). */
+  falconId?: string;
+  /** Blank = leave the employee in the starting state (active). */
+  status?: ImportStatus;
 }
 
 /** Step 1: the sheet row as an API body, or the problems found. */
@@ -145,6 +170,15 @@ export function parseEmployeeRow(
   if (profession !== undefined && !/^[a-z][a-z0-9_]{0,39}$/.test(profession)) {
     bad('profession', 'invalid_profession', 'Use the profession code, for example rider.');
   }
+  const falconId = text(values.falcon_id);
+  if (falconId !== undefined && !/^[A-Za-z0-9-]{2,40}$/.test(falconId)) {
+    bad('falcon_id', 'invalid_falcon_id', 'The Falcon ID is letters, digits and dashes only.');
+  }
+  const statusText = text(values.status)?.toLowerCase();
+  const status = IMPORT_STATUSES.find((s) => s === statusText);
+  if (statusText !== undefined && status === undefined) {
+    bad('status', 'invalid_status', 'Status is active, inactive, blocked or terminated.');
+  }
   if (displayName === undefined || issues.length > 0) return { ok: false, issues };
 
   const names: Record<string, string> = { en: displayName };
@@ -184,12 +218,24 @@ export function parseEmployeeRow(
       })),
     };
   }
-  return { ok: true, row: { body: parsed.data, displayName } };
+  return {
+    ok: true,
+    row: {
+      body: parsed.data,
+      displayName,
+      ...(falconId === undefined ? {} : { falconId }),
+      ...(status === undefined ? {} : { status }),
+    },
+  };
 }
 
 export interface EmployeeImportDeps {
   parties: PartyService;
   repository: Repository<EmployeeView>;
+  /** Hashes Falcon IDs for the "already held by someone else" check. */
+  vault: PartyVault;
+  /** Applies the status column; without it a row naming a status other than active fails. */
+  states?: Pick<StateService, 'transition'>;
 }
 
 /** The result of party matching (step 2). */
@@ -199,7 +245,63 @@ type Resolution =
   | { kind: 'refuse'; issue: RowIssue };
 
 export function createEmployeeImportTarget(deps: EmployeeImportDeps): ImportTarget {
-  const { parties, repository } = deps;
+  const { parties, repository, vault, states } = deps;
+
+  /**
+   * Step 5, read only: may this row's Falcon ID go to `partyId` (undefined = a person not made
+   * yet)? Another person holding the same id in an overlapping period is a row error and the id
+   * is never reassigned. The database exclusion constraint is the last line, but it would abort
+   * the whole commit, so the row is refused here with a clear message. Returns the Snoonu
+   * platform id to store it under, 'held' when this very person already has the id (nothing
+   * to add), or the row issue.
+   */
+  async function checkFalcon(
+    companyId: string,
+    row: ParsedRow,
+    partyId: string | undefined,
+  ): Promise<{ platformId: string } | 'held' | { issue: RowIssue }> {
+    const { db, context } = currentUnit();
+    const platform = await db.clientPlatform.findFirst({
+      where: { companyId, code: SNOONU_PLATFORM_CODE, deletedAt: null },
+      select: { id: true },
+    });
+    if (platform === null) {
+      return {
+        issue: {
+          path: 'falcon_id',
+          code: 'no_snoonu_platform',
+          message: 'The Snoonu platform is not set up, so a Falcon ID cannot be linked.',
+        },
+      };
+    }
+    const startsOn = toDate(row.body.joiningDate ?? isoToday());
+    const holders = await db.partyIdentifier.findMany({
+      where: {
+        type: FALCON_TYPE,
+        clientPlatformId: platform.id,
+        valueHash: vault.hash(
+          context.tenantId,
+          `identifier:${FALCON_TYPE}`,
+          normaliseSecretValue(row.falconId ?? ''),
+        ),
+        deletedAt: null,
+        // Overlaps a period that starts on `startsOn` and has no end.
+        OR: [{ validTo: null }, { validTo: { gte: startsOn } }],
+      },
+      select: { partyId: true, party: { select: { displayName: true } } },
+    });
+    const other = holders.find((h) => h.partyId !== partyId);
+    if (other !== undefined) {
+      return {
+        issue: {
+          path: 'falcon_id',
+          code: 'falcon_id_in_use',
+          message: `Falcon ID ${row.falconId ?? ''} is already held by ${other.party.displayName}.`,
+        },
+      };
+    }
+    return holders.length > 0 ? 'held' : { platformId: platform.id };
+  }
 
   /** Step 2: link, create or refuse. Reads only. */
   async function resolve(companyId: string, row: ParsedRow): Promise<Resolution> {
@@ -271,7 +373,16 @@ export function createEmployeeImportTarget(deps: EmployeeImportDeps): ImportTarg
     // With several companies the preview cannot pick one; the commit checks again.
     if (companyId === undefined) return [];
     const resolution = await resolve(companyId, parsed.row);
-    return resolution.kind === 'refuse' ? [resolution.issue] : [];
+    if (resolution.kind === 'refuse') return [resolution.issue];
+    if (parsed.row.falconId !== undefined) {
+      const falcon = await checkFalcon(
+        companyId,
+        parsed.row,
+        resolution.kind === 'link' ? resolution.partyId : undefined,
+      );
+      if (typeof falcon === 'object' && 'issue' in falcon) return [falcon.issue];
+    }
+    return [];
   };
 
   return {
@@ -296,6 +407,13 @@ export function createEmployeeImportTarget(deps: EmployeeImportDeps): ImportTarg
         }
         if (person?.passport !== undefined) {
           keys.push({ path: 'passport', key: `passport:${person.passport}`, what: 'passport' });
+        }
+        if (parsed.row.falconId !== undefined) {
+          keys.push({
+            path: 'falcon_id',
+            key: `falcon:${parsed.row.falconId.toUpperCase()}`,
+            what: 'Falcon ID',
+          });
         }
         const name = parsed.row.displayName.trim().toLowerCase();
         const phones = [...(person?.phones ?? []), ...(person?.whatsapp ? [person.whatsapp] : [])];
@@ -325,6 +443,23 @@ export function createEmployeeImportTarget(deps: EmployeeImportDeps): ImportTarg
       if (resolution.kind === 'refuse') {
         throw new ConflictError(resolution.issue.code, resolution.issue.message);
       }
+      // Step 5, checked before anything is written, so a refused row leaves nothing behind.
+      let falconPlatformId: string | undefined;
+      if (parsed.row.falconId !== undefined) {
+        const falcon = await checkFalcon(
+          companyId,
+          parsed.row,
+          resolution.kind === 'link' ? resolution.partyId : undefined,
+        );
+        if (typeof falcon === 'object' && 'issue' in falcon) {
+          throw new ConflictError(falcon.issue.code, falcon.issue.message);
+        }
+        if (typeof falcon === 'object') falconPlatformId = falcon.platformId;
+      }
+      const wantedStatus = parsed.row.status === 'active' ? undefined : parsed.row.status;
+      if (wantedStatus !== undefined && states === undefined) {
+        throw new ConflictError('status_unavailable', 'Statuses cannot be set by this import.');
+      }
       const { person, ...rest } = parsed.row.body;
       const body: EmployeeCreateInput =
         resolution.kind === 'link'
@@ -336,6 +471,25 @@ export function createEmployeeImportTarget(deps: EmployeeImportDeps): ImportTarg
               ...(resolution.acknowledgeDuplicates ? { acknowledgeDuplicates: true } : {}),
             };
       const row = await repository.create(body);
+      if (parsed.row.falconId !== undefined && falconPlatformId !== undefined) {
+        const partyId = row.partyId;
+        await parties.addIdentifier(
+          partyId,
+          companyId,
+          FALCON_TYPE,
+          parsed.row.falconId,
+          parsed.row.body.joiningDate ?? undefined,
+          falconPlatformId,
+        );
+      }
+      // New employees start active; any other status is a normal, audited state move with
+      // the note "Imported" (blocked and terminated require a reason, which this is).
+      if (wantedStatus !== undefined && states !== undefined) {
+        await states.transition(EMPLOYEE_ENTITY, row.id, {
+          toCode: wantedStatus,
+          note: 'Imported',
+        });
+      }
       return row.id;
     },
     remove: async (id, reason) => {

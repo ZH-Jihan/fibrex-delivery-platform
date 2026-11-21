@@ -20,5 +20,8 @@ export default defineConfig({
     globals: true,
     setupFiles: ['src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
+    // Several screen tests take more than vitest's default 5 s when the whole suite runs in
+    // parallel; the assertions are unchanged (PROGRESS row 2.11b).
+    testTimeout: 30000,
   },
 });

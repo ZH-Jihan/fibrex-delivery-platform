@@ -238,9 +238,16 @@ interface SeedType {
   appliesTo: 'party' | 'vehicle';
   hasNumber: boolean;
   multiPage: boolean;
-  /** Required for every worker (owner answer 2026-11-19); 'outside' = only for outside sponsorship. */
-  required: 'always' | 'outside' | 'no';
+  /**
+   * Who must hold it. 'everyone' = every employee (office staff included); 'riders' = only
+   * employees placed as rider or driver; 'riders_outside' = riders and drivers under outside
+   * sponsorship only; 'no' = not required (vehicle documents).
+   */
+  required: 'everyone' | 'riders' | 'riders_outside' | 'no';
 }
+
+/** Professions that carry the field documents (migration 20261126000000 names the same two). */
+const RIDER_PROFESSIONS: string[] = ['rider', 'driver'];
 
 /** The standard types (PLAN 3.10) and who must hold them (phase 3 plan question 3). */
 const STANDARD_TYPES: readonly SeedType[] = [
@@ -250,7 +257,7 @@ const STANDARD_TYPES: readonly SeedType[] = [
     appliesTo: 'party',
     hasNumber: true,
     multiPage: true,
-    required: 'always',
+    required: 'everyone',
   },
   {
     code: 'driving_licence',
@@ -258,7 +265,7 @@ const STANDARD_TYPES: readonly SeedType[] = [
     appliesTo: 'party',
     hasNumber: true,
     multiPage: true,
-    required: 'always',
+    required: 'riders',
   },
   {
     code: 'istimara',
@@ -274,7 +281,7 @@ const STANDARD_TYPES: readonly SeedType[] = [
     appliesTo: 'party',
     hasNumber: true,
     multiPage: true,
-    required: 'always',
+    required: 'everyone',
   },
   {
     code: 'food_handling',
@@ -282,7 +289,7 @@ const STANDARD_TYPES: readonly SeedType[] = [
     appliesTo: 'party',
     hasNumber: true,
     multiPage: false,
-    required: 'always',
+    required: 'riders',
   },
   {
     code: 'health_card',
@@ -290,7 +297,7 @@ const STANDARD_TYPES: readonly SeedType[] = [
     appliesTo: 'party',
     hasNumber: true,
     multiPage: false,
-    required: 'always',
+    required: 'riders',
   },
   {
     code: 'insurance',
@@ -298,7 +305,7 @@ const STANDARD_TYPES: readonly SeedType[] = [
     appliesTo: 'party',
     hasNumber: true,
     multiPage: false,
-    required: 'always',
+    required: 'riders',
   },
   {
     code: 'agreement',
@@ -306,7 +313,7 @@ const STANDARD_TYPES: readonly SeedType[] = [
     appliesTo: 'party',
     hasNumber: false,
     multiPage: true,
-    required: 'outside',
+    required: 'riders_outside',
   },
 ];
 
@@ -335,11 +342,24 @@ export async function seedDocumentTypes(
     if (id === undefined) continue;
     added += 1;
     if (type.required === 'no') continue;
-    await client.query(
-      `INSERT INTO people.document_requirement (tenant_id, company_id, document_type_id, condition_expr)
-       VALUES ($1, $2, $3, $4)`,
-      [tenantId, companyId, id, type.required === 'outside' ? 'sponsorship == "outside"' : null],
-    );
+    // One requirement row per profession it applies to; NULL profession = everyone. Office
+    // staff (no rider or driver placement) therefore only match the 'everyone' rows.
+    const professions: (string | null)[] =
+      type.required === 'everyone' ? [null] : RIDER_PROFESSIONS;
+    for (const profession of professions) {
+      await client.query(
+        `INSERT INTO people.document_requirement
+           (tenant_id, company_id, document_type_id, condition_expr, applies_to_profession)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          tenantId,
+          companyId,
+          id,
+          type.required === 'riders_outside' ? 'sponsorship == "outside"' : null,
+          profession,
+        ],
+      );
+    }
   }
   return added;
 }
