@@ -1136,6 +1136,68 @@ export const en = {
   'gl.postHint':
     'Post {number} to the ledger? Posted journals cannot be changed; a mistake is corrected by reversing the journal.',
   'gl.postedAs': 'Posted as journal {number}.',
+
+  // Phase 4 row 4.4: Google connection and sync sources.
+  'nav.performance.group': 'Performance',
+  'nav.syncSources': 'Sync sources',
+  'nav.googleConnection': 'Google connection',
+  'google.title': 'Google connection',
+  'google.intro':
+    'The Google account that Snoonu shared the daily report with. The app only reads sheets; it can never change them.',
+  'google.status': 'Status',
+  'google.state.connected': 'Connected',
+  'google.state.reconnect': 'Reconnect needed',
+  'google.state.notConnected': 'Not connected',
+  'google.state.notConfigured': 'Not set up on the server',
+  'google.notConfiguredHelp':
+    'The server has no Google OAuth client yet. Follow docs/GOOGLE_SETUP.md, put the client id and secret in .env and restart the API.',
+  'google.reconnectHelp':
+    "Google refused the saved access (it was revoked or has expired). Sign in again with Reconnect. Until then, upload the day's Excel file for each day.",
+  'google.connectedOn': 'Connected on {date} by {name}.',
+  'google.readOnly': 'Access asked for: read spreadsheets only.',
+  'google.connect': 'Connect Google',
+  'google.reconnect': 'Reconnect',
+  'google.disconnect': 'Disconnect',
+  'google.disconnectTitle': 'Disconnect Google?',
+  'google.disconnectBody':
+    "Scheduled sheet syncs will stop until someone connects again. The day's Excel upload keeps working.",
+  'google.disconnected': 'Google disconnected.',
+  'google.connected': 'Google connected.',
+  'google.finishing': 'Finishing the Google sign-in…',
+  'google.denied': 'Google did not give access ({reason}). Nothing was saved.',
+  'google.backToSettings': 'Back to Google connection',
+  'google.testTitle': 'Test read',
+  'google.testIntro':
+    'Reads only the header row (row 3) of the tab, to check that the account can open the sheet.',
+  'google.testButton': 'Test headers',
+  'google.testOk': '{count} column headers read.',
+  'google.testFailed': 'The sheet could not be read.',
+  'syncSource.title': 'Sync sources',
+  'syncSource.intro':
+    'Platform reports the app reads every morning. The column mapping editor and the run history come next.',
+  'syncSource.add': 'Add source',
+  'syncSource.editTitle': 'Edit source',
+  'syncSource.edit': 'Edit {name}',
+  'syncSource.none': 'No sync sources yet.',
+  'syncSource.name': 'Name',
+  'syncSource.platform': 'Platform',
+  'syncSource.kind': 'Kind',
+  'syncSource.kind.sheet': 'Google Sheet',
+  'syncSource.kind.excel': 'Excel upload only',
+  'syncSource.spreadsheet': 'Spreadsheet URL or id',
+  'syncSource.spreadsheetHint': 'Paste the address from the browser; only the id is kept.',
+  'syncSource.tab': 'Tab',
+  'syncSource.schedule': 'Schedule (cron)',
+  'syncSource.scheduleHint': '"0 4 * * *" is 04:00 every day.',
+  'syncSource.timeZone': 'Time zone',
+  'syncSource.active': 'Active',
+  'syncSource.on': 'On',
+  'syncSource.off': 'Off',
+  'syncSource.uploadOnly': 'Upload only',
+  'syncSource.excelHelp':
+    "An Excel source is never read on a schedule; upload a day's file instead.",
+  'syncSource.testHeaders': 'Test headers',
+  'syncSource.saved': 'Sync source saved.',
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -37,6 +37,7 @@ describe('buildNav', () => {
       'audit',
       'platform',
       'party',
+      'performance',
       'platform',
       'gl',
     ]);
@@ -73,6 +74,7 @@ describe('buildNav', () => {
           '/documents/expiry-settings',
         ],
       ],
+      ['nav.performance.group', ['/performance/sync-sources', '/settings/google-connection']],
       ['nav.reports', ['/reports']],
       [
         'nav.ledger',

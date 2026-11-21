@@ -13,6 +13,7 @@ import { auditManifest } from '../audit/manifest';
 import { ledgerManifest } from '../ledger/manifest';
 import { orgManifest } from '../org/manifest';
 import { peopleManifest } from '../people/manifest';
+import { performanceManifest } from '../performance/manifest';
 import { reportsManifest } from '../reports/manifest';
 import { buildNav, type NavGroup, type NavItem, type WebModuleManifest } from './manifest';
 
@@ -27,6 +28,7 @@ export const WEB_MODULES: readonly WebModuleManifest[] = [
   auditManifest,
   orgManifest,
   peopleManifest,
+  performanceManifest,
   reportsManifest,
   ledgerManifest,
 ];

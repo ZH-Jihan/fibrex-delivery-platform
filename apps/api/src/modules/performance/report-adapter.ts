@@ -30,15 +30,35 @@ export interface SheetGrid {
   rows: SheetCell[][];
 }
 
-export type ReportSourceErrorCode = 'unreadable_file' | 'missing_tab';
+export type ReportSourceErrorCode =
+  | 'unreadable_file'
+  | 'missing_tab'
+  /** Row 4.4: no Google account is connected, or the source has no spreadsheet id. */
+  | 'not_connected'
+  /** The Google grant was revoked or expired (invalid_grant); an admin must reconnect. */
+  | 'access_revoked'
+  /** The spreadsheet is not shared with the connected account, or does not exist. */
+  | 'not_shared'
+  /** The Google Sheets API is not enabled in the Cloud project. */
+  | 'api_disabled'
+  /** Google kept refusing for quota or rate limits after the back-off. */
+  | 'quota_exceeded'
+  /** The sheet shows an error or "Loading..." instead of data (IMPORTRANGE not ready). */
+  | 'sheet_unreadable';
 
 /** A source could not give a grid at all (the sync run records it and alerts admins). */
 export class ReportSourceError extends Error {
   readonly code: ReportSourceErrorCode;
+  /**
+   * Whether trying again later can help (the queue retries; admins hear on the last try).
+   * Undefined: the sync engine decides from the code.
+   */
+  readonly retryable: boolean | undefined;
 
-  constructor(code: ReportSourceErrorCode, message: string) {
+  constructor(code: ReportSourceErrorCode, message: string, retryable?: boolean) {
     super(message);
     this.code = code;
+    this.retryable = retryable;
     this.name = 'ReportSourceError';
   }
 }

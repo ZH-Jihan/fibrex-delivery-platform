@@ -6,14 +6,18 @@
  * declares the schema, the permission keys and the starting data; the sync engine, its
  * screens and the reports arrive in rows 4.2 to 4.6 and add their routers here. Row 4.3 adds
  * the sync engine (./sync-service.ts), its queue and schedules (./sync-queue.ts), the run
- * routes (./sync-router.ts) and the admin alert event `performance.sync_problem`.
+ * routes (./sync-router.ts) and the admin alert event `performance.sync_problem`. Row 4.4
+ * adds the read-only Google Sheets reader and connection (./google-connection.ts,
+ * ./google-router.ts) and the sync source routes (./sync-source-router.ts).
  *
  * Depends on: kernel/module-registry, kernel/permissions, ./platform-seed.ts, ./cycle.ts,
  * ./report-adapter.ts, ./snoonu-parser.ts, ./source-providers.ts, ./sync-service.ts,
- * ./sync-queue.ts, ./sync-router.ts, ./sync-alert-seed.ts.
+ * ./sync-queue.ts, ./sync-router.ts, ./sync-alert-seed.ts, ./google-connection.ts,
+ * ./google-router.ts, ./sync-source-router.ts.
  * Used by: src/main.ts, src/seed/seed.ts.
  */
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
+import type { SecretBox } from '../../kernel/crypto/secret-box.js';
 import type { UnitOfWork } from '../../kernel/db/unit-of-work.js';
 import type { ModuleManifest } from '../../kernel/module-registry/index.js';
 import {
@@ -22,6 +26,9 @@ import {
   type PermissionDef,
 } from '../../kernel/permissions/catalogue.js';
 import type { PermissionService } from '../../kernel/permissions/permission-service.js';
+import type { GoogleConnectionService } from './google-connection.js';
+import { createGoogleRouter } from './google-router.js';
+import { createSyncSourceRouter } from './sync-source-router.js';
 import type { SyncQueue } from './sync-queue.js';
 import { createSyncRouter } from './sync-router.js';
 import { SYNC_PROBLEM_EVENT, type SyncService } from './sync-service.js';
@@ -37,6 +44,16 @@ export * from './report-adapter.js';
 export { parseDailyReport, snoonuReportAdapter } from './snoonu-parser.js';
 export * from './source-providers.js';
 export * from './sync-service.js';
+export {
+  GoogleConnectionService,
+  GoogleSheetsProvider,
+  assertReadable,
+  toGrid,
+  GOOGLE_ADAPTER_KIND,
+  GOOGLE_PROVIDER,
+  type GoogleConnectionStatus,
+} from './google-connection.js';
+export { GOOGLE_MANAGE } from './google-router.js';
 export { SyncQueue, SYNC_QUEUE, type SyncJob, type SyncQueueOptions } from './sync-queue.js';
 export { seedSyncAlertRule, SYNC_PROBLEM_RULE_NAME } from './sync-alert-seed.js';
 
@@ -63,6 +80,12 @@ export const PERFORMANCE_PERMISSIONS: readonly PermissionDef[] = [
     'Link, create or ignore an unmatched platform id',
   ),
   permission('performance', 'performance.daily', 'read', 'See daily performance figures'),
+  permission(
+    'performance',
+    'performance.google_connection',
+    'manage',
+    'Connect, test and disconnect the Google account that reads platform sheets (read-only)',
+  ),
 ];
 
 /** What the module's routers need (absent: the manifest declares permissions only). */
@@ -72,6 +95,9 @@ export interface PerformanceModuleDeps {
   permissions: PermissionService;
   sync: SyncService;
   syncQueue: SyncQueue;
+  /** Row 4.4: with these, the Google connection and sync source routes are mounted. */
+  google?: GoogleConnectionService;
+  box?: SecretBox;
 }
 
 /** The module manifest. Routers are added by the rows that build them. */
@@ -100,6 +126,24 @@ export function createPerformanceModule(deps?: PerformanceModuleDeps): ModuleMan
               service: deps.sync,
               queue: deps.syncQueue,
             }),
+            ...(deps.google === undefined || deps.box === undefined
+              ? []
+              : [
+                  createGoogleRouter({
+                    uow: deps.uow,
+                    registry: deps.registry,
+                    permissions: deps.permissions,
+                    google: deps.google,
+                  }),
+                  createSyncSourceRouter({
+                    uow: deps.uow,
+                    registry: deps.registry,
+                    permissions: deps.permissions,
+                    box: deps.box,
+                    google: deps.google,
+                    queue: deps.syncQueue,
+                  }),
+                ]),
           ],
         }),
   };

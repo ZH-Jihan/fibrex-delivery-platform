@@ -149,6 +149,11 @@ const DEFAULT_MAPPINGS: ReadonlyMap<string, SheetColumnMapping> = new Map([
   ['snoonu', SNOONU_DEFAULT_MAPPING],
 ]);
 
+/** The platform's standard mapping (used while a source has no saved column mapping). */
+export function defaultMappingFor(platformCode: string): SheetColumnMapping {
+  return DEFAULT_MAPPINGS.get(platformCode) ?? SNOONU_DEFAULT_MAPPING;
+}
+
 /**
  * The party identifier type the platform's sheet id is (DECISIONS 4.1: Snoonu Public ID =
  * Falcon ID). Other platforms follow the `<code>_id` identifier types (talabat_id ...).
@@ -307,7 +312,7 @@ export class SyncService {
     let snapshot: Buffer | undefined;
     let readProblem: ReadProblem | undefined;
     try {
-      const read = await this.#read(setup);
+      const read = await this.#read(setup, context);
       grid = read.grid;
       snapshot = read.snapshot;
     } catch (err) {
@@ -373,7 +378,7 @@ export class SyncService {
     const mapping =
       parsedMapping?.success === true
         ? parsedMapping.data
-        : (DEFAULT_MAPPINGS.get(source.clientPlatform.code) ?? SNOONU_DEFAULT_MAPPING);
+        : defaultMappingFor(source.clientPlatform.code);
 
     let config: Record<string, unknown> | null = null;
     if (source.configEncrypted !== null) {
@@ -425,7 +430,7 @@ export class SyncService {
   }
 
   /** Reads the report: the uploaded file, or the source's reader. */
-  async #read(setup: RunSetup): Promise<{ grid: SheetGrid; snapshot: Buffer }> {
+  async #read(setup: RunSetup, context: DbContext): Promise<{ grid: SheetGrid; snapshot: Buffer }> {
     let source: ReportSource;
     let bytes: Buffer | undefined;
     if (setup.upload !== null) {
@@ -442,6 +447,7 @@ export class SyncService {
         syncSourceId: setup.syncSourceId,
         adapterKind: setup.adapterKind,
         config: setup.config,
+        context,
       });
     }
     const grid = await source.read(setup.mapping.tab);
@@ -948,11 +954,22 @@ function readProblemOf(err: unknown, setup: RunSetup): ReadProblem {
     if (err.code === 'missing_tab') {
       return { problem: 'layout_changed', code: err.code, message: err.message, retryable: false };
     }
+    // Row 4.4: no connection or a revoked grant is a set-up problem that only an admin can
+    // fix (reconnect Google), so it is not retried and the alert goes out at once. The
+    // reader's message already says to reconnect and that the day's Excel upload works.
+    if (err.code === 'not_connected' || err.code === 'access_revoked') {
+      return {
+        problem: 'source_not_configured',
+        code: err.code,
+        message: err.message,
+        retryable: false,
+      };
+    }
     return {
       problem: 'source_unreachable',
       code: err.code,
       message: err.message,
-      retryable: setup.upload === null,
+      retryable: setup.upload === null && (err.retryable ?? true),
     };
   }
   return {

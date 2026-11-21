@@ -38,6 +38,7 @@ import { createImpersonationRouter } from './kernel/auth/impersonation.js';
 import { MfaFactors } from './kernel/auth/mfa.js';
 import { createUserAdminRouter, createUserRepository } from './kernel/auth/user-admin-router.js';
 import { ConfigError, loadEnv } from './kernel/config/env.js';
+import { GoogleClient } from './adapters/google/google-client.js';
 import { SecretBox } from './kernel/crypto/secret-box.js';
 import { createPool } from './kernel/db/pool.js';
 import { createPrisma } from './kernel/db/prisma.js';
@@ -150,6 +151,8 @@ import {
 import { EMPLOYEE_ENTITY, createPeopleModule } from './modules/people/index.js';
 import {
   ReportSourceProviders,
+  GoogleConnectionService,
+  GoogleSheetsProvider,
   SyncQueue,
   SyncService,
   createPerformanceModule,
@@ -581,10 +584,26 @@ async function main(): Promise<void> {
   const importQueue = new ImportQueue({ redisUrl: env.REDIS_URL, service: importService, logger });
 
   // Performance sync (row 4.3): every run (04:00 schedule, Run now, re-import, upload) goes
-  // through the sync queue. No reader is installed for `sheet` sources until row 4.4 (Google
-  // Sheets); until then such a run fails with "no reader" and alerts admins, and the day's
-  // Excel upload is the way in.
+  // through the sync queue. Row 4.4: `sheet` sources are read through the read-only Google
+  // Sheets reader. Without GOOGLE_OAUTH_CLIENT_ID/SECRET, connecting is refused and sheet
+  // runs fail with "not connected" (admins alerted); the day's Excel upload still works.
+  const googleClient =
+    env.GOOGLE_OAUTH_CLIENT_ID !== undefined && env.GOOGLE_OAUTH_CLIENT_SECRET !== undefined
+      ? new GoogleClient({
+          clientId: env.GOOGLE_OAUTH_CLIENT_ID,
+          clientSecret: env.GOOGLE_OAUTH_CLIENT_SECRET,
+          redirectUri:
+            env.GOOGLE_OAUTH_REDIRECT_URI ??
+            `${env.WEB_BASE_URL.replace(/\/$/, '')}/settings/google-connection/callback`,
+        })
+      : null;
+  const googleConnection = new GoogleConnectionService({
+    uow,
+    box: new SecretBox(env.DATA_ENCRYPTION_KEY),
+    client: googleClient,
+  });
   const reportSources = new ReportSourceProviders();
+  reportSources.register(new GoogleSheetsProvider(googleConnection));
   const syncService = new SyncService({
     uow,
     storage,
@@ -716,7 +735,15 @@ async function main(): Promise<void> {
       );
       // Performance and tracking (phase 4): sync routes (row 4.3); more routers in 4.4 to 4.8.
       modules.register(
-        createPerformanceModule({ uow, registry, permissions, sync: syncService, syncQueue }),
+        createPerformanceModule({
+          uow,
+          registry,
+          permissions,
+          sync: syncService,
+          syncQueue,
+          google: googleConnection,
+          box: new SecretBox(env.DATA_ENCRYPTION_KEY),
+        }),
       );
       modules.register(createTrackingModule());
       for (const attachable of modules.attachables()) attachables.register(attachable);

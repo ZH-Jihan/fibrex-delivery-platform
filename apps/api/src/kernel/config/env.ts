@@ -134,6 +134,21 @@ export const envSchema = z
     SMTP_USER: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(1).optional()),
     SMTP_PASSWORD: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(1).optional()),
     SMTP_FROM: z.string().min(3).default('Fibrex <no-reply@fibrex.local>'),
+
+    // --- Google Sheets reader (phase 4 row 4.4; docs/GOOGLE_SETUP.md) ---
+    // OAuth client of type "Web application" from Google Cloud. Without both, connecting
+    // Google is refused and sheet sources fail with "not connected" (Excel upload still works).
+    GOOGLE_OAUTH_CLIENT_ID: z.preprocess(
+      (v) => (v === '' ? undefined : v),
+      z.string().min(1).optional(),
+    ),
+    GOOGLE_OAUTH_CLIENT_SECRET: z.preprocess(
+      (v) => (v === '' ? undefined : v),
+      z.string().min(1).optional(),
+    ),
+    // Must be listed as an "Authorised redirect URI" of the OAuth client. Empty: the web app's
+    // callback page, `${WEB_BASE_URL}/settings/google-connection/callback`.
+    GOOGLE_OAUTH_REDIRECT_URI: z.preprocess((v) => (v === '' ? undefined : v), z.url().optional()),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && env.CORS_ORIGINS.some((o) => o.startsWith('http:'))) {

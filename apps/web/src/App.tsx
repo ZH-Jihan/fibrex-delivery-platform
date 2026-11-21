@@ -60,6 +60,8 @@ import { RecordsPage, RecordTypesIndexPage } from './records/RecordPages';
 import { EmployeesPage } from './people/EmployeesPage';
 import { EmployeeProfilePage } from './people/EmployeeProfilePage';
 import { PartiesPage } from './people/PartiesPage';
+import { GoogleCallbackPage, GoogleConnectionPage } from './performance/GoogleConnectionPage';
+import { SyncSourcesPage } from './performance/SyncSourcesPage';
 import type { ReactNode } from 'react';
 import { ThemeProvider } from './theme/theme';
 import { Skeleton } from './ui/components';
@@ -194,6 +196,30 @@ function Gate() {
           element={
             <Guarded permission="people.expiry_settings.read">
               <ExpirySettingsPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="performance/sync-sources"
+          element={
+            <Guarded permission="performance.sync_source.read">
+              <SyncSourcesPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="settings/google-connection"
+          element={
+            <Guarded permission="performance.google_connection.manage">
+              <GoogleConnectionPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="settings/google-connection/callback"
+          element={
+            <Guarded permission="performance.google_connection.manage">
+              <GoogleCallbackPage />
             </Guarded>
           }
         />
