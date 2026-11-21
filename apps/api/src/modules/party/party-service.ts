@@ -49,6 +49,15 @@ export interface IdentityMatch {
   reasons: IdentityMatchReason[];
 }
 
+/** One holding period of an identifier value (`PartyService.identifierHolders`). */
+export interface IdentifierHolder {
+  /** The value as normalised (upper case, no spaces or dashes). */
+  value: string;
+  partyId: string;
+  validFrom: string;
+  validTo: string | null;
+}
+
 export interface IdentityQuery {
   companyId: string;
   qid?: string | undefined;
@@ -171,6 +180,48 @@ export class PartyService {
     });
     if (open !== null) return;
     await this.#repositories.role.create({ partyId, companyId, roleType, validFrom });
+  }
+
+  /**
+   * Who held each of these identifier values (type `type`, e.g. `falcon_id`) at any time
+   * between `from` and `to` (inclusive, "YYYY-MM-DD"). Values are matched exactly on the
+   * keyed hash after the usual normalising (spaces, dashes, case), so this works for sealed
+   * and plain types alike. One identifier has one holder at a time (database rule), so a
+   * caller picks the period that covers its date. Live parties only.
+   */
+  async identifierHolders(
+    companyId: string,
+    type: string,
+    values: readonly string[],
+    from: string,
+    to: string,
+  ): Promise<IdentifierHolder[]> {
+    if (values.length === 0) return [];
+    const { db, context } = currentUnit();
+    const byHash = new Map<string, string>();
+    for (const value of values) {
+      const normalised = normaliseSecretValue(value);
+      if (normalised === '') continue;
+      byHash.set(this.#vault.hash(context.tenantId, `identifier:${type}`, normalised), normalised);
+    }
+    const rows = await db.partyIdentifier.findMany({
+      where: {
+        companyId,
+        type,
+        valueHash: { in: [...byHash.keys()] },
+        deletedAt: null,
+        validFrom: { lte: toDay(to) },
+        OR: [{ validTo: null }, { validTo: { gte: toDay(from) } }],
+        party: { deletedAt: null },
+      },
+      select: { partyId: true, valueHash: true, validFrom: true, validTo: true },
+    });
+    return rows.map((row) => ({
+      value: byHash.get(row.valueHash) ?? '',
+      partyId: row.partyId,
+      validFrom: row.validFrom.toISOString().slice(0, 10),
+      validTo: row.validTo === null ? null : row.validTo.toISOString().slice(0, 10),
+    }));
   }
 
   /** Scores the party against the rest of its company (party_duplicate_candidate). */

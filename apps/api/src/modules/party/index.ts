@@ -36,6 +36,7 @@ export { PartyReferenceRegistry, type PartyReference } from './merge.js';
 export { PartyVault, maskValue, normaliseSecretValue } from './vault.js';
 export {
   PartyService,
+  type IdentifierHolder,
   type IdentityMatch,
   type IdentityMatchReason,
   type NewPerson,

@@ -148,7 +148,12 @@ import {
   createPartyModule,
 } from './modules/party/index.js';
 import { EMPLOYEE_ENTITY, createPeopleModule } from './modules/people/index.js';
-import { createPerformanceModule } from './modules/performance/index.js';
+import {
+  ReportSourceProviders,
+  SyncQueue,
+  SyncService,
+  createPerformanceModule,
+} from './modules/performance/index.js';
 import { createTrackingModule } from './modules/tracking/index.js';
 
 const rootEnv = path.resolve(import.meta.dirname, '../../../.env');
@@ -574,6 +579,38 @@ async function main(): Promise<void> {
     definitions: () => [...KERNEL_REPORTS, ...modules.reports()],
   });
   const importQueue = new ImportQueue({ redisUrl: env.REDIS_URL, service: importService, logger });
+
+  // Performance sync (row 4.3): every run (04:00 schedule, Run now, re-import, upload) goes
+  // through the sync queue. No reader is installed for `sheet` sources until row 4.4 (Google
+  // Sheets); until then such a run fails with "no reader" and alerts admins, and the day's
+  // Excel upload is the way in.
+  const reportSources = new ReportSourceProviders();
+  const syncService = new SyncService({
+    uow,
+    storage,
+    parties: new PartyService(
+      new PartyVault(new SecretBox(env.DATA_ENCRYPTION_KEY), env.DATA_ENCRYPTION_KEY),
+    ),
+    providers: reportSources,
+    outbox,
+    box: new SecretBox(env.DATA_ENCRYPTION_KEY),
+    logger,
+  });
+  const syncQueue = new SyncQueue({
+    redisUrl: env.REDIS_URL,
+    service: syncService,
+    prisma,
+    logger,
+  });
+  // The per-source schedules are written from the database at start-up and every 10 minutes,
+  // so a source added, changed or switched off is picked up without a restart.
+  scheduler.register({
+    name: 'performance-sync-schedules',
+    everyMs: 10 * 60_000,
+    run: async () => {
+      await syncQueue.syncSchedules();
+    },
+  });
   recycleBin.register({
     entityType: 'integration.import_mapping',
     moduleKey: 'integration',
@@ -677,8 +714,10 @@ async function main(): Promise<void> {
           bankVault: new BankVault(new SecretBox(env.DATA_ENCRYPTION_KEY), env.DATA_ENCRYPTION_KEY),
         }),
       );
-      // Performance and tracking (phase 4): permission keys now; routers in rows 4.3 to 4.8.
-      modules.register(createPerformanceModule());
+      // Performance and tracking (phase 4): sync routes (row 4.3); more routers in 4.4 to 4.8.
+      modules.register(
+        createPerformanceModule({ uow, registry, permissions, sync: syncService, syncQueue }),
+      );
       modules.register(createTrackingModule());
       for (const attachable of modules.attachables()) attachables.register(attachable);
       for (const type of modules.recycleTypes()) recycleBin.register(type);
@@ -704,6 +743,7 @@ async function main(): Promise<void> {
             emailQueue.getQueue(),
             pdfQueue.getQueue(),
             importQueue.getQueue(),
+            syncQueue.getQueue(),
             relay.getQueue(),
             webhooks.getQueue(),
           ],
@@ -748,6 +788,8 @@ async function main(): Promise<void> {
   emailQueue.startWorker();
   pdfQueue.startWorker();
   importQueue.startWorker();
+  syncQueue.startWorker();
+  await syncQueue.syncSchedules();
   relay.startWorker();
   webhooks.startWorker();
 
@@ -774,6 +816,7 @@ async function main(): Promise<void> {
         emailQueue.close(),
         pdfQueue.close(),
         importQueue.close(),
+        syncQueue.close(),
         relay.close(),
         webhooks.close(),
       ])

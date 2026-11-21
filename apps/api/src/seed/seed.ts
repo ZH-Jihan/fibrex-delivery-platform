@@ -37,7 +37,11 @@ import {
   seedExpiryAlerts,
   seedEmployeeStatus,
 } from '../modules/people/index.js';
-import { PERFORMANCE_PERMISSIONS, seedClientPlatforms } from '../modules/performance/index.js';
+import {
+  PERFORMANCE_PERMISSIONS,
+  seedClientPlatforms,
+  seedSyncAlertRule,
+} from '../modules/performance/index.js';
 import { TRACKING_PERMISSIONS } from '../modules/tracking/index.js';
 
 export interface SeedOptions {
@@ -289,6 +293,7 @@ export async function runSeed(pool: pg.Pool, opts: SeedOptions): Promise<SeedRes
     await seedRates(client, tenantId);
     // Starting notification rules for the workflow events (only those missing by name).
     await seedWorkflowNotificationRules(client, tenantId);
+    await seedSyncAlertRule(client, tenantId);
     // Standard chart of accounts, tax code NONE and this fiscal year (only where missing).
     await seedLedger(client, tenantId, companyId);
     // Employee status machine (active, inactive, blocked, terminated) when the tenant has none.
