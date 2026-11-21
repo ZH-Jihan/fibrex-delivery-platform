@@ -66,6 +66,7 @@ import { PerformanceReportsPage } from './performance/PerformanceReportsPage';
 import { SyncRunDetailPage } from './performance/SyncRunDetailPage';
 import { SyncRunsPage } from './performance/SyncRunsPage';
 import { SyncSourcesPage } from './performance/SyncSourcesPage';
+import { SummarySettingsPage } from './performance/SummarySettingsPage';
 import { UnmatchedPage } from './performance/UnmatchedPage';
 import type { ReactNode } from 'react';
 import { ThemeProvider } from './theme/theme';
@@ -257,6 +258,14 @@ function Gate() {
           element={
             <Guarded permission="performance.unmatched.read">
               <UnmatchedPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="performance/summary"
+          element={
+            <Guarded permission="performance.summary.manage">
+              <SummarySettingsPage />
             </Guarded>
           }
         />

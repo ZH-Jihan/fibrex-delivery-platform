@@ -2245,3 +2245,18 @@ input[hidden] {
   fill: var(--text-muted);
   font-size: 8px;
 }
+
+/* Performance summary: the list of sent summaries (row 4.6b). */
+ul.summary-recent {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3, 12px);
+}
+ul.summary-recent li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}

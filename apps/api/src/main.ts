@@ -154,11 +154,13 @@ import {
   ReportSourceProviders,
   GoogleConnectionService,
   GoogleSheetsProvider,
+  SummaryService,
   SyncQueue,
   SyncService,
   createPerformanceModule,
 } from './modules/performance/index.js';
 import { createTrackingModule } from './modules/tracking/index.js';
+import { TemplateService } from './kernel/templates/template-service.js';
 
 const rootEnv = path.resolve(import.meta.dirname, '../../../.env');
 if (process.env.DATABASE_URL === undefined && existsSync(rootEnv)) {
@@ -650,6 +652,22 @@ async function main(): Promise<void> {
       await syncQueue.syncSchedules();
     },
   });
+  // Daily performance summary email (row 4.6b): the tick sends once the company's local send
+  // time has passed; the sent log makes a repeat tick, a second instance or "Send now" harmless.
+  const summaryService = new SummaryService({
+    uow,
+    templates: new TemplateService(),
+    messaging,
+    logger,
+    prisma,
+  });
+  scheduler.register({
+    name: 'performance-summary',
+    everyMs: 5 * 60_000,
+    run: async () => {
+      await summaryService.runDue();
+    },
+  });
   recycleBin.register({
     entityType: 'integration.import_mapping',
     moduleKey: 'integration',
@@ -762,6 +780,7 @@ async function main(): Promise<void> {
           permissions,
           sync: syncService,
           syncQueue,
+          summary: summaryService,
           parties: partyService,
           employees: people.directory,
           google: googleConnection,

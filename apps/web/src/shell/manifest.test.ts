@@ -83,6 +83,7 @@ describe('buildNav', () => {
           '/performance/sync-sources',
           '/performance/sync-runs',
           '/performance/unmatched',
+          '/performance/summary',
           '/settings/google-connection',
         ],
       ],

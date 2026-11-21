@@ -238,6 +238,7 @@ model Company {
   metricDefinitions       MetricDefinition[]
   syncRuns                SyncRun[]
   syncRunErrors           SyncRunError[]
+  summaryLogs             SummaryLog[]
   dailyPerformances       DailyPerformance[]
   unmatchedIdentifiers    UnmatchedIdentifier[]
   trackingEntries         TrackingEntry[]

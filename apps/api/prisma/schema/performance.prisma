@@ -268,3 +268,24 @@ model UnmatchedIdentifier {
   @@map("unmatched_identifier")
   @@schema("performance")
 }
+
+/// One sent daily performance summary email per company and date (insert-only; row 4.6b).
+model SummaryLog {
+  id          String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  summaryDate DateTime @map("summary_date") @db.Date
+  variant     String
+  reason      String?
+  trigger     String
+  recipients  String[]
+  sentAt      DateTime @default(now()) @map("sent_at") @db.Timestamptz(6)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy   String?  @map("created_by") @db.Uuid
+
+  company Company @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "summary_log_company_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([companyId, summaryDate], map: "summary_log_once_uq")
+  @@map("summary_log")
+  @@schema("performance")
+}

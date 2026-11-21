@@ -32,6 +32,8 @@ import type { PartyService } from '../party/index.js';
 import type { EmployeeDirectory } from '../people/index.js';
 import { createPerformanceReportRouter } from './performance-report-router.js';
 import { PERFORMANCE_REPORTS } from './performance-reports.js';
+import { createSummaryRouter } from './summary-router.js';
+import type { SummaryService } from './summary-service.js';
 import { createSyncSourceRouter } from './sync-source-router.js';
 import { createUnmatchedRouter } from './unmatched-router.js';
 import type { SyncQueue } from './sync-queue.js';
@@ -68,6 +70,19 @@ export {
 } from './performance-reports.js';
 export { SyncQueue, SYNC_QUEUE, type SyncJob, type SyncQueueOptions } from './sync-queue.js';
 export { seedSyncAlertRule, SYNC_PROBLEM_RULE_NAME } from './sync-alert-seed.js';
+export {
+  SummaryService,
+  readSummarySettings,
+  writeSummarySettings,
+  SUMMARY_TEMPLATE_KEY,
+  SUMMARY_INCOMPLETE_TEMPLATE_KEY,
+  type SummaryResult,
+  type SummaryRunResult,
+  type SummaryServiceDeps,
+} from './summary-service.js';
+export { SUMMARY_MANAGE } from './summary-router.js';
+export { seedPerformanceSummary, OWNER_SUMMARY_RECIPIENTS } from './summary-seed.js';
+export { summariseDay, dueSummaryDate, localClock } from './summary-calc.js';
 
 export const PERFORMANCE_PERMISSIONS: readonly PermissionDef[] = [
   ...crudPermissions('performance', 'performance.client_platform', 'client platforms'),
@@ -100,6 +115,12 @@ export const PERFORMANCE_PERMISSIONS: readonly PermissionDef[] = [
   ),
   permission(
     'performance',
+    'performance.summary',
+    'manage',
+    'Set who gets the daily performance summary email and send it now',
+  ),
+  permission(
+    'performance',
     'performance.google_connection',
     'manage',
     'Connect, test and disconnect the Google account that reads platform sheets (read-only)',
@@ -119,6 +140,8 @@ export interface PerformanceModuleDeps {
   /** Row 4.5b: with both, the unmatched riders queue routes are mounted. */
   parties?: PartyService;
   employees?: EmployeeDirectory;
+  /** Row 4.6b: with it, the daily summary settings and "Send now" routes are mounted. */
+  summary?: SummaryService;
 }
 
 /** The module manifest. Routers are added by the rows that build them. */
@@ -153,6 +176,16 @@ export function createPerformanceModule(deps?: PerformanceModuleDeps): ModuleMan
               registry: deps.registry,
               permissions: deps.permissions,
             }),
+            ...(deps.summary === undefined
+              ? []
+              : [
+                  createSummaryRouter({
+                    uow: deps.uow,
+                    registry: deps.registry,
+                    permissions: deps.permissions,
+                    summary: deps.summary,
+                  }),
+                ]),
             ...(deps.parties === undefined || deps.employees === undefined
               ? []
               : [

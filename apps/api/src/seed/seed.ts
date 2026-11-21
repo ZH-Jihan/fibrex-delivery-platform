@@ -41,6 +41,7 @@ import {
   PERFORMANCE_PERMISSIONS,
   seedClientPlatforms,
   seedSyncAlertRule,
+  seedPerformanceSummary,
 } from '../modules/performance/index.js';
 import { TRACKING_PERMISSIONS } from '../modules/tracking/index.js';
 
@@ -312,6 +313,8 @@ export async function runSeed(pool: pg.Pool, opts: SeedOptions): Promise<SeedRes
     await seedExpiryAlerts(client, tenantId, companyId);
     // Snoonu client platform (cycle 26th to 25th) and its Daily Report metrics (row 4.1).
     await seedClientPlatforms(client, tenantId, companyId);
+    // Daily performance summary: owner recipient, 07:00 Qatar, two email templates (row 4.6b).
+    await seedPerformanceSummary(client, tenantId, companyId);
 
     await client.query('COMMIT');
     return { tenantId, companyId, superAdminId, superAdminCreated };

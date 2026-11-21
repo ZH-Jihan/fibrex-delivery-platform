@@ -2,13 +2,15 @@
  * Menu entries of the performance module (phase 4 row 4.4: Sync sources and Google
  * connection). Mirrors the API manifest in apps/api/src/modules/performance/index.ts (same
  * permission keys). Row 4.5a adds Sync runs; 4.5b the Unmatched riders queue; 4.6a the three performance
- * reports (permission `performance.report.view`).
+ * reports (permission `performance.report.view`); 4.6b the daily summary email settings
+ * (permission `performance.summary.manage`).
  * Depends on: shell/manifest.ts, lucide-react. Used by: shell/nav.ts.
  */
 import {
   BarChart3,
   CalendarRange,
   History,
+  Mail,
   PlugZap,
   RefreshCw,
   Trophy,
@@ -57,6 +59,12 @@ export const performanceManifest: WebModuleManifest = {
           label: 'nav.unmatched',
           permission: 'performance.unmatched.read',
           icon: UserRoundSearch,
+        },
+        {
+          to: '/performance/summary',
+          label: 'nav.perfSummary',
+          permission: 'performance.summary.manage',
+          icon: Mail,
         },
         {
           to: '/settings/google-connection',
