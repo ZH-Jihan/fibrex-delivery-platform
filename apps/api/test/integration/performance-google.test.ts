@@ -465,6 +465,13 @@ describe('Google Sheets reader (row 4.4)', () => {
     expect(google.callsTo('oauth2.googleapis.com', '/token')).toHaveLength(refreshesBefore);
     const tabRead = google.callsTo('sheets.googleapis.com').slice(-1)[0];
     expect(decodeURIComponent(tabRead?.url.pathname ?? '')).toMatch(/values\/'Daily Report'$/);
+    // Row 4.5a: the run detail names the business dates the run stored.
+    const detail = (await get(`/sync-runs/${run.id}`)).body as {
+      storedDates: { date: string; rows: number }[];
+    };
+    expect(detail.storedDates.length).toBeGreaterThan(0);
+    expect(detail.storedDates[0]?.rows).toBeGreaterThan(0);
+    expect(detail.storedDates[0]?.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   it('a sheet not shared with the account fails at once, with one alert and the Excel fallback', async () => {
@@ -578,6 +585,52 @@ describe('Google Sheets reader (row 4.4)', () => {
       .set('Idempotency-Key', randomUUID())
       .send(form);
     expect(stale.status).toBe(409);
+  });
+
+  it('lists and saves column mapping versions; a later valid-from waits; a header cannot mean two fields (row 4.5a)', async () => {
+    interface Listed {
+      versions: { mappingVersion: number }[];
+      effective: { tab: string; fields: Record<string, { aliases: string[] }> };
+      effectiveVersion: number;
+    }
+    const first = (await get(`/sync-sources/${sourceId}/column-mappings`)).body as Listed;
+    expect(first.versions).toHaveLength(1);
+    expect(first.effectiveVersion).toBe(1);
+
+    const base = first.effective;
+    const future = new Date(Date.now() + 3_600_000).toISOString();
+    const saved = await post(`/sync-sources/${sourceId}/column-mappings`, {
+      mapping: { ...base, fields: { ...base.fields, name: { aliases: ['Name', 'Rider name'] } } },
+      validFrom: future,
+    });
+    expect(saved.status).toBe(201);
+    expect((saved.body as { mappingVersion: number }).mappingVersion).toBe(2);
+    const second = (await get(`/sync-sources/${sourceId}/column-mappings`)).body as Listed;
+    // Version 2 is saved but not valid yet: the engine (and the editor) still use version 1.
+    expect(second.versions.map((v) => v.mappingVersion)).toEqual([2, 1]);
+    expect(second.effectiveVersion).toBe(1);
+
+    const clash = await post(`/sync-sources/${sourceId}/column-mappings`, {
+      mapping: { ...base, fields: { ...base.fields, name: { aliases: ['Public ID'] } } },
+    });
+    expect(clash.status).toBe(400);
+    const noKey = await post(`/sync-sources/${sourceId}/column-mappings`, {
+      mapping: { ...base, fields: { name: { aliases: ['Name'] } } },
+    });
+    expect(noKey.status).toBe(400);
+  });
+
+  it('tests the header rows of a mapping that is not saved yet (row 4.5a)', async () => {
+    google.token.refresh_token.push(FakeGoogle.access('fake-access-45a'));
+    const res = await post(`/sync-sources/${sourceId}/test-headers`, {
+      tab: 'Daily Report',
+      headerRow: 3,
+      blockLabelRow: 2,
+    });
+    const body = res.body as { ok: boolean; headers: string[]; labels: string[] };
+    expect(body.ok).toBe(true);
+    expect(body.headers[0]).toBe('Public ID');
+    expect(body.labels).toContain('Delivered');
   });
 
   it('disconnect forgets the grant and revokes it at Google', async () => {

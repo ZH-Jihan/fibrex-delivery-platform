@@ -61,6 +61,9 @@ import { EmployeesPage } from './people/EmployeesPage';
 import { EmployeeProfilePage } from './people/EmployeeProfilePage';
 import { PartiesPage } from './people/PartiesPage';
 import { GoogleCallbackPage, GoogleConnectionPage } from './performance/GoogleConnectionPage';
+import { MappingEditorPage } from './performance/MappingEditor';
+import { SyncRunDetailPage } from './performance/SyncRunDetailPage';
+import { SyncRunsPage } from './performance/SyncRunsPage';
 import { SyncSourcesPage } from './performance/SyncSourcesPage';
 import type { ReactNode } from 'react';
 import { ThemeProvider } from './theme/theme';
@@ -204,6 +207,30 @@ function Gate() {
           element={
             <Guarded permission="performance.sync_source.read">
               <SyncSourcesPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="performance/sync-sources/:id/mapping"
+          element={
+            <Guarded permission="performance.sync_source.read">
+              <MappingEditorPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="performance/sync-runs"
+          element={
+            <Guarded permission="performance.sync_run.read">
+              <SyncRunsPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="performance/sync-runs/:id"
+          element={
+            <Guarded permission="performance.sync_run.read">
+              <SyncRunDetailPage />
             </Guarded>
           }
         />

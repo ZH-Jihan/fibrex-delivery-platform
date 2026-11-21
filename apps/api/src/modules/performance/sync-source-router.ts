@@ -6,7 +6,11 @@
  *   GET  /sync-sources/{id}               one source
  *   POST /sync-sources                    create (platform, name, kind, spreadsheet, tab, schedule)
  *   PUT  /sync-sources/{id}               change (body + `version`; 409 on a stale version)
- *   POST /sync-sources/{id}/test-headers  read only the header row of the source's tab
+ *   POST /sync-sources/{id}/test-headers  read only the header rows of the source's tab
+ *                                         (body optional: tab and rows of a mapping not saved yet)
+ *   GET  /sync-sources/{id}/column-mappings  every saved mapping version + the one in force
+ *   POST /sync-sources/{id}/column-mappings  save a new mapping version (versions are never
+ *                                         edited; a later `validFrom` takes effect then)
  *
  * Where each value is kept:
  *   - The spreadsheet id and the sign-in mode are sealed in `config_encrypted`
@@ -26,6 +30,7 @@
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import {
   GOOGLE_AUTH_MODES,
+  normaliseHeader,
   sheetColumnMappingSchema,
   spreadsheetIdOf,
   syncSourceFormSchema,
@@ -71,8 +76,62 @@ const sourceItem = z
   })
   .meta({ id: 'SyncSource' });
 const headerTest = z
-  .object({ ok: z.boolean(), headers: z.array(z.string()), message: z.string().nullable() })
+  .object({
+    ok: z.boolean(),
+    /** Cells of the header row (the fixed columns). */
+    headers: z.array(z.string()),
+    /** Cells of the block label row (the metric names inside each day block). */
+    labels: z.array(z.string()).optional(),
+    message: z.string().nullable(),
+  })
   .meta({ id: 'SyncSourceHeaderTest' });
+const headerTestBody = z.object({
+  tab: z.string().trim().min(1).max(100).optional(),
+  headerRow: z.number().int().min(1).max(50).optional(),
+  blockLabelRow: z.number().int().min(1).max(50).optional(),
+});
+const mappingBody = z.object({
+  mapping: sheetColumnMappingSchema,
+  /** When this version starts to apply; default now. */
+  validFrom: z.iso.datetime().optional(),
+});
+const mappingVersionItem = z
+  .object({
+    id: z.uuid(),
+    mappingVersion: z.number().int(),
+    validFrom: z.string(),
+    createdAt: z.string(),
+    createdBy: z.uuid().nullable(),
+    mapping: sheetColumnMappingSchema,
+  })
+  .meta({ id: 'ColumnMappingVersion' });
+const mappingList = z
+  .object({
+    /** Newest first. Empty while the source still uses the platform's built-in mapping. */
+    versions: z.array(mappingVersionItem),
+    /** The mapping the sync engine uses now (a saved version or the built-in one). */
+    effective: sheetColumnMappingSchema,
+    /** Version number of `effective`, 0 for the built-in mapping. */
+    effectiveVersion: z.number().int(),
+  })
+  .meta({ id: 'ColumnMappingList' });
+
+/** The first header text used by two different fields or metrics, or null. */
+export function duplicateAlias(mapping: SheetColumnMapping): string | null {
+  const seen = new Set<string>();
+  const owners: string[][] = [
+    ...Object.values(mapping.fields).map((f) => f.aliases),
+    ...Object.values(mapping.metrics).map((m) => m.aliases),
+  ];
+  for (const aliases of owners) {
+    // Within one field the same alias twice is harmless; across fields it is not.
+    for (const key of new Set(aliases.map(normaliseHeader))) {
+      if (seen.has(key)) return aliases.find((a) => normaliseHeader(a) === key) ?? key;
+      seen.add(key);
+    }
+  }
+  return null;
+}
 
 /** A failed header read as the answer the screens show (never a stack or a token). */
 export function sourceErrorResponse(err: unknown): {
@@ -306,6 +365,7 @@ export function createSyncSourceRouter(deps: SyncSourceRouterDeps): Router {
 
   router.post('/sync-sources/:id/test-headers', async (req, res) => {
     const { id } = idParams.parse(req.params);
+    const body = headerTestBody.parse(req.body ?? {});
     const checked = await uow.run(async (db) => {
       await permissions.require('performance.sync_source.update');
       const row = await db.syncSource.findFirst({ where: { id, deletedAt: null }, include });
@@ -319,18 +379,118 @@ export function createSyncSourceRouter(deps: SyncSourceRouterDeps): Router {
       res.json({ ok: false, headers: [], message: 'This source does not read a Google Sheet.' });
       return;
     }
+    // The editor may test a mapping it has not saved yet: its tab and header rows win.
+    const tab = body.tab ?? checked.mapping.tab;
+    const headerRow = body.headerRow ?? checked.mapping.headerRow;
+    const labelRow = body.blockLabelRow;
+    const mode = authModeOf(checked.config);
     try {
       const headers = await google.readHeaders(
         checked.context,
         spreadsheetId,
-        checked.mapping.tab,
-        checked.mapping.headerRow,
-        authModeOf(checked.config),
+        tab,
+        headerRow,
+        mode,
       );
-      res.json({ ok: true, headers, message: null });
+      // Metric names sit in the label row (row 2 of Snoonu's sheet). It is read, in a second
+      // call, only when the editor asks for it; a plain test reads the header row alone.
+      if (labelRow === undefined) {
+        res.json({ ok: true, headers, message: null });
+        return;
+      }
+      const labels =
+        labelRow === headerRow
+          ? headers
+          : await google.readHeaders(checked.context, spreadsheetId, tab, labelRow, mode);
+      res.json({ ok: true, headers, labels, message: null });
     } catch (err) {
       res.json(sourceErrorResponse(err));
     }
+  });
+
+  router.get('/sync-sources/:id/column-mappings', async (req, res) => {
+    const { id } = idParams.parse(req.params);
+    res.json(
+      await uow.run(async (db) => {
+        await permissions.require('performance.sync_source.read');
+        const row = await db.syncSource.findFirst({ where: { id, deletedAt: null }, include });
+        if (row === null) throw new NotFoundError();
+        const saved = await db.columnMapping.findMany({
+          where: { syncSourceId: id, deletedAt: null },
+          orderBy: { mappingVersion: 'desc' },
+        });
+        const versions = saved.flatMap((m) => {
+          const parsed = sheetColumnMappingSchema.safeParse(m.mapping);
+          // A stored version that no longer passes the schema is left out, not guessed at.
+          return parsed.success
+            ? [
+                {
+                  id: m.id,
+                  mappingVersion: m.mappingVersion,
+                  validFrom: m.validFrom.toISOString(),
+                  createdAt: m.createdAt.toISOString(),
+                  createdBy: m.createdBy,
+                  mapping: parsed.data,
+                },
+              ]
+            : [];
+        });
+        // The engine uses the newest version already valid (./sync-service.ts), not the newest.
+        const now = Date.now();
+        const inForce = versions.find((v) => Date.parse(v.validFrom) <= now);
+        return {
+          versions,
+          effective: inForce?.mapping ?? defaultMappingFor(row.clientPlatform.code),
+          effectiveVersion: inForce?.mappingVersion ?? 0,
+        };
+      }),
+    );
+  });
+
+  router.post('/sync-sources/:id/column-mappings', async (req, res) => {
+    const { id } = idParams.parse(req.params);
+    const body = mappingBody.parse(req.body);
+    const created = await uow.run(async (db) => {
+      await permissions.require('performance.sync_source.update');
+      const row = await db.syncSource.findFirst({ where: { id, deletedAt: null }, include });
+      if (row === null) throw new NotFoundError();
+      // One header text must not mean two fields.
+      const clash = duplicateAlias(body.mapping);
+      if (clash !== null) {
+        throw new ValidationError([
+          {
+            path: 'mapping',
+            code: 'duplicate_alias',
+            message: `The header "${clash}" is mapped to more than one field.`,
+          },
+        ]);
+      }
+      const latest = await db.columnMapping.findFirst({
+        where: { syncSourceId: id },
+        orderBy: { mappingVersion: 'desc' },
+        select: { mappingVersion: true },
+      });
+      const { context } = currentUnit();
+      const made = await db.columnMapping.create({
+        data: {
+          tenantId: context.tenantId,
+          companyId: row.companyId,
+          syncSourceId: id,
+          mappingVersion: (latest?.mappingVersion ?? 0) + 1,
+          mapping: body.mapping,
+          ...(body.validFrom === undefined ? {} : { validFrom: new Date(body.validFrom) }),
+        },
+      });
+      return {
+        id: made.id,
+        mappingVersion: made.mappingVersion,
+        validFrom: made.validFrom.toISOString(),
+        createdAt: made.createdAt.toISOString(),
+        createdBy: made.createdBy,
+        mapping: body.mapping,
+      };
+    });
+    res.status(201).json(created);
   });
 
   const tags = ['Performance sync'];
@@ -391,8 +551,24 @@ export function createSyncSourceRouter(deps: SyncSourceRouterDeps): Router {
     path: '/sync-sources/{id}/test-headers',
     tags,
     summary: "Read only the header row of the source's tab (test access)",
-    request: { params: idParams },
+    request: { params: idParams, body: { content: json(headerTestBody) } },
     responses: { 200: { description: 'Headers or the problem', content: json(headerTest) } },
+  });
+  registerRoute(registry, {
+    method: 'get',
+    path: '/sync-sources/{id}/column-mappings',
+    tags,
+    summary: 'Column mapping versions of a source and the mapping in force',
+    request: { params: idParams },
+    responses: { 200: { description: 'The versions', content: json(mappingList) } },
+  });
+  registerRoute(registry, {
+    method: 'post',
+    path: '/sync-sources/{id}/column-mappings',
+    tags,
+    summary: 'Save a new column mapping version (valid from now or a later time)',
+    request: { params: idParams, body: { content: json(mappingBody) } },
+    responses: { 201: { description: 'Saved', content: json(mappingVersionItem) } },
   });
   return router;
 }

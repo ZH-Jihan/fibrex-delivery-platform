@@ -71,7 +71,7 @@ const STATE_TTL_MS = 10 * 60_000;
 const TOKEN_MARGIN_MS = 60_000;
 
 /** Shown wherever a run cannot use Google, so the admin knows the way round it. */
-const FALLBACK = "Until then, upload the day's Excel file (Sync sources > Upload a day's Excel).";
+const FALLBACK = "Until then, upload the day's Excel file (Sync runs > Upload a day's Excel).";
 const RECONNECT_MESSAGE = `Google access for reading the sheet was revoked or has expired. An admin must reconnect Google under Settings > Google connection. ${FALLBACK}`;
 const SA_NOT_CONFIGURED_MESSAGE = `The server has no Google service account key: set GOOGLE_SERVICE_ACCOUNT_KEY_FILE (or GOOGLE_SERVICE_ACCOUNT_KEY_JSON) and restart the API (see docs/GOOGLE_SETUP.md). ${FALLBACK}`;
 const NOT_CONNECTED_MESSAGE = `No Google account is connected for reading sheets. An admin must connect one under Settings > Google connection. ${FALLBACK}`;

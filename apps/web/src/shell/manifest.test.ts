@@ -74,7 +74,10 @@ describe('buildNav', () => {
           '/documents/expiry-settings',
         ],
       ],
-      ['nav.performance.group', ['/performance/sync-sources', '/settings/google-connection']],
+      [
+        'nav.performance.group',
+        ['/performance/sync-sources', '/performance/sync-runs', '/settings/google-connection'],
+      ],
       ['nav.reports', ['/reports']],
       [
         'nav.ledger',

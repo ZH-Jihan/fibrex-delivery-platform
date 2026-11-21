@@ -84,6 +84,9 @@ const runItem = z
     createdBy: z.uuid().nullable(),
   })
   .meta({ id: 'SyncRun' });
+const runDetail = runItem
+  .extend({ storedDates: z.array(z.object({ date: z.iso.date(), rows: z.number().int() })) })
+  .meta({ id: 'SyncRunDetail' });
 const runPage = z
   .object({
     items: z.array(runItem),
@@ -286,7 +289,21 @@ export function createSyncRouter(deps: SyncRouterDeps): Router {
 
   router.get('/sync-runs/:id', async (req, res) => {
     const { id } = idParams.parse(req.params);
-    res.json(toRunItem(await uow.run(() => findRun(id))));
+    const detail = await uow.run(async (db) => {
+      const run = await findRun(id);
+      // Which business dates this run stored figures for (a re-import stores several).
+      const stored = await db.dailyPerformance.groupBy({
+        by: ['businessDate'],
+        where: { syncRunId: id },
+        _count: { _all: true },
+        orderBy: { businessDate: 'asc' },
+      });
+      return {
+        ...toRunItem(run),
+        storedDates: stored.map((s) => ({ date: day(s.businessDate) ?? '', rows: s._count._all })),
+      };
+    });
+    res.json(detail);
   });
 
   router.get('/sync-runs/:id/errors', async (req, res) => {
@@ -375,7 +392,9 @@ export function createSyncRouter(deps: SyncRouterDeps): Router {
     tags,
     summary: 'One sync run',
     request: { params: idParams },
-    responses: { 200: { description: 'The run', content: json(runItem) } },
+    responses: {
+      200: { description: 'The run and the dates it stored', content: json(runDetail) },
+    },
   });
   registerRoute(registry, {
     method: 'get',

@@ -308,8 +308,99 @@ function ProfileTab({ employee }: { employee: Employee }) {
           <Detail label={t('employees.joiningDate')}>{employee.joiningDate}</Detail>
         </dl>
       </section>
+      <PlatformIdsSection partyId={employee.partyId} />
       <BankSection partyId={employee.partyId} />
     </>
+  );
+}
+
+/**
+ * Platform IDs (phase 4 row 4.5a): the person's Falcon IDs with the platform, the dates each
+ * was held and whether it is still theirs. Falcon IDs are not sensitive (the vault stores them
+ * in clear, `valuePlain`), so they are shown in full. Read through the party identifier API;
+ * a missing permission simply hides the section.
+ */
+interface PlatformId {
+  id: string;
+  clientPlatformId: string | null;
+  valuePlain: string | null;
+  valueMasked: string;
+  validFrom: string;
+  validTo: string | null;
+  deletedAt: string | null;
+}
+function PlatformIdsSection({ partyId }: { partyId: string }) {
+  const { t } = useI18n();
+  const [items, setItems] = useState<PlatformId[] | null>(null);
+  const [platforms, setPlatforms] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    api<{ items: PlatformId[] }>('/party-identifiers', { query: { partyId, type: 'falcon_id' } })
+      .then((r) => {
+        setItems(
+          r.items
+            .filter((i) => i.deletedAt === null)
+            .sort((a, b) => b.validFrom.localeCompare(a.validFrom)),
+        );
+      })
+      .catch(() => {
+        setItems(null);
+      });
+    api<{ items: { id: string; name: string }[] }>('/client-platforms')
+      .then((r) => {
+        setPlatforms(Object.fromEntries(r.items.map((p) => [p.id, p.name])));
+      })
+      .catch(() => {
+        setPlatforms({});
+      });
+  }, [partyId]);
+
+  if (items === null) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  return (
+    <section className="card" aria-labelledby="platform-ids-title">
+      <h2 id="platform-ids-title">{t('employees.platformIds')}</h2>
+      {items.length === 0 ? (
+        <p className="muted">{t('employees.platformIds.none')}</p>
+      ) : (
+        <div className="table-wrap">
+          <table className="stack">
+            <thead>
+              <tr>
+                <th>{t('employees.platformIds.platform')}</th>
+                <th>{t('employees.platformIds.id')}</th>
+                <th>{t('employees.platformIds.from')}</th>
+                <th>{t('employees.platformIds.to')}</th>
+                <th>{t('employees.status')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((i) => {
+                const active = i.validFrom <= today && (i.validTo === null || i.validTo >= today);
+                return (
+                  <tr key={i.id}>
+                    <td data-label={t('employees.platformIds.platform')}>
+                      {(i.clientPlatformId !== null ? platforms[i.clientPlatformId] : undefined) ??
+                        '—'}
+                    </td>
+                    <td data-label={t('employees.platformIds.id')} className="mono">
+                      {i.valuePlain ?? i.valueMasked}
+                    </td>
+                    <td data-label={t('employees.platformIds.from')}>{i.validFrom}</td>
+                    <td data-label={t('employees.platformIds.to')}>{i.validTo ?? '—'}</td>
+                    <td data-label={t('employees.status')}>
+                      <Pill tone={active ? 'success' : 'neutral'}>
+                        {t(active ? 'employees.platformIds.active' : 'employees.platformIds.ended')}
+                      </Pill>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 

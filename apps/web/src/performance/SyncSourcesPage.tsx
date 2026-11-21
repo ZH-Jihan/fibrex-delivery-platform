@@ -9,13 +9,15 @@
  *   - Edits send the version that was loaded; a 409 means someone else saved first.
  *   - Row 4.4b: a sheet source chooses how the app signs in to Google; the service account
  *     (a mirror sheet shared with it) is the default for a new source.
- *   - The column mapping editor, runs, unmatched queue and Excel upload screens are row 4.5.
+ *   - The column mapping editor and the runs screens (row 4.5a) are linked from here; the
+ *     unmatched queue is row 4.5b.
  *
  * Depends on: api client, auth, i18n, ui components, toast, @fibrex/shared, ./GoogleConnectionPage
  * (header test result). Used by: App.tsx (route /performance/sync-sources).
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Pencil, Plus, RefreshCw, Save, Sheet } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Columns3, Pencil, Plus, RefreshCw, Save, Sheet } from 'lucide-react';
 import { syncSourceFormSchema, type GoogleAuthMode } from '@fibrex/shared';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
@@ -203,81 +205,94 @@ export function SyncSourcesPage() {
       ) : items.length === 0 ? (
         <EmptyState title={t('syncSource.none')} />
       ) : (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>{t('syncSource.name')}</th>
-              <th>{t('syncSource.platform')}</th>
-              <th>{t('syncSource.kind')}</th>
-              <th>{t('syncSource.tab')}</th>
-              <th>{t('syncSource.schedule')}</th>
-              <th>{t('syncSource.active')}</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((s) => (
-              <tr key={s.id}>
-                <td>
-                  {s.name}
-                  {tests[s.id] !== undefined ? (
-                    <HeaderTestResult result={tests[s.id] ?? null} />
-                  ) : null}
-                </td>
-                <td>{s.platformName}</td>
-                <td>
-                  {t(s.adapterKind === 'sheet' ? 'syncSource.kind.sheet' : 'syncSource.kind.excel')}
-                </td>
-                <td>
-                  {s.adapterKind === 'sheet' ? s.tab : '—'}
-                  {s.adapterKind === 'sheet' && s.authMode !== null ? (
-                    <div className="muted">
+        <div className="table-card">
+          <div className="table-wrap">
+            <table className="stack">
+              <thead>
+                <tr>
+                  <th>{t('syncSource.name')}</th>
+                  <th>{t('syncSource.platform')}</th>
+                  <th>{t('syncSource.kind')}</th>
+                  <th>{t('syncSource.tab')}</th>
+                  <th>{t('syncSource.schedule')}</th>
+                  <th>{t('syncSource.active')}</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((s) => (
+                  <tr key={s.id}>
+                    <td>
+                      {s.name}
+                      {tests[s.id] !== undefined ? (
+                        <HeaderTestResult result={tests[s.id] ?? null} />
+                      ) : null}
+                    </td>
+                    <td>{s.platformName}</td>
+                    <td>
                       {t(
-                        s.authMode === 'oauth' ? 'google.mode.oauth' : 'google.mode.serviceAccount',
+                        s.adapterKind === 'sheet'
+                          ? 'syncSource.kind.sheet'
+                          : 'syncSource.kind.excel',
                       )}
-                    </div>
-                  ) : null}
-                </td>
-                <td>
-                  {s.adapterKind === 'sheet'
-                    ? `${s.scheduleCron} (${s.timeZone})`
-                    : t('syncSource.uploadOnly')}
-                </td>
-                <td>
-                  <Pill tone={s.active ? 'success' : 'neutral'}>
-                    {t(s.active ? 'syncSource.on' : 'syncSource.off')}
-                  </Pill>
-                </td>
-                <td>
-                  {canEdit && s.adapterKind === 'sheet' ? (
-                    <Button
-                      size="sm"
-                      icon={Sheet}
-                      onClick={() => {
-                        testHeaders(s.id);
-                      }}
-                    >
-                      {t('syncSource.testHeaders')}
-                    </Button>
-                  ) : null}
-                  {canEdit ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      icon={Pencil}
-                      aria-label={t('syncSource.edit', { name: s.name })}
-                      onClick={() => {
-                        open(s);
-                      }}
-                    >
-                      {t('common.edit')}
-                    </Button>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                    </td>
+                    <td>
+                      {s.adapterKind === 'sheet' ? s.tab : '—'}
+                      {s.adapterKind === 'sheet' && s.authMode !== null ? (
+                        <div className="muted">
+                          {t(
+                            s.authMode === 'oauth'
+                              ? 'google.mode.oauth'
+                              : 'google.mode.serviceAccount',
+                          )}
+                        </div>
+                      ) : null}
+                    </td>
+                    <td>
+                      {s.adapterKind === 'sheet'
+                        ? `${s.scheduleCron} (${s.timeZone})`
+                        : t('syncSource.uploadOnly')}
+                    </td>
+                    <td>
+                      <Pill tone={s.active ? 'success' : 'neutral'}>
+                        {t(s.active ? 'syncSource.on' : 'syncSource.off')}
+                      </Pill>
+                    </td>
+                    <td>
+                      {canEdit && s.adapterKind === 'sheet' ? (
+                        <Button
+                          size="sm"
+                          icon={Sheet}
+                          onClick={() => {
+                            testHeaders(s.id);
+                          }}
+                        >
+                          {t('syncSource.testHeaders')}
+                        </Button>
+                      ) : null}
+                      <Link className="btn btn-sm" to={`/performance/sync-sources/${s.id}/mapping`}>
+                        <Columns3 aria-hidden /> {t('syncSource.mapping')}
+                      </Link>
+                      {canEdit ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          icon={Pencil}
+                          aria-label={t('syncSource.edit', { name: s.name })}
+                          onClick={() => {
+                            open(s);
+                          }}
+                        >
+                          {t('common.edit')}
+                        </Button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
       <Modal

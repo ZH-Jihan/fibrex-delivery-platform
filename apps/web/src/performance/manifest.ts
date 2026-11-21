@@ -1,10 +1,10 @@
 /**
  * Menu entries of the performance module (phase 4 row 4.4: Sync sources and Google
  * connection). Mirrors the API manifest in apps/api/src/modules/performance/index.ts (same
- * permission keys). Row 4.5 adds platforms, runs and the unmatched queue.
+ * permission keys). Row 4.5a adds Sync runs; 4.5b the unmatched queue.
  * Depends on: shell/manifest.ts, lucide-react. Used by: shell/nav.ts.
  */
-import { PlugZap, RefreshCw } from 'lucide-react';
+import { History, PlugZap, RefreshCw } from 'lucide-react';
 import type { WebModuleManifest } from '../shell/manifest';
 
 export const performanceManifest: WebModuleManifest = {
@@ -18,6 +18,12 @@ export const performanceManifest: WebModuleManifest = {
           label: 'nav.syncSources',
           permission: 'performance.sync_source.read',
           icon: RefreshCw,
+        },
+        {
+          to: '/performance/sync-runs',
+          label: 'nav.syncRuns',
+          permission: 'performance.sync_run.read',
+          icon: History,
         },
         {
           to: '/settings/google-connection',
