@@ -28,7 +28,10 @@ import {
 import type { PermissionService } from '../../kernel/permissions/permission-service.js';
 import type { GoogleConnectionService } from './google-connection.js';
 import { createGoogleRouter } from './google-router.js';
+import type { PartyService } from '../party/index.js';
+import type { EmployeeDirectory } from '../people/index.js';
 import { createSyncSourceRouter } from './sync-source-router.js';
+import { createUnmatchedRouter } from './unmatched-router.js';
 import type { SyncQueue } from './sync-queue.js';
 import { createSyncRouter } from './sync-router.js';
 import { SYNC_PROBLEM_EVENT, type SyncService } from './sync-service.js';
@@ -99,6 +102,9 @@ export interface PerformanceModuleDeps {
   /** Row 4.4: with these, the Google connection and sync source routes are mounted. */
   google?: GoogleConnectionService;
   box?: SecretBox;
+  /** Row 4.5b: with both, the unmatched riders queue routes are mounted. */
+  parties?: PartyService;
+  employees?: EmployeeDirectory;
 }
 
 /** The module manifest. Routers are added by the rows that build them. */
@@ -127,6 +133,17 @@ export function createPerformanceModule(deps?: PerformanceModuleDeps): ModuleMan
               service: deps.sync,
               queue: deps.syncQueue,
             }),
+            ...(deps.parties === undefined || deps.employees === undefined
+              ? []
+              : [
+                  createUnmatchedRouter({
+                    uow: deps.uow,
+                    registry: deps.registry,
+                    permissions: deps.permissions,
+                    parties: deps.parties,
+                    directory: deps.employees,
+                  }),
+                ]),
             ...(deps.google === undefined || deps.box === undefined
               ? []
               : [

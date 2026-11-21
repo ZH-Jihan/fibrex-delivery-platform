@@ -716,11 +716,12 @@ async function main(): Promise<void> {
         }),
       );
       // People (phase 3): employees on top of parties; the status is a kernel state machine.
+      const partyService = new PartyService(partyVault);
       const people = createPeopleModule({
         uow,
         registry,
         permissions,
-        parties: new PartyService(partyVault),
+        parties: partyService,
         numbering,
         vault: partyVault,
         audit,
@@ -761,6 +762,8 @@ async function main(): Promise<void> {
           permissions,
           sync: syncService,
           syncQueue,
+          parties: partyService,
+          employees: people.directory,
           google: googleConnection,
           box: new SecretBox(env.DATA_ENCRYPTION_KEY),
         }),

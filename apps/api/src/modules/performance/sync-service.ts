@@ -695,7 +695,7 @@ export class SyncService {
     const claimed = new Map<string, string>(); // party|date -> external id in this run
     let unchanged = 0;
     const matchedIds = new Set<string>();
-    const unmatchedSeen = new Map<string, { first: string; last: string }>();
+    const unmatchedSeen = new Map<string, SeenUnmatched>();
 
     for (const person of report.people) {
       const days = person.days.filter((d) => dateSet.has(d.date));
@@ -703,7 +703,7 @@ export class SyncService {
       // newest date the sheet covers.
       if (days.length === 0) {
         if (holderOn(person.identifier, report.dataThrough) === null) {
-          noteUnmatched(unmatchedSeen, person.identifier, report.dataThrough);
+          noteUnmatched(unmatchedSeen, person, report.dataThrough);
         } else {
           matchedIds.add(person.identifier);
         }
@@ -711,7 +711,7 @@ export class SyncService {
       for (const day of days) {
         let partyId = holderOn(person.identifier, day.date);
         if (partyId === null) {
-          noteUnmatched(unmatchedSeen, person.identifier, day.date);
+          noteUnmatched(unmatchedSeen, person, day.date);
         } else {
           matchedIds.add(person.identifier);
           // One current row per person per date (database rule): a person reached through
@@ -769,18 +769,28 @@ export class SyncService {
     }
     if (inserts.length > 0) await db.dailyPerformance.createMany({ data: inserts });
 
-    // The unmatched queue: new ids are opened, known ones get their seen dates widened.
+    // The unmatched queue: new ids are opened, known ones get their seen dates widened. The
+    // sheet's own details (name, phone, driver or rider, plate, zone) are kept so the queue
+    // screen can say who this is; a newer sync overwrites them, but a blank cell never wipes
+    // what an earlier sync read (COALESCE). Rows already closed (linked, created, ignored)
+    // keep their status.
     for (const [externalId, seen] of unmatchedSeen) {
       await db.$executeRaw`
         INSERT INTO performance.unmatched_identifier
-          (tenant_id, company_id, client_platform_id, external_id, first_seen, last_seen)
+          (tenant_id, company_id, client_platform_id, external_id, first_seen, last_seen,
+           sheet_name, sheet_phone, sheet_profession, sheet_plate, sheet_zone)
         VALUES (${context.tenantId}::uuid, ${setup.companyId}::uuid, ${setup.platformId}::uuid,
-                ${externalId}, ${seen.first}::date, ${seen.last}::date)
+                ${externalId}, ${seen.first}::date, ${seen.last}::date,
+                ${seen.details.name}, ${seen.details.phone}, ${seen.details.profession},
+                ${seen.details.plate}, ${seen.details.zone})
         ON CONFLICT (client_platform_id, external_id) WHERE deleted_at IS NULL
         DO UPDATE SET first_seen = LEAST(performance.unmatched_identifier.first_seen, EXCLUDED.first_seen),
-                      last_seen = GREATEST(performance.unmatched_identifier.last_seen, EXCLUDED.last_seen)
-         WHERE performance.unmatched_identifier.first_seen > EXCLUDED.first_seen
-            OR performance.unmatched_identifier.last_seen < EXCLUDED.last_seen`;
+                      last_seen = GREATEST(performance.unmatched_identifier.last_seen, EXCLUDED.last_seen),
+                      sheet_name = COALESCE(EXCLUDED.sheet_name, performance.unmatched_identifier.sheet_name),
+                      sheet_phone = COALESCE(EXCLUDED.sheet_phone, performance.unmatched_identifier.sheet_phone),
+                      sheet_profession = COALESCE(EXCLUDED.sheet_profession, performance.unmatched_identifier.sheet_profession),
+                      sheet_plate = COALESCE(EXCLUDED.sheet_plate, performance.unmatched_identifier.sheet_plate),
+                      sheet_zone = COALESCE(EXCLUDED.sheet_zone, performance.unmatched_identifier.sheet_zone)`;
     }
 
     const hasRowProblems = errors.some((e) => e.code !== 'date_not_in_sheet');
@@ -980,14 +990,50 @@ function readProblemOf(err: unknown, setup: RunSetup): ReadProblem {
   };
 }
 
+/** What one run saw of an unmatched sheet id: dates and the sheet row's own details. */
+interface SeenUnmatched {
+  first: string;
+  last: string;
+  details: {
+    name: string | null;
+    phone: string | null;
+    profession: string | null;
+    plate: string | null;
+    zone: string | null;
+  };
+}
+
+/** Text of a sheet field by mapping key (blank = null), cut to what the column holds. */
+function sheetText(
+  fields: Record<string, string | number | null>,
+  key: string,
+  max: number,
+): string | null {
+  const value = fields[key];
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text === '' ? null : text.slice(0, max);
+}
+
 function noteUnmatched(
-  seen: Map<string, { first: string; last: string }>,
-  identifier: string,
+  seen: Map<string, SeenUnmatched>,
+  person: { identifier: string; fields: Record<string, string | number | null> },
   date: string,
 ): void {
+  const identifier = person.identifier;
   const known = seen.get(identifier);
   if (known === undefined) {
-    seen.set(identifier, { first: date, last: date });
+    seen.set(identifier, {
+      first: date,
+      last: date,
+      details: {
+        name: sheetText(person.fields, 'name', 200),
+        phone: sheetText(person.fields, 'contact_number', 50),
+        profession: sheetText(person.fields, 'vehicle_type', 100),
+        plate: sheetText(person.fields, 'plate_number', 50),
+        zone: sheetText(person.fields, 'zone', 100),
+      },
+    });
     return;
   }
   if (date < known.first) known.first = date;

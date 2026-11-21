@@ -76,7 +76,12 @@ describe('buildNav', () => {
       ],
       [
         'nav.performance.group',
-        ['/performance/sync-sources', '/performance/sync-runs', '/settings/google-connection'],
+        [
+          '/performance/sync-sources',
+          '/performance/sync-runs',
+          '/performance/unmatched',
+          '/settings/google-connection',
+        ],
       ],
       ['nav.reports', ['/reports']],
       [

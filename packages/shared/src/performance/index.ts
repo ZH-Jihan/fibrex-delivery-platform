@@ -5,3 +5,4 @@
  */
 export * from './column-mapping.js';
 export * from './sync-source.js';
+export * from './unmatched.js';

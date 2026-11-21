@@ -65,6 +65,7 @@ import { MappingEditorPage } from './performance/MappingEditor';
 import { SyncRunDetailPage } from './performance/SyncRunDetailPage';
 import { SyncRunsPage } from './performance/SyncRunsPage';
 import { SyncSourcesPage } from './performance/SyncSourcesPage';
+import { UnmatchedPage } from './performance/UnmatchedPage';
 import type { ReactNode } from 'react';
 import { ThemeProvider } from './theme/theme';
 import { Skeleton } from './ui/components';
@@ -223,6 +224,14 @@ function Gate() {
           element={
             <Guarded permission="performance.sync_run.read">
               <SyncRunsPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="performance/unmatched"
+          element={
+            <Guarded permission="performance.unmatched.read">
+              <UnmatchedPage />
             </Guarded>
           }
         />

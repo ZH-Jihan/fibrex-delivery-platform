@@ -54,6 +54,7 @@ import {
   createEmployeeRouter,
 } from './employee-router.js';
 import { createEmployeeStateTarget } from './employee-status.js';
+import { createEmployeeDirectory, type EmployeeDirectory } from './employee-directory.js';
 import { createEmployeeImportTarget } from './employee-import.js';
 import type { ImportTarget } from '../../kernel/imports/import-targets.js';
 import { createExpiryRouter } from './expiry-router.js';
@@ -68,6 +69,12 @@ import {
 } from './placement-router.js';
 
 export { EMPLOYEE_ENTITY } from './employee-router.js';
+export type {
+  CreatedEmployee,
+  EmployeeCandidate,
+  EmployeeDirectory,
+  NewEmployeeFromSheet,
+} from './employee-directory.js';
 export { seedEmployeeStatus } from './employee-status.js';
 export { DOCUMENT_ENTITY } from './document-router.js';
 export { seedDocumentTypes } from './document-type-router.js';
@@ -136,6 +143,8 @@ export interface PeopleModule {
   employeeStateTarget: StateTarget;
   /** Schedule `expiry.run()` daily (src/main.ts). */
   expiry: ExpiryService;
+  /** Service interface for other modules (row 4.5b: the unmatched riders queue). */
+  directory: EmployeeDirectory;
 }
 
 export function createPeopleModule(deps: PeopleModuleDeps): PeopleModule {
@@ -297,5 +306,10 @@ export function createPeopleModule(deps: PeopleModuleDeps): PeopleModule {
       },
     ],
   };
-  return { manifest, employeeStateTarget: createEmployeeStateTarget(employees), expiry };
+  return {
+    manifest,
+    employeeStateTarget: createEmployeeStateTarget(employees),
+    expiry,
+    directory: createEmployeeDirectory(employees),
+  };
 }

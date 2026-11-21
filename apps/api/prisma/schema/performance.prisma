@@ -243,6 +243,13 @@ model UnmatchedIdentifier {
   lastSeen         DateTime  @map("last_seen") @db.Date
   status           String    @default("open")
   resolvedPartyId  String?   @map("resolved_party_id") @db.Uuid
+  sheetName        String?   @map("sheet_name")
+  sheetPhone       String?   @map("sheet_phone")
+  sheetProfession  String?   @map("sheet_profession")
+  sheetPlate       String?   @map("sheet_plate")
+  sheetZone        String?   @map("sheet_zone")
+  ignoreReason     String?   @map("ignore_reason")
+  resolvedOn       DateTime? @map("resolved_on") @db.Date
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   createdBy        String?   @map("created_by") @db.Uuid
   updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
