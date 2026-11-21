@@ -16,3 +16,13 @@ test-results/
 .DS_Store
 Thumbs.db
 apps/web/e2e/screenshots/
+# Google service account keys and other secrets (row 4.4b): keep them outside the repo; these
+# patterns stop a key copied here by mistake from being committed.
+secrets/
+**/secrets/
+*.pem
+*-key.json
+*.key.json
+*service-account*.json
+*service_account*.json
+fibrex-sheets-reader-*.json

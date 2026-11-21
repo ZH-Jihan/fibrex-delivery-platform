@@ -38,7 +38,8 @@ import { createImpersonationRouter } from './kernel/auth/impersonation.js';
 import { MfaFactors } from './kernel/auth/mfa.js';
 import { createUserAdminRouter, createUserRepository } from './kernel/auth/user-admin-router.js';
 import { ConfigError, loadEnv } from './kernel/config/env.js';
-import { GoogleClient } from './adapters/google/google-client.js';
+import { GoogleClient, GoogleError } from './adapters/google/google-client.js';
+import { loadServiceAccountKey, ServiceAccountClient } from './adapters/google/service-account.js';
 import { SecretBox } from './kernel/crypto/secret-box.js';
 import { createPool } from './kernel/db/pool.js';
 import { createPrisma } from './kernel/db/prisma.js';
@@ -585,8 +586,8 @@ async function main(): Promise<void> {
 
   // Performance sync (row 4.3): every run (04:00 schedule, Run now, re-import, upload) goes
   // through the sync queue. Row 4.4: `sheet` sources are read through the read-only Google
-  // Sheets reader. Without GOOGLE_OAUTH_CLIENT_ID/SECRET, connecting is refused and sheet
-  // runs fail with "not connected" (admins alerted); the day's Excel upload still works.
+  // Sheets reader. Without GOOGLE_OAUTH_CLIENT_ID/SECRET, connecting is refused and OAuth
+  // sheet runs fail with "not connected" (admins alerted); the day's Excel upload still works.
   const googleClient =
     env.GOOGLE_OAUTH_CLIENT_ID !== undefined && env.GOOGLE_OAUTH_CLIENT_SECRET !== undefined
       ? new GoogleClient({
@@ -597,10 +598,29 @@ async function main(): Promise<void> {
             `${env.WEB_BASE_URL.replace(/\/$/, '')}/settings/google-connection/callback`,
         })
       : null;
+  // Row 4.4b: the recommended sign-in is the service account the mirror sheet is shared
+  // with. A key that is set but unreadable does not stop the API (Excel uploads and OAuth
+  // sources still work): the reason, which never quotes the key, is logged once and shown
+  // on the Google connection page, and service-account runs fail with it.
+  let serviceAccount: ServiceAccountClient | null = null;
+  let serviceAccountProblem: string | null = null;
+  try {
+    const key = loadServiceAccountKey({
+      file: env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE,
+      json: env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON,
+    });
+    if (key !== null) serviceAccount = new ServiceAccountClient(key);
+  } catch (err) {
+    if (!(err instanceof GoogleError)) throw err;
+    serviceAccountProblem = err.message;
+    logger.warn({ code: err.code }, `Google service account key not usable: ${err.message}`);
+  }
   const googleConnection = new GoogleConnectionService({
     uow,
     box: new SecretBox(env.DATA_ENCRYPTION_KEY),
     client: googleClient,
+    serviceAccount,
+    serviceAccountProblem,
   });
   const reportSources = new ReportSourceProviders();
   reportSources.register(new GoogleSheetsProvider(googleConnection));

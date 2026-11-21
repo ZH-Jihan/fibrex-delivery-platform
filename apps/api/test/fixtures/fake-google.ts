@@ -8,12 +8,19 @@
  *   token error  400 { error: "invalid_grant", error_description: "Token has been expired or revoked." }
  *   values ok    { range, majorDimension: "ROWS", values: [[...], ...] } (trailing blanks left out)
  *   values error { error: { code, message, status } }
+ *   service account (row 4.4b): POST /token with grant_type
+ *     urn:ietf:params:oauth:grant-type:jwt-bearer and the signed assertion; answered like a
+ *     token refresh ({ access_token, expires_in, token_type }), errors as above
+ *     (400 invalid_grant "Invalid JWT Signature.", 401 invalid_client).
  *
  * Used by: src/adapters/google/google-client.test.ts, test/integration/performance-google.test.ts.
  */
 import type { SheetCell, SheetGrid } from '../../src/modules/performance/index.js';
 
 export const FAKE_SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly';
+export const JWT_BEARER = 'urn:ietf:params:oauth:grant-type:jwt-bearer';
+
+type GrantType = 'authorization_code' | 'refresh_token' | typeof JWT_BEARER;
 
 export interface FakeCall {
   method: string;
@@ -59,9 +66,10 @@ export function googleValues(
 export class FakeGoogle {
   readonly calls: FakeCall[] = [];
   /** Next answers of the token endpoint by grant type (shifted; the last one repeats). */
-  readonly token: Record<'authorization_code' | 'refresh_token', FakeAnswer[]> = {
+  readonly token: Record<GrantType, FakeAnswer[]> = {
     authorization_code: [],
     refresh_token: [],
+    [JWT_BEARER]: [],
   };
   /** Answers of the values endpoint, in order (the last one repeats); or built from `sheet`. */
   readonly values: FakeAnswer[] = [];
@@ -124,7 +132,7 @@ export class FakeGoogle {
 
   #answer(url: URL, form: URLSearchParams | null): FakeAnswer {
     if (url.host === 'oauth2.googleapis.com' && url.pathname === '/token') {
-      const grant = form?.get('grant_type') as 'authorization_code' | 'refresh_token';
+      const grant = form?.get('grant_type') as GrantType;
       const list = this.token[grant];
       const next = list.length > 1 ? list.shift() : list[0];
       return next ?? FakeGoogle.invalidGrant();

@@ -53,6 +53,8 @@ const status = (state: string, extra: Record<string, unknown> = {}) => ({
   connectedBy: null,
   connectedByName: null,
   problem: null,
+  serviceAccount: { configured: false, email: null, problem: null },
+  defaultAuthMode: 'service_account',
   ...extra,
 });
 
@@ -145,7 +147,59 @@ describe('Google connection (row 4.4)', () => {
     expect(calls.find((c) => c.path === '/google-connection/test')?.body).toEqual({
       spreadsheet: SHEET_ID,
       tab: 'Daily Report',
+      authMode: 'oauth',
     });
+  });
+
+  it('row 4.4b: shows the service account email to share with and tests with it by default', async () => {
+    const SA = 'fibrex-reader@fake-project.iam.gserviceaccount.com';
+    const calls = stub(
+      base({
+        'GET /google-connection': () =>
+          json(
+            200,
+            status('not_connected', {
+              serviceAccount: { configured: true, email: SA, problem: null },
+            }),
+          ),
+        'POST /google-connection/test': () =>
+          json(200, { ok: true, headers: ['Public ID', 'Name'], message: null }),
+      }),
+    );
+    render(wrap(<GoogleConnectionPage />));
+    expect(await screen.findByText('Ready')).toBeInTheDocument();
+    expect(screen.getByText(SA)).toBeInTheDocument();
+    expect(screen.getByLabelText('Sign in with')).toHaveValue('service_account');
+    await userEvent.type(screen.getByLabelText('Spreadsheet URL or id'), SHEET_ID);
+    await userEvent.click(screen.getByRole('button', { name: 'Test headers' }));
+    expect(await screen.findByText('2 column headers read.')).toBeInTheDocument();
+    expect(calls.find((c) => c.path === '/google-connection/test')?.body).toEqual({
+      spreadsheet: SHEET_ID,
+      tab: 'Daily Report',
+      authMode: 'service_account',
+    });
+  });
+
+  it('row 4.4b: says why a service account key that is set cannot be used', async () => {
+    stub(
+      base({
+        'GET /google-connection': () =>
+          json(
+            200,
+            status('not_connected', {
+              serviceAccount: {
+                configured: false,
+                email: null,
+                problem: 'The service account key is not valid JSON.',
+              },
+            }),
+          ),
+      }),
+    );
+    render(wrap(<GoogleConnectionPage />));
+    expect(await screen.findByText('Key not usable')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('not valid JSON');
+    expect(screen.queryByRole('button', { name: 'Test headers' })).not.toBeInTheDocument();
   });
 
   it('says reconnect is needed and that the Excel upload still works', async () => {
@@ -216,6 +270,7 @@ describe('Sync sources (row 4.4)', () => {
     ).toMatchObject({
       clientPlatformId: PLATFORM,
       adapterKind: 'sheet',
+      authMode: 'service_account',
       tab: 'Daily Report',
       scheduleCron: '0 4 * * *',
       timeZone: 'Asia/Qatar',

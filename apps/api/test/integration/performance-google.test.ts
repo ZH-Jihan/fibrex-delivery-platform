@@ -13,15 +13,24 @@
  * retried, never read as zeros; invalid_grant alerts admins to reconnect (Excel as the
  * fallback), marks the connection, and stops asking Google until someone reconnects;
  * disconnect forgets and revokes the grant.
+ * Row 4.4b (service account, the default mode): the status shows the service account email
+ * and never the key; a new source defaults to the service account; Test headers and Run now
+ * sign in with a JWT signed by a throwaway RSA key and read through the real queue while the
+ * OAuth grant is disconnected; a sheet not shared with the service account fails at once
+ * with one alert that names the email to share with.
  * Everything is invented: tenant A, company A1, user alice (super admin).
  */
-import { randomUUID } from 'node:crypto';
+import { generateKeyPairSync, randomUUID, verify, type KeyObject } from 'node:crypto';
 import type { Express } from 'express';
 import type { Redis } from 'ioredis';
 import type pg from 'pg';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { GoogleClient } from '../../src/adapters/google/google-client.js';
+import {
+  parseServiceAccountKey,
+  ServiceAccountClient,
+} from '../../src/adapters/google/service-account.js';
 import { MemoryStorageAdapter } from '../../src/adapters/storage/memory.js';
 import { API_PREFIX, createApp } from '../../src/app.js';
 import { AccessTokens } from '../../src/kernel/auth/access-token.js';
@@ -58,7 +67,7 @@ import {
   createPerformanceModule,
   seedClientPlatforms,
 } from '../../src/modules/performance/index.js';
-import { FAKE_SCOPE, FakeGoogle } from '../fixtures/fake-google.js';
+import { FAKE_SCOPE, FakeGoogle, JWT_BEARER } from '../fixtures/fake-google.js';
 import { snoonuGrid } from '../fixtures/snoonu-daily-report.js';
 import { createFixture, type Fixture } from './fixtures.js';
 import { connectionUrl } from './global-setup.js';
@@ -84,6 +93,9 @@ let platformId: string;
 let sourceId = '';
 let box: SecretBox;
 const google = new FakeGoogle();
+const SA_EMAIL = 'fake-sheet-reader@fake-project-44b.iam.gserviceaccount.com';
+let saPublicKey: KeyObject;
+let saPemBody = '';
 
 type Json = Record<string, unknown>;
 const auth = (req: request.Test) => req.set('Authorization', `Bearer ${alice}`);
@@ -227,7 +239,24 @@ beforeAll(async () => {
     },
     { fetch: google.fetch, sleep: () => Promise.resolve(), backoffMs: 1 },
   );
-  const connection = new GoogleConnectionService({ uow, box, client });
+  // Row 4.4b: a throwaway RSA key, generated for this run only.
+  const pair = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const pem = pair.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  saPublicKey = pair.publicKey;
+  saPemBody = pem.split('\n')[5] ?? '';
+  const serviceAccount = new ServiceAccountClient(
+    parseServiceAccountKey(
+      JSON.stringify({
+        type: 'service_account',
+        private_key_id: 'fake-key-44b',
+        private_key: pem,
+        client_email: SA_EMAIL,
+        token_uri: 'https://oauth2.googleapis.com/token',
+      }),
+    ),
+    { fetch: google.fetch, sleep: () => Promise.resolve(), backoffMs: 1 },
+  );
+  const connection = new GoogleConnectionService({ uow, box, client, serviceAccount });
   const providers = new ReportSourceProviders();
   providers.register(new GoogleSheetsProvider(connection));
   const service = new SyncService({
@@ -379,6 +408,7 @@ describe('Google Sheets reader (row 4.4)', () => {
       clientPlatformId: platformId,
       name: 'Snoonu daily report',
       adapterKind: 'sheet',
+      authMode: 'oauth',
       spreadsheet: SHEET_URL,
       tab: 'Daily Report',
       scheduleCron: '0 4 * * *',
@@ -416,6 +446,7 @@ describe('Google Sheets reader (row 4.4)', () => {
     const direct = await post('/google-connection/test', {
       spreadsheet: SHEET_ID,
       tab: 'Daily Report',
+      authMode: 'oauth',
     });
     expect((direct.body as { headers: string[] }).headers).toEqual(headers);
   });
@@ -528,6 +559,7 @@ describe('Google Sheets reader (row 4.4)', () => {
       clientPlatformId: platformId,
       name: 'Snoonu daily report',
       adapterKind: 'sheet',
+      authMode: 'oauth',
       spreadsheet: SHEET_ID,
       tab: 'Daily Report (copy)',
       version: current.version,
@@ -557,5 +589,106 @@ describe('Google Sheets reader (row 4.4)', () => {
       .map((c) => c.form?.get('token'));
     expect(revoked).toContain(REFRESH_2);
     expect((await settingsRow()).settings_encrypted).toBeNull();
+  });
+});
+
+describe('Google Sheets reader with the service account (row 4.4b)', () => {
+  const MIRROR_ID = 'FakeMirrorSheetId_44b_0123456789abcdefAB';
+  let oauthSourceId = '';
+
+  it('status shows the service account email and never the key', async () => {
+    const res = await get('/google-connection');
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      state: 'not_connected',
+      serviceAccount: { configured: true, email: SA_EMAIL, problem: null },
+      defaultAuthMode: 'service_account',
+    });
+    expect(JSON.stringify(res.body)).not.toContain(saPemBody);
+    expect(JSON.stringify(res.body)).not.toContain('PRIVATE KEY');
+  });
+
+  it('a new source defaults to the service account and tests headers with a signed JWT', async () => {
+    oauthSourceId = sourceId;
+    const created = await post('/sync-sources', {
+      clientPlatformId: platformId,
+      name: 'Snoonu mirror sheet',
+      adapterKind: 'sheet',
+      spreadsheet: MIRROR_ID,
+    });
+    expect(created.status).toBe(201);
+    const body = created.body as { id: string; authMode: string; spreadsheetId: string };
+    expect(body.authMode).toBe('service_account');
+    expect(body.spreadsheetId).toBe(MIRROR_ID);
+    sourceId = body.id;
+    // The older OAuth source keeps its mode.
+    expect(
+      ((await get(`/sync-sources/${oauthSourceId}`)).body as { authMode: string }).authMode,
+    ).toBe('oauth');
+
+    // Sealed with the spreadsheet id; the key is nowhere in the row.
+    const row = await owner.query<{ config_encrypted: Buffer }>(
+      `SELECT config_encrypted FROM performance.sync_source WHERE id = $1`,
+      [sourceId],
+    );
+    const sealed = row.rows[0]?.config_encrypted ?? Buffer.alloc(0);
+    expect(sealed.toString('latin1')).not.toContain(MIRROR_ID);
+
+    google.sheet = snoonuGrid();
+    google.token[JWT_BEARER].push(FakeGoogle.access('sa-access-1'));
+    const test = await post(`/sync-sources/${sourceId}/test-headers`);
+    expect(test.body).toMatchObject({ ok: true });
+    expect((test.body as { headers: string[] }).headers[0]).toBe('Public ID');
+    const [tokenCall] = google
+      .callsTo('oauth2.googleapis.com', '/token')
+      .filter((c) => c.form?.get('grant_type') === JWT_BEARER);
+    const [h = '', c = '', sig = ''] = (tokenCall?.form?.get('assertion') ?? '').split('.');
+    expect(
+      verify('sha256', Buffer.from(`${h}.${c}`), saPublicKey, Buffer.from(sig, 'base64url')),
+    ).toBe(true);
+    const claims = JSON.parse(Buffer.from(c, 'base64url').toString('utf8')) as Record<
+      string,
+      unknown
+    >;
+    expect(claims).toMatchObject({ iss: SA_EMAIL, scope: FAKE_SCOPE });
+    const read = google.callsTo('sheets.googleapis.com').slice(-1)[0];
+    expect(read?.authorization).toBe('Bearer sa-access-1');
+    expect(decodeURIComponent(read?.url.pathname ?? '')).toContain(
+      `${MIRROR_ID}/values/'Daily Report'!3:3`,
+    );
+
+    const direct = await post('/google-connection/test', { spreadsheet: MIRROR_ID });
+    expect(direct.body).toMatchObject({ ok: true });
+  });
+
+  it('Run now reads the mirror sheet through the queue with the cached service-account token', async () => {
+    const jwtCalls = () =>
+      google
+        .callsTo('oauth2.googleapis.com', '/token')
+        .filter((c) => c.form?.get('grant_type') === JWT_BEARER).length;
+    const before = jwtCalls();
+    const run = await runNow(1);
+    expect(run.status).toBe('succeeded');
+    expect(run.rowsRead).toBeGreaterThan(0);
+    expect(jwtCalls()).toBe(before);
+    const tabRead = google.callsTo('sheets.googleapis.com').slice(-1)[0];
+    expect(tabRead?.authorization).toBe('Bearer sa-access-1');
+    expect(decodeURIComponent(tabRead?.url.pathname ?? '')).toMatch(
+      new RegExp(`${MIRROR_ID}/values/'Daily Report'$`),
+    );
+  });
+
+  it('a mirror sheet not shared with the service account fails at once, naming the email', async () => {
+    google.values.push(
+      FakeGoogle.sheetsError(403, 'PERMISSION_DENIED', 'The caller does not have permission'),
+    );
+    const run = await runNow(2);
+    expect(run.status).toBe('failed');
+    const [error] = await errorsOf(run.id);
+    expect(error?.code).toBe('not_shared');
+    expect(error?.message).toContain(`add ${SA_EMAIL} as Viewer`);
+    expect(error?.message).not.toContain(saPemBody);
+    expect(await alerts(run.id)).toHaveLength(1);
+    google.values.length = 0;
   });
 });

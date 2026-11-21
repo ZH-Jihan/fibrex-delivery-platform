@@ -1143,7 +1143,7 @@ export const en = {
   'nav.googleConnection': 'Google connection',
   'google.title': 'Google connection',
   'google.intro':
-    'The Google account that Snoonu shared the daily report with. The app only reads sheets; it can never change them.',
+    'How the app signs in to Google to read the daily report. It only reads sheets; it can never change them.',
   'google.status': 'Status',
   'google.state.connected': 'Connected',
   'google.state.reconnect': 'Reconnect needed',
@@ -1172,6 +1172,21 @@ export const en = {
   'google.testButton': 'Test headers',
   'google.testOk': '{count} column headers read.',
   'google.testFailed': 'The sheet could not be read.',
+  // Row 4.4b: service-account sign-in (recommended) and OAuth (alternative).
+  'google.mode': 'Sign in with',
+  'google.mode.serviceAccount': 'Service account (recommended)',
+  'google.mode.oauth': 'Google account (OAuth)',
+  'google.sa.title': 'Service account (recommended)',
+  'google.sa.ready': 'Ready',
+  'google.sa.problem': 'Key not usable',
+  'google.sa.shareWith': 'Share the mirror sheet as Viewer with:',
+  'google.sa.notConfiguredHelp':
+    'The server has no service account key yet. Follow docs/GOOGLE_SETUP.md, set GOOGLE_SERVICE_ACCOUNT_KEY_FILE in .env and restart the API.',
+  'google.sa.help':
+    "Reads your own mirror sheet (it copies Snoonu's Daily Report with IMPORTRANGE). Nothing expires; the key stays on the server.",
+  'google.oauth.title': 'Google account (alternative)',
+  'google.oauth.help':
+    'Signs in with your Google account. While the Google app is not published, Google cancels this access every 7 days and you must reconnect.',
   'syncSource.title': 'Sync sources',
   'syncSource.intro':
     'Platform reports the app reads every morning. The column mapping editor and the run history come next.',

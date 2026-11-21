@@ -9,7 +9,8 @@
  *   POST /sync-sources/{id}/test-headers  read only the header row of the source's tab
  *
  * Where each value is kept:
- *   - The spreadsheet id is sealed in `config_encrypted` (`{ spreadsheetId }`), where the
+ *   - The spreadsheet id and the sign-in mode are sealed in `config_encrypted`
+ *     (`{ spreadsheetId, authMode }`; row 4.4b added `authMode`), where the
  *     reader expects it (./google-connection.ts). A pasted URL is reduced to the id first.
  *   - The tab belongs to the column mapping (`column_mapping.mapping.tab`), which the sync
  *     engine reads it from. Changing the tab writes a new mapping version that copies the
@@ -24,6 +25,7 @@
  */
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import {
+  GOOGLE_AUTH_MODES,
   sheetColumnMappingSchema,
   spreadsheetIdOf,
   syncSourceFormSchema,
@@ -38,7 +40,7 @@ import { currentUnit, type UnitOfWork } from '../../kernel/db/unit-of-work.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../kernel/http/errors.js';
 import { registerRoute } from '../../kernel/http/openapi.js';
 import type { PermissionService } from '../../kernel/permissions/permission-service.js';
-import type { GoogleConnectionService } from './google-connection.js';
+import { authModeOf, type GoogleConnectionService } from './google-connection.js';
 import { ReportSourceError } from './report-adapter.js';
 import type { SyncQueue } from './sync-queue.js';
 import { defaultMappingFor, SYNC_SOURCE_SECRET_CONTEXT } from './sync-service.js';
@@ -58,6 +60,8 @@ const sourceItem = z
     name: z.string(),
     adapterKind: z.string(),
     spreadsheetId: z.string().nullable(),
+    /** How a sheet source signs in to Google (row 4.4b); null for excel. */
+    authMode: z.enum(GOOGLE_AUTH_MODES).nullable(),
     tab: z.string(),
     scheduleCron: z.string(),
     timeZone: z.string(),
@@ -122,7 +126,7 @@ export function createSyncSourceRouter(deps: SyncSourceRouterDeps): Router {
     if (form.adapterKind !== 'sheet') return null;
     const spreadsheetId = spreadsheetIdOf(form.spreadsheet ?? '');
     return box.seal(
-      Buffer.from(JSON.stringify({ spreadsheetId }), 'utf8'),
+      Buffer.from(JSON.stringify({ spreadsheetId, authMode: form.authMode }), 'utf8'),
       SYNC_SOURCE_SECRET_CONTEXT,
     );
   };
@@ -155,6 +159,7 @@ export function createSyncSourceRouter(deps: SyncSourceRouterDeps): Router {
       name: row.name,
       adapterKind: row.adapterKind,
       spreadsheetId: typeof spreadsheetId === 'string' ? spreadsheetId : null,
+      authMode: row.adapterKind === 'sheet' ? authModeOf(config) : null,
       tab: mapping.tab,
       scheduleCron: row.scheduleCron,
       timeZone: row.timeZone,
@@ -320,6 +325,7 @@ export function createSyncSourceRouter(deps: SyncSourceRouterDeps): Router {
         spreadsheetId,
         checked.mapping.tab,
         checked.mapping.headerRow,
+        authModeOf(checked.config),
       );
       res.json({ ok: true, headers, message: null });
     } catch (err) {

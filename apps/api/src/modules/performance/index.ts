@@ -50,6 +50,7 @@ export {
   assertReadable,
   toGrid,
   GOOGLE_ADAPTER_KIND,
+  authModeOf,
   GOOGLE_PROVIDER,
   type GoogleConnectionStatus,
 } from './google-connection.js';

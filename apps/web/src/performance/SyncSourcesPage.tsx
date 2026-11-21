@@ -7,6 +7,8 @@
  *   - The form is checked by the shared `syncSourceFormSchema` before saving; the API checks
  *     again. A pasted browser URL is fine: the API keeps only the spreadsheet id.
  *   - Edits send the version that was loaded; a 409 means someone else saved first.
+ *   - Row 4.4b: a sheet source chooses how the app signs in to Google; the service account
+ *     (a mirror sheet shared with it) is the default for a new source.
  *   - The column mapping editor, runs, unmatched queue and Excel upload screens are row 4.5.
  *
  * Depends on: api client, auth, i18n, ui components, toast, @fibrex/shared, ./GoogleConnectionPage
@@ -14,7 +16,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Pencil, Plus, RefreshCw, Save, Sheet } from 'lucide-react';
-import { syncSourceFormSchema } from '@fibrex/shared';
+import { syncSourceFormSchema, type GoogleAuthMode } from '@fibrex/shared';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { useI18n } from '../i18n';
@@ -31,7 +33,7 @@ import {
   Skeleton,
 } from '../ui/components';
 import { useToast } from '../ui/toast';
-import { HeaderTestResult, type HeaderTest } from './GoogleConnectionPage';
+import { authModeOptions, HeaderTestResult, type HeaderTest } from './GoogleConnectionPage';
 
 export interface SyncSourceItem {
   id: string;
@@ -40,6 +42,7 @@ export interface SyncSourceItem {
   name: string;
   adapterKind: string;
   spreadsheetId: string | null;
+  authMode: GoogleAuthMode | null;
   tab: string;
   scheduleCron: string;
   timeZone: string;
@@ -57,6 +60,7 @@ interface FormState {
   name: string;
   adapterKind: 'sheet' | 'excel';
   spreadsheet: string;
+  authMode: GoogleAuthMode;
   tab: string;
   scheduleCron: string;
   timeZone: string;
@@ -68,6 +72,7 @@ const EMPTY: FormState = {
   name: '',
   adapterKind: 'sheet',
   spreadsheet: '',
+  authMode: 'service_account',
   tab: 'Daily Report',
   scheduleCron: '0 4 * * *',
   timeZone: 'Asia/Qatar',
@@ -122,6 +127,7 @@ export function SyncSourcesPage() {
             name: item.name,
             adapterKind: item.adapterKind === 'excel' ? 'excel' : 'sheet',
             spreadsheet: item.spreadsheetId ?? '',
+            authMode: item.authMode ?? 'oauth',
             tab: item.tab,
             scheduleCron: item.scheduleCron,
             timeZone: item.timeZone,
@@ -222,7 +228,16 @@ export function SyncSourcesPage() {
                 <td>
                   {t(s.adapterKind === 'sheet' ? 'syncSource.kind.sheet' : 'syncSource.kind.excel')}
                 </td>
-                <td>{s.adapterKind === 'sheet' ? s.tab : '—'}</td>
+                <td>
+                  {s.adapterKind === 'sheet' ? s.tab : '—'}
+                  {s.adapterKind === 'sheet' && s.authMode !== null ? (
+                    <div className="muted">
+                      {t(
+                        s.authMode === 'oauth' ? 'google.mode.oauth' : 'google.mode.serviceAccount',
+                      )}
+                    </div>
+                  ) : null}
+                </td>
                 <td>
                   {s.adapterKind === 'sheet'
                     ? `${s.scheduleCron} (${s.timeZone})`
@@ -313,6 +328,14 @@ export function SyncSourcesPage() {
           />
           {form.adapterKind === 'sheet' ? (
             <>
+              <Select
+                label={t('google.mode')}
+                value={form.authMode}
+                options={authModeOptions(t)}
+                onChange={(e) => {
+                  set('authMode', e.target.value === 'oauth' ? 'oauth' : 'service_account');
+                }}
+              />
               <Field
                 label={t('syncSource.spreadsheet')}
                 value={form.spreadsheet}

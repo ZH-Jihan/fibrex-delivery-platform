@@ -149,6 +149,18 @@ export const envSchema = z
     // Must be listed as an "Authorised redirect URI" of the OAuth client. Empty: the web app's
     // callback page, `${WEB_BASE_URL}/settings/google-connection/callback`.
     GOOGLE_OAUTH_REDIRECT_URI: z.preprocess((v) => (v === '' ? undefined : v), z.url().optional()),
+    // Row 4.4b, the recommended route: the JSON key of the Google service account that the
+    // mirror sheet is shared with (Viewer). Give the path of the key file, kept outside the
+    // repository; or, where a file is awkward, the whole JSON in the second variable. The
+    // file wins when both are set. The key is never stored in the database or logged.
+    GOOGLE_SERVICE_ACCOUNT_KEY_FILE: z.preprocess(
+      (v) => (v === '' ? undefined : v),
+      z.string().min(1).optional(),
+    ),
+    GOOGLE_SERVICE_ACCOUNT_KEY_JSON: z.preprocess(
+      (v) => (v === '' ? undefined : v),
+      z.string().min(1).optional(),
+    ),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && env.CORS_ORIGINS.some((o) => o.startsWith('http:'))) {

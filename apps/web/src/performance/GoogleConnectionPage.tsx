@@ -11,18 +11,22 @@
  *     single-use). The API refuses a state it did not give this user.
  *   - No token ever reaches the browser: the API returns only the status.
  *   - "Reconnect needed" explains that the day's Excel upload works until someone reconnects.
+ *   - Row 4.4b: the service account comes first, as the recommended way (a mirror sheet
+ *     shared as Viewer with it; nothing expires). The page shows its email so the owner can
+ *     share the sheet with exactly that address; the key itself never reaches the browser.
+ *     The OAuth card is the alternative. Test headers asks which of the two to sign in with.
  *
  * Depends on: api client, auth, i18n, ui components, toast, @fibrex/shared (header test).
  * Used by: App.tsx (routes /settings/google-connection and .../callback).
  */
 import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Link2, Link2Off, PlugZap, Sheet, TriangleAlert } from 'lucide-react';
-import { sheetHeaderTestSchema } from '@fibrex/shared';
+import { sheetHeaderTestSchema, type GoogleAuthMode } from '@fibrex/shared';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
-import { useI18n } from '../i18n';
+import { useI18n, type TFunction } from '../i18n';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
-import { Button, ErrorAlert, Field, PageHeader, Pill, Skeleton } from '../ui/components';
+import { Button, ErrorAlert, Field, PageHeader, Pill, Select, Skeleton } from '../ui/components';
 import { useToast } from '../ui/toast';
 
 export interface GoogleStatus {
@@ -34,6 +38,16 @@ export interface GoogleStatus {
   connectedBy: string | null;
   connectedByName: string | null;
   problem: { code: string; message: string; at: string } | null;
+  serviceAccount: { configured: boolean; email: string | null; problem: string | null };
+  defaultAuthMode: GoogleAuthMode;
+}
+
+/** The sign-in choices for a sheet, in the order the screens offer them (recommended first). */
+export function authModeOptions(t: TFunction) {
+  return [
+    { value: 'service_account', label: t('google.mode.serviceAccount') },
+    { value: 'oauth', label: t('google.mode.oauth') },
+  ];
 }
 
 export interface HeaderTest {
@@ -74,12 +88,17 @@ export function GoogleConnectionPage() {
   const [busy, setBusy] = useState(false);
   const [spreadsheet, setSpreadsheet] = useState('');
   const [tab, setTab] = useState('Daily Report');
+  const [mode, setMode] = useState<GoogleAuthMode | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [result, setResult] = useState<HeaderTest | null>(null);
 
   useEffect(() => {
     api<GoogleStatus>('/google-connection')
-      .then(setStatus)
+      .then((s) => {
+        setStatus(s);
+        // Test with what can work: the service account when the server has its key.
+        setMode((m) => m ?? (s.serviceAccount.configured ? 'service_account' : 'oauth'));
+      })
       .catch((e: unknown) => {
         setError(e);
       });
@@ -110,7 +129,11 @@ export function GoogleConnectionPage() {
   };
 
   const test = () => {
-    const parsed = sheetHeaderTestSchema.safeParse({ spreadsheet, tab });
+    const parsed = sheetHeaderTestSchema.safeParse({
+      spreadsheet,
+      tab,
+      authMode: mode ?? 'service_account',
+    });
     if (!parsed.success) {
       setProblem(parsed.error.issues[0]?.message ?? t('google.testFailed'));
       return;
@@ -125,6 +148,8 @@ export function GoogleConnectionPage() {
   };
 
   const connected = status?.state === 'connected' || status?.state === 'reconnect_needed';
+  const sa = status?.serviceAccount ?? null;
+  const canTest = sa?.configured === true || status?.state === 'connected';
   return (
     <div>
       <PageHeader title={t('google.title')} icon={PlugZap} description={t('google.intro')} />
@@ -133,8 +158,40 @@ export function GoogleConnectionPage() {
         <Skeleton />
       ) : (
         <>
+          <section className="card" aria-labelledby="google-sa">
+            <h2 id="google-sa">{t('google.sa.title')}</h2>
+            <p>
+              {sa?.configured === true ? (
+                <Pill tone="success" icon={CheckCircle2}>
+                  {t('google.sa.ready')}
+                </Pill>
+              ) : sa?.problem != null ? (
+                <Pill tone="danger" icon={TriangleAlert}>
+                  {t('google.sa.problem')}
+                </Pill>
+              ) : (
+                <Pill tone="neutral">{t('google.state.notConfigured')}</Pill>
+              )}
+            </p>
+            {sa?.configured === true && sa.email !== null ? (
+              <p>
+                {t('google.sa.shareWith')} <code>{sa.email}</code>
+              </p>
+            ) : null}
+            {sa?.problem != null ? (
+              <div className="alert" role="alert">
+                {sa.problem}
+              </div>
+            ) : null}
+            {sa?.configured !== true && sa?.problem == null ? (
+              <p>{t('google.sa.notConfiguredHelp')}</p>
+            ) : null}
+            <p className="muted">{t('google.sa.help')}</p>
+          </section>
+
           <section className="card" aria-labelledby="google-status">
-            <h2 id="google-status">{t('google.status')}</h2>
+            <h2 id="google-status">{t('google.oauth.title')}</h2>
+            <p className="muted">{t('google.oauth.help')}</p>
             <p>
               {status.state === 'connected' ? (
                 <Pill tone="success" icon={CheckCircle2}>
@@ -189,7 +246,7 @@ export function GoogleConnectionPage() {
             </div>
           </section>
 
-          {status.state === 'connected' ? (
+          {canTest ? (
             <section className="card" aria-labelledby="google-test">
               <h2 id="google-test">{t('google.testTitle')}</h2>
               <p className="muted">{t('google.testIntro')}</p>
@@ -199,6 +256,14 @@ export function GoogleConnectionPage() {
                   test();
                 }}
               >
+                <Select
+                  label={t('google.mode')}
+                  value={mode ?? 'service_account'}
+                  options={authModeOptions(t)}
+                  onChange={(e) => {
+                    setMode(e.target.value === 'oauth' ? 'oauth' : 'service_account');
+                  }}
+                />
                 <Field
                   label={t('syncSource.spreadsheet')}
                   value={spreadsheet}

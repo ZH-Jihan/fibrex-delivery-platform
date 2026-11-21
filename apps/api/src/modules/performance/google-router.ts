@@ -6,7 +6,9 @@
  *   POST /google-connection/start       one-time state + Google's consent URL
  *   POST /google-connection/callback    { code, state } from the web callback page
  *   POST /google-connection/disconnect  forget the grant and revoke it at Google
- *   POST /google-connection/test        { spreadsheet, tab }: reads the header row only
+ *   POST /google-connection/test        { spreadsheet, tab, authMode }: reads the header row
+ *                                       only, signed in as the service account (default) or
+ *                                       with the OAuth grant (row 4.4b)
  *
  * Why the callback is a POST from the web app and not Google's redirect landing on the API:
  * the browser holds the access token only in memory, so a plain redirect to the API would
@@ -19,7 +21,12 @@
  * ./google-connection.ts. Used by: ./index.ts.
  */
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
-import { sheetHeaderTestSchema, SNOONU_DEFAULT_MAPPING, spreadsheetIdOf } from '@fibrex/shared';
+import {
+  GOOGLE_AUTH_MODES,
+  sheetHeaderTestSchema,
+  SNOONU_DEFAULT_MAPPING,
+  spreadsheetIdOf,
+} from '@fibrex/shared';
 import { Router } from 'express';
 import { z } from 'zod';
 import { currentUnit, type UnitOfWork } from '../../kernel/db/unit-of-work.js';
@@ -44,6 +51,12 @@ const statusSchema = z
     connectedBy: z.uuid().nullable(),
     connectedByName: z.string().nullable(),
     problem: z.object({ code: z.string(), message: z.string(), at: z.string() }).nullable(),
+    serviceAccount: z.object({
+      configured: z.boolean(),
+      email: z.string().nullable(),
+      problem: z.string().nullable(),
+    }),
+    defaultAuthMode: z.enum(GOOGLE_AUTH_MODES),
   })
   .meta({ id: 'GoogleConnectionStatus' });
 const startSchema = z.object({ authorizationUrl: z.url() }).meta({ id: 'GoogleConsentStart' });
@@ -120,6 +133,7 @@ export function createGoogleRouter(deps: GoogleRouterDeps): Router {
         spreadsheetId,
         body.tab,
         SNOONU_DEFAULT_MAPPING.headerRow,
+        body.authMode,
       );
       res.json({ ok: true, headers, message: null });
     } catch (err) {

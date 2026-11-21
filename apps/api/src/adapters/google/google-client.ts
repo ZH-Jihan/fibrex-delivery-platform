@@ -16,7 +16,12 @@
  * `fetch` is injected: the app passes the global fetch; tests pass recorded fake responses,
  * so no test reaches the network or needs a real token.
  *
- * Depends on: nothing but the Fetch API. Used by: modules/performance/google-connection.ts.
+ * Row 4.4b: the HTTP part shared by both ways of signing in (back-off, the values call and
+ * what a failed answer means) is the base class `GoogleHttp`; the service-account client
+ * (./service-account.ts) extends it, so both read sheets the same way.
+ *
+ * Depends on: nothing but the Fetch API. Used by: ./service-account.ts,
+ * modules/performance/google-connection.ts.
  */
 
 export const GOOGLE_SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly';
@@ -54,6 +59,8 @@ export type GoogleErrorCode =
   | 'bad_range'
   /** The access token was refused. */
   | 'unauthorized'
+  /** The service account key is missing fields, not JSON, or not an RSA private key. */
+  | 'invalid_key'
   /** Network failure or a Google server error after the back-off. */
   | 'unavailable';
 
@@ -90,16 +97,19 @@ interface TokenResponse {
   error?: string;
 }
 
-export class GoogleClient {
-  readonly #config: GoogleOAuthConfig;
-  readonly #fetch: typeof fetch;
+/**
+ * The HTTP part both sign-in modes share: the injected fetch, the back-off for 429 and 5xx
+ * answers, and the read-only values call. It holds no credential; callers pass the access
+ * token for each read.
+ */
+export class GoogleHttp {
+  protected readonly fetchFn: typeof fetch;
   readonly #sleep: (ms: number) => Promise<void>;
   readonly #maxTries: number;
   readonly #backoffMs: number;
 
-  constructor(config: GoogleOAuthConfig, options: GoogleClientOptions = {}) {
-    this.#config = config;
-    this.#fetch = options.fetch ?? fetch;
+  constructor(options: GoogleClientOptions = {}) {
+    this.fetchFn = options.fetch ?? fetch;
     this.#sleep =
       options.sleep ??
       ((ms) =>
@@ -108,6 +118,80 @@ export class GoogleClient {
         }));
     this.#maxTries = options.maxTries ?? 4;
     this.#backoffMs = options.backoffMs ?? 1000;
+  }
+
+  /**
+   * Cell values of one range, row by row (`rows[0]` is the first row of the range). Google
+   * leaves out trailing blank cells and rows; the caller pads.
+   *
+   * UNFORMATTED_VALUE gives numbers as numbers (a percentage as its fraction, as Excel
+   * stores it) and SERIAL_NUMBER gives a time as a day fraction, which the Snoonu parser
+   * reads like an Excel time cell. A cell showing an error (#REF!, #N/A) arrives as its
+   * error text.
+   */
+  async values(
+    accessToken: string,
+    spreadsheetId: string,
+    range: string,
+  ): Promise<GoogleCellValue[][]> {
+    const params = new URLSearchParams({
+      majorDimension: 'ROWS',
+      valueRenderOption: 'UNFORMATTED_VALUE',
+      dateTimeRenderOption: 'SERIAL_NUMBER',
+    });
+    const url = `${SHEETS_URL}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}?${params.toString()}`;
+    const res = await this.withBackoff(() =>
+      this.fetchFn(url, { headers: { Authorization: `Bearer ${accessToken}` } }),
+    );
+    if (!res.ok) throw await sheetsError(res);
+    const body = (await res.json()) as { values?: GoogleCellValue[][] };
+    return body.values ?? [];
+  }
+
+  /**
+   * Retries a request Google rate-limited (429) or failed on its side (5xx), and network
+   * errors, with exponential back-off: backoffMs, 2x, 4x ... or Google's Retry-After when it
+   * is longer. Any other answer is returned as it is.
+   */
+  protected async withBackoff(send: () => Promise<Response>): Promise<Response> {
+    let delay = this.#backoffMs;
+    for (let attempt = 1; ; attempt += 1) {
+      let res: Response | undefined;
+      try {
+        res = await send();
+      } catch {
+        if (attempt >= this.#maxTries) {
+          throw new GoogleError('unavailable', 'Google could not be reached (network error).');
+        }
+      }
+      if (res !== undefined) {
+        const retryable = res.status === 429 || res.status >= 500;
+        if (!retryable) return res;
+        if (attempt >= this.#maxTries) {
+          if (res.status === 429) {
+            throw new GoogleError(
+              'quota',
+              'Google Sheets is refusing requests for now (quota or rate limit); the run is tried again later.',
+              429,
+            );
+          }
+          return res;
+        }
+        const after = Number(res.headers.get('retry-after'));
+        if (Number.isFinite(after) && after * 1000 > delay) delay = after * 1000;
+      }
+      await this.#sleep(delay);
+      delay *= 2;
+    }
+  }
+}
+
+export class GoogleClient extends GoogleHttp {
+  readonly #config: GoogleOAuthConfig;
+
+  constructor(config: GoogleOAuthConfig, options: GoogleClientOptions = {}) {
+    super(options);
+    this.#config = config;
   }
 
   get redirectUri(): string {
@@ -170,7 +254,7 @@ export class GoogleClient {
   /** Revokes a token at Google. Best effort: a token Google no longer knows is already gone. */
   async revoke(token: string): Promise<boolean> {
     try {
-      const res = await this.#fetch(REVOKE_URL, {
+      const res = await this.fetchFn(REVOKE_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ token }).toString(),
@@ -181,37 +265,9 @@ export class GoogleClient {
     }
   }
 
-  /**
-   * Cell values of one range, row by row (`rows[0]` is the first row of the range). Google
-   * leaves out trailing blank cells and rows; the caller pads.
-   *
-   * UNFORMATTED_VALUE gives numbers as numbers (a percentage as its fraction, as Excel
-   * stores it) and SERIAL_NUMBER gives a time as a day fraction, which the Snoonu parser
-   * reads like an Excel time cell. A cell showing an error (#REF!, #N/A) arrives as its
-   * error text.
-   */
-  async values(
-    accessToken: string,
-    spreadsheetId: string,
-    range: string,
-  ): Promise<GoogleCellValue[][]> {
-    const params = new URLSearchParams({
-      majorDimension: 'ROWS',
-      valueRenderOption: 'UNFORMATTED_VALUE',
-      dateTimeRenderOption: 'SERIAL_NUMBER',
-    });
-    const url = `${SHEETS_URL}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}?${params.toString()}`;
-    const res = await this.#withBackoff(() =>
-      this.#fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } }),
-    );
-    if (!res.ok) throw await sheetsError(res);
-    const body = (await res.json()) as { values?: GoogleCellValue[][] };
-    return body.values ?? [];
-  }
-
   async #token(form: Record<string, string>): Promise<TokenResponse> {
-    const res = await this.#withBackoff(() =>
-      this.#fetch(TOKEN_URL, {
+    const res = await this.withBackoff(() =>
+      this.fetchFn(TOKEN_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -249,43 +305,6 @@ export class GoogleClient {
       res.status,
     );
   }
-
-  /**
-   * Retries a request Google rate-limited (429) or failed on its side (5xx), and network
-   * errors, with exponential back-off: backoffMs, 2x, 4x ... or Google's Retry-After when it
-   * is longer. Any other answer is returned as it is.
-   */
-  async #withBackoff(send: () => Promise<Response>): Promise<Response> {
-    let delay = this.#backoffMs;
-    for (let attempt = 1; ; attempt += 1) {
-      let res: Response | undefined;
-      try {
-        res = await send();
-      } catch {
-        if (attempt >= this.#maxTries) {
-          throw new GoogleError('unavailable', 'Google could not be reached (network error).');
-        }
-      }
-      if (res !== undefined) {
-        const retryable = res.status === 429 || res.status >= 500;
-        if (!retryable) return res;
-        if (attempt >= this.#maxTries) {
-          if (res.status === 429) {
-            throw new GoogleError(
-              'quota',
-              'Google Sheets is refusing requests for now (quota or rate limit); the run is tried again later.',
-              429,
-            );
-          }
-          return res;
-        }
-        const after = Number(res.headers.get('retry-after'));
-        if (Number.isFinite(after) && after * 1000 > delay) delay = after * 1000;
-      }
-      await this.#sleep(delay);
-      delay *= 2;
-    }
-  }
 }
 
 /** What a failed Sheets answer means, in words the admin can act on. */
@@ -305,7 +324,7 @@ async function sheetsError(res: Response): Promise<GoogleError> {
     if (/has not been used|is disabled|SERVICE_DISABLED/i.test(detail.message)) {
       return new GoogleError(
         'api_disabled',
-        'The Google Sheets API is not enabled in the Google Cloud project (see docs/GOOGLE_SETUP.md, step 3).',
+        'The Google Sheets API is not enabled in the Google Cloud project (see docs/GOOGLE_SETUP.md, "Enable the Google Sheets API").',
         403,
       );
     }

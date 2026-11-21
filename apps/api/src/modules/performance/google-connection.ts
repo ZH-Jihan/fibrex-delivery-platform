@@ -33,17 +33,25 @@
  *      IMPORTRANGE, which shows #REF! or Loading... when the link breaks or is slow) is
  *      unreadable, never "no figures": reading it as blanks would look like a day nobody
  *      worked. The run fails and is retried.
+ *   6. (Row 4.4b) Every read names its sign-in mode. `service_account` (the default for new
+ *      sources) signs in as the app's service account (adapters/google/service-account.ts)
+ *      with a key from the environment, never from the database; the owner shares a mirror
+ *      sheet with that account's email as Viewer. `oauth` uses the grant above. When the
+ *      sheet is not shared, the message names the exact address to share it with.
  *
- * Depends on: adapters/google/google-client.ts, kernel/crypto/secret-box.ts, kernel/db,
+ * Depends on: adapters/google/google-client.ts, adapters/google/service-account.ts,
+ * kernel/crypto/secret-box.ts, kernel/db,
  * kernel/http/errors.ts, ./report-adapter.ts, ./source-providers.ts. Used by:
  * ./google-router.ts, ./sync-source-router.ts, src/main.ts, the Google tests.
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { DEFAULT_GOOGLE_AUTH_MODE, type GoogleAuthMode } from '@fibrex/shared';
 import {
   GoogleError,
   type GoogleCellValue,
   type GoogleClient,
 } from '../../adapters/google/google-client.js';
+import type { ServiceAccountClient } from '../../adapters/google/service-account.js';
 import type { SecretBox } from '../../kernel/crypto/secret-box.js';
 import type { Db } from '../../kernel/db/prisma.js';
 import { currentUnit, type DbContext, type UnitOfWork } from '../../kernel/db/unit-of-work.js';
@@ -65,6 +73,7 @@ const TOKEN_MARGIN_MS = 60_000;
 /** Shown wherever a run cannot use Google, so the admin knows the way round it. */
 const FALLBACK = "Until then, upload the day's Excel file (Sync sources > Upload a day's Excel).";
 const RECONNECT_MESSAGE = `Google access for reading the sheet was revoked or has expired. An admin must reconnect Google under Settings > Google connection. ${FALLBACK}`;
+const SA_NOT_CONFIGURED_MESSAGE = `The server has no Google service account key: set GOOGLE_SERVICE_ACCOUNT_KEY_FILE (or GOOGLE_SERVICE_ACCOUNT_KEY_JSON) and restart the API (see docs/GOOGLE_SETUP.md). ${FALLBACK}`;
 const NOT_CONNECTED_MESSAGE = `No Google account is connected for reading sheets. An admin must connect one under Settings > Google connection. ${FALLBACK}`;
 
 /** The sealed settings document. */
@@ -91,6 +100,15 @@ export interface GoogleConnectionStatus {
   connectedBy: string | null;
   connectedByName: string | null;
   problem: { code: string; message: string; at: string } | null;
+  /** Row 4.4b: the service-account sign-in. Only the email; the key never leaves the server. */
+  serviceAccount: {
+    configured: boolean;
+    email: string | null;
+    /** Why a key that is set could not be used (redacted: never the key itself). */
+    problem: string | null;
+  };
+  /** The mode a new sync source gets. */
+  defaultAuthMode: GoogleAuthMode;
 }
 
 export interface GoogleConnectionDeps {
@@ -98,6 +116,10 @@ export interface GoogleConnectionDeps {
   box: SecretBox;
   /** Null when GOOGLE_OAUTH_CLIENT_ID / SECRET are not set: connecting is then refused. */
   client: GoogleClient | null;
+  /** Row 4.4b: null when no service account key is set (or it could not be read). */
+  serviceAccount?: ServiceAccountClient | null;
+  /** Why the key that is set could not be read; already redacted (see service-account.ts). */
+  serviceAccountProblem?: string | null;
   now?: () => Date;
 }
 
@@ -207,6 +229,13 @@ export class GoogleConnectionService {
       connectedBy: connected ? (s.connectedBy ?? null) : null,
       connectedByName,
       problem: s.problem ?? null,
+      serviceAccount: {
+        configured: this.#deps.serviceAccount != null,
+        email: this.#deps.serviceAccount?.email ?? null,
+        problem:
+          this.#deps.serviceAccount != null ? null : (this.#deps.serviceAccountProblem ?? null),
+      },
+      defaultAuthMode: DEFAULT_GOOGLE_AUTH_MODE,
     };
   }
 
@@ -358,7 +387,7 @@ export class GoogleConnectionService {
       if (err instanceof GoogleError && err.code === 'invalid_client') {
         throw new ReportSourceError('not_connected', `${err.message} ${FALLBACK}`, false);
       }
-      throw toSourceError(err);
+      throw toSourceError(err, { kind: 'oauth' });
     }
   }
 
@@ -383,12 +412,56 @@ export class GoogleConnectionService {
     });
   }
 
-  /** Values of a range; a refused access token is renewed once. */
+  /**
+   * Values of a range, signed in as the service account (rule 6). The token is the
+   * client's cached one; a 401 drops it and signs a new JWT once.
+   */
+  async #serviceAccountValues(spreadsheetId: string, range: string): Promise<GoogleCellValue[][]> {
+    const sa = this.#deps.serviceAccount ?? null;
+    if (sa === null) {
+      const why = this.#deps.serviceAccountProblem ?? null;
+      throw new ReportSourceError(
+        'not_connected',
+        why === null ? SA_NOT_CONFIGURED_MESSAGE : `${why} ${FALLBACK}`,
+        false,
+      );
+    }
+    const who: Reader = { kind: 'service_account', email: sa.email };
+    for (let attempt = 1; ; attempt += 1) {
+      let token: string;
+      try {
+        token = await sa.accessToken();
+      } catch (err) {
+        if (err instanceof GoogleError && err.code === 'invalid_grant') {
+          // Not retried: the same key is refused again until someone replaces it.
+          throw new ReportSourceError(
+            'access_revoked',
+            `${err.message} Create a new JSON key for this service account and point GOOGLE_SERVICE_ACCOUNT_KEY_FILE at it (docs/GOOGLE_SETUP.md). ${FALLBACK}`,
+            false,
+          );
+        }
+        throw toSourceError(err, who);
+      }
+      try {
+        return await sa.values(token, spreadsheetId, range);
+      } catch (err) {
+        if (err instanceof GoogleError && err.code === 'unauthorized' && attempt === 1) {
+          sa.forgetToken();
+          continue;
+        }
+        throw toSourceError(err, who);
+      }
+    }
+  }
+
+  /** Values of a range in the given mode; a refused access token is renewed once. */
   async #values(
     context: DbContext,
     spreadsheetId: string,
     range: string,
+    mode: GoogleAuthMode,
   ): Promise<GoogleCellValue[][]> {
+    if (mode === 'service_account') return this.#serviceAccountValues(spreadsheetId, range);
     const client = this.#deps.client;
     if (client === null) throw new ReportSourceError('not_connected', NOT_CONNECTED_MESSAGE, false);
     for (let attempt = 1; ; attempt += 1) {
@@ -400,14 +473,19 @@ export class GoogleConnectionService {
           this.#tokens.delete(context.tenantId);
           continue;
         }
-        throw toSourceError(err);
+        throw toSourceError(err, { kind: 'oauth' });
       }
     }
   }
 
   /** The whole tab as a grid, refused when it shows errors or "Loading..." (rule 5). */
-  async readTab(context: DbContext, spreadsheetId: string, tab: string): Promise<SheetGrid> {
-    const grid = toGrid(tab, await this.#values(context, spreadsheetId, a1Range(tab)));
+  async readTab(
+    context: DbContext,
+    spreadsheetId: string,
+    tab: string,
+    mode: GoogleAuthMode,
+  ): Promise<SheetGrid> {
+    const grid = toGrid(tab, await this.#values(context, spreadsheetId, a1Range(tab), mode));
     assertReadable(grid, 0);
     return grid;
   }
@@ -418,19 +496,34 @@ export class GoogleConnectionService {
     spreadsheetId: string,
     tab: string,
     headerRow: number,
+    mode: GoogleAuthMode,
   ): Promise<string[]> {
     const row = String(headerRow);
-    const values = await this.#values(context, spreadsheetId, a1Range(tab, `${row}:${row}`));
+    const values = await this.#values(context, spreadsheetId, a1Range(tab, `${row}:${row}`), mode);
     const grid = toGrid(tab, values);
     assertReadable(grid, headerRow - 1);
     return (grid.rows[0] ?? []).map((cell) => (cell === null ? '' : String(cell).trim()));
   }
 }
 
+/** Who reads the sheet, for messages that say whom to share it with. */
+type Reader = { kind: 'oauth' } | { kind: 'service_account'; email: string };
+
 /** A Google failure as the source error the sync engine understands. */
-function toSourceError(err: unknown): Error {
+function toSourceError(err: unknown, who: Reader): Error {
   if (err instanceof ReportSourceError) return err;
   if (!(err instanceof GoogleError)) return err instanceof Error ? err : new Error(String(err));
+  if (who.kind === 'service_account' && (err.code === 'not_shared' || err.code === 'not_found')) {
+    // The owner fixes this by sharing the mirror sheet with exactly this address.
+    const share = `open the sheet, click Share and add ${who.email} as Viewer (untick "Notify people").`;
+    return new ReportSourceError(
+      'not_shared',
+      err.code === 'not_shared'
+        ? `The spreadsheet is not shared with the service account ${who.email}. To fix it, ${share} ${FALLBACK}`
+        : `No spreadsheet with this id, or it is not shared with the service account ${who.email}. Check the spreadsheet id; if it is right, ${share} ${FALLBACK}`,
+      false,
+    );
+  }
   switch (err.code) {
     case 'not_shared':
     case 'not_found':
@@ -518,6 +611,14 @@ function columnLetter(index: number): string {
   return out;
 }
 
+/**
+ * The sign-in mode stored in a sheet source's sealed config. A source saved before row 4.4b
+ * has none and was connected with OAuth, so it stays OAuth (DECISIONS 4.4b).
+ */
+export function authModeOf(config: Record<string, unknown> | null): GoogleAuthMode {
+  return config?.authMode === 'service_account' ? 'service_account' : 'oauth';
+}
+
 /** The reader the sync engine uses for `sheet` sources. */
 export class GoogleSheetsProvider implements ReportSourceProvider {
   readonly adapterKind = 'sheet';
@@ -529,6 +630,7 @@ export class GoogleSheetsProvider implements ReportSourceProvider {
 
   open(request: SourceOpenRequest): ReportSource {
     const spreadsheetId = request.config?.spreadsheetId;
+    const mode = authModeOf(request.config);
     return {
       read: (tab) => {
         if (typeof spreadsheetId !== 'string' || spreadsheetId === '') {
@@ -540,7 +642,7 @@ export class GoogleSheetsProvider implements ReportSourceProvider {
             ),
           );
         }
-        return this.#google.readTab(request.context, spreadsheetId, tab);
+        return this.#google.readTab(request.context, spreadsheetId, tab, mode);
       },
     };
   }
