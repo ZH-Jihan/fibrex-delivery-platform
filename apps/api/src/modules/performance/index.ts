@@ -27,6 +27,8 @@ import {
 } from '../../kernel/permissions/catalogue.js';
 import type { PermissionService } from '../../kernel/permissions/permission-service.js';
 import type { GoogleConnectionService } from './google-connection.js';
+import { createFdbRouter } from './fdb-router.js';
+import type { FdbService } from './fdb-service.js';
 import { createGoogleRouter } from './google-router.js';
 import type { PartyService } from '../party/index.js';
 import type { EmployeeDirectory } from '../people/index.js';
@@ -65,6 +67,10 @@ export {
   type GoogleConnectionStatus,
 } from './google-connection.js';
 export { GOOGLE_MANAGE } from './google-router.js';
+export { FdbService, type FdbRunResult } from './fdb-service.js';
+export { FDB_READ, FDB_RUN, FDB_REVIEW } from './fdb-router.js';
+export { parseFdbReport, FDB_TAB } from './fdb-parser.js';
+export { compareFdb } from './fdb-compare.js';
 export {
   PERFORMANCE_REPORTS,
   qatarToday,
@@ -130,6 +136,24 @@ export const PERFORMANCE_PERMISSIONS: readonly PermissionDef[] = [
   ),
   permission(
     'performance',
+    'performance.fdb_check',
+    'read',
+    'See the Snoonu FDB report check and its differences',
+  ),
+  permission(
+    'performance',
+    'performance.fdb_check',
+    'run',
+    'Run the Snoonu FDB report check (from the sheet or an uploaded Excel file)',
+  ),
+  permission(
+    'performance',
+    'performance.fdb_check',
+    'review',
+    'Mark an FDB report difference as reviewed or ignored',
+  ),
+  permission(
+    'performance',
     'performance.google_connection',
     'manage',
     'Connect, test and disconnect the Google account that reads platform sheets (read-only)',
@@ -151,6 +175,8 @@ export interface PerformanceModuleDeps {
   employees?: EmployeeDirectory;
   /** Row 4.6b: with it, the daily summary settings and "Send now" routes are mounted. */
   summary?: SummaryService;
+  /** Row 4.9: with it, the FDB report check routes are mounted. */
+  fdb?: FdbService;
 }
 
 /** The module manifest. Routers are added by the rows that build them. */
@@ -193,6 +219,16 @@ export function createPerformanceModule(deps?: PerformanceModuleDeps): ModuleMan
                     registry: deps.registry,
                     permissions: deps.permissions,
                     summary: deps.summary,
+                  }),
+                ]),
+            ...(deps.fdb === undefined
+              ? []
+              : [
+                  createFdbRouter({
+                    uow: deps.uow,
+                    registry: deps.registry,
+                    permissions: deps.permissions,
+                    fdb: deps.fdb,
                   }),
                 ]),
             ...(deps.parties === undefined || deps.employees === undefined

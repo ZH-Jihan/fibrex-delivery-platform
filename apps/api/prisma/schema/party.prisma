@@ -45,6 +45,7 @@ model Party {
   clientPlatforms        ClientPlatform[]
   dailyPerformances      DailyPerformance[]
   unmatchedResolutions   UnmatchedIdentifier[]
+  fdbDifferences         FdbDifference[]
   trackingEntries        TrackingEntry[]
   ownedIdOperatorPeriods IdOperatorPeriod[]        @relation("IdOperatorOwner")
   operatedIdPeriods      IdOperatorPeriod[]        @relation("IdOperatorOperator")

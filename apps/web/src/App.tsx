@@ -70,6 +70,7 @@ import { SummarySettingsPage } from './performance/SummarySettingsPage';
 import { UnmatchedPage } from './performance/UnmatchedPage';
 import { CallSheetPage } from './tracking/CallSheetPage';
 import { StatusDifferencesPage } from './tracking/StatusDifferencesPage';
+import { FdbCheckPage } from './performance/FdbCheckPage';
 import type { ReactNode } from 'react';
 import { ThemeProvider } from './theme/theme';
 import { Skeleton } from './ui/components';
@@ -276,6 +277,14 @@ function Gate() {
           element={
             <Guarded permission="tracking.entry.view">
               <StatusDifferencesPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="performance/fdb-check"
+          element={
+            <Guarded permission="performance.fdb_check.read">
+              <FdbCheckPage />
             </Guarded>
           }
         />

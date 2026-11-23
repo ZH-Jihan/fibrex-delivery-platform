@@ -9,6 +9,7 @@
 import {
   BarChart3,
   CalendarRange,
+  ClipboardCheck,
   ClipboardList,
   GitCompareArrows,
   History,
@@ -73,6 +74,12 @@ export const performanceManifest: WebModuleManifest = {
           label: 'nav.unmatched',
           permission: 'performance.unmatched.read',
           icon: UserRoundSearch,
+        },
+        {
+          to: '/performance/fdb-check',
+          label: 'nav.fdbCheck',
+          permission: 'performance.fdb_check.read',
+          icon: ClipboardCheck,
         },
         {
           to: '/performance/summary',

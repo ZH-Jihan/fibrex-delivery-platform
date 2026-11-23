@@ -241,6 +241,8 @@ model Company {
   summaryLogs             SummaryLog[]
   dailyPerformances       DailyPerformance[]
   unmatchedIdentifiers    UnmatchedIdentifier[]
+  fdbChecks               FdbCheck[]
+  fdbDifferences          FdbDifference[]
   trackingEntries         TrackingEntry[]
   idOperatorPeriods       IdOperatorPeriod[]
   callLogs                CallLog[]

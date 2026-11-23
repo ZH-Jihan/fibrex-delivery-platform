@@ -157,6 +157,7 @@ import {
   SummaryService,
   SyncQueue,
   SyncService,
+  FdbService,
   createPerformanceModule,
 } from './modules/performance/index.js';
 import { TrackingService, createTrackingModule } from './modules/tracking/index.js';
@@ -637,6 +638,17 @@ async function main(): Promise<void> {
     box: new SecretBox(env.DATA_ENCRYPTION_KEY),
     logger,
   });
+  // Snoonu FDB report check (row 4.9): runs on request, reads the FDB tab, never writes.
+  const fdbService = new FdbService({
+    uow,
+    storage,
+    parties: new PartyService(
+      new PartyVault(new SecretBox(env.DATA_ENCRYPTION_KEY), env.DATA_ENCRYPTION_KEY),
+    ),
+    providers: reportSources,
+    box: new SecretBox(env.DATA_ENCRYPTION_KEY),
+    logger,
+  });
   const syncQueue = new SyncQueue({
     redisUrl: env.REDIS_URL,
     service: syncService,
@@ -781,6 +793,7 @@ async function main(): Promise<void> {
           sync: syncService,
           syncQueue,
           summary: summaryService,
+          fdb: fdbService,
           parties: partyService,
           employees: people.directory,
           google: googleConnection,

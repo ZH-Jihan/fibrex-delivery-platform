@@ -30,6 +30,8 @@ model ClientPlatform {
   metricDefinitions    MetricDefinition[]
   dailyPerformances    DailyPerformance[]
   unmatchedIdentifiers UnmatchedIdentifier[]
+  fdbChecks            FdbCheck[]
+  fdbDifferences       FdbDifference[]
 
   @@unique([companyId, id], map: "client_platform_company_id_uq")
   @@unique([companyId, code], map: "client_platform_code_uq", where: { deletedAt: null })
@@ -62,6 +64,7 @@ model SyncSource {
   clientPlatform ClientPlatform  @relation(fields: [companyId, clientPlatformId], references: [companyId, id], map: "sync_source_platform_fk", onDelete: NoAction, onUpdate: NoAction)
   columnMappings ColumnMapping[]
   runs           SyncRun[]
+  fdbChecks      FdbCheck[]
 
   @@unique([companyId, id], map: "sync_source_company_id_uq")
   @@index([clientPlatformId], map: "sync_source_platform_idx")
@@ -287,5 +290,74 @@ model SummaryLog {
 
   @@unique([companyId, summaryDate], map: "summary_log_once_uq")
   @@map("summary_log")
+  @@schema("performance")
+}
+
+/// One Snoonu FDB report check run (insert-only; row 4.9). `rows` is the tab as parsed.
+model FdbCheck {
+  id               String   @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  companyId        String   @map("company_id") @db.Uuid
+  clientPlatformId String   @map("client_platform_id") @db.Uuid
+  syncSourceId     String?  @map("sync_source_id") @db.Uuid
+  source           String
+  fileObjectId     String?  @map("file_object_id") @db.Uuid
+  businessDate     DateTime @map("business_date") @db.Date
+  snapshotSha256   String   @map("snapshot_sha256")
+  rowsRead         Int      @map("rows_read")
+  matched          Int
+  unmatched        Int
+  differencesCount Int      @map("differences_count")
+  rows             Json     @default("[]")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy        String?  @map("created_by") @db.Uuid
+
+  company        Company         @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "fdb_check_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  clientPlatform ClientPlatform  @relation(fields: [companyId, clientPlatformId], references: [companyId, id], map: "fdb_check_platform_fk", onDelete: NoAction, onUpdate: NoAction)
+  syncSource     SyncSource?     @relation(fields: [companyId, syncSourceId], references: [companyId, id], map: "fdb_check_source_fk", onDelete: NoAction, onUpdate: NoAction)
+  differences    FdbDifference[]
+
+  @@unique([companyId, id], map: "fdb_check_company_id_uq")
+  @@index([companyId, clientPlatformId, createdAt(sort: Desc)], map: "fdb_check_platform_idx")
+  @@map("fdb_check")
+  @@schema("performance")
+}
+
+/// One difference between the FDB tab and our records, with its review state (row 4.9).
+model FdbDifference {
+  id               String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  companyId        String    @map("company_id") @db.Uuid
+  fdbCheckId       String    @map("fdb_check_id") @db.Uuid
+  clientPlatformId String    @map("client_platform_id") @db.Uuid
+  kind             String
+  field            String?
+  partyId          String?   @map("party_id") @db.Uuid
+  externalId       String?   @map("external_id")
+  displayName      String?   @map("display_name")
+  oursValue        String?   @map("ours_value")
+  theirsValue      String?   @map("theirs_value")
+  reviewStatus     String    @default("open") @map("review_status")
+  reviewNote       String?   @map("review_note")
+  reviewedAt       DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  reviewedBy       String?   @map("reviewed_by") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy        String?   @map("created_by") @db.Uuid
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy        String?   @map("updated_by") @db.Uuid
+  version          Int       @default(1)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy        String?   @map("deleted_by") @db.Uuid
+  deleteReason     String?   @map("delete_reason")
+
+  company        Company        @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "fdb_difference_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  fdbCheck       FdbCheck       @relation(fields: [companyId, fdbCheckId], references: [companyId, id], map: "fdb_difference_check_fk", onDelete: NoAction, onUpdate: NoAction)
+  clientPlatform ClientPlatform @relation(fields: [companyId, clientPlatformId], references: [companyId, id], map: "fdb_difference_platform_fk", onDelete: NoAction, onUpdate: NoAction)
+  party          Party?         @relation(fields: [companyId, partyId], references: [companyId, id], map: "fdb_difference_party_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([companyId, id], map: "fdb_difference_company_id_uq")
+  @@index([companyId, fdbCheckId], map: "fdb_difference_check_idx")
+  @@index([companyId, partyId], map: "fdb_difference_party_idx", where: raw("party_id IS NOT NULL"))
+  @@map("fdb_difference")
   @@schema("performance")
 }
