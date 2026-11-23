@@ -159,7 +159,7 @@ import {
   SyncService,
   createPerformanceModule,
 } from './modules/performance/index.js';
-import { createTrackingModule } from './modules/tracking/index.js';
+import { TrackingService, createTrackingModule } from './modules/tracking/index.js';
 import { TemplateService } from './kernel/templates/template-service.js';
 
 const rootEnv = path.resolve(import.meta.dirname, '../../../.env');
@@ -787,7 +787,18 @@ async function main(): Promise<void> {
           box: new SecretBox(env.DATA_ENCRYPTION_KEY),
         }),
       );
-      modules.register(createTrackingModule());
+      // Tracking (row 4.7): the morning call sheet API. A status recorded with a future
+      // effective date is applied by this job once the date has come (hourly; safe to repeat:
+      // only entries still pending are touched).
+      const tracking = new TrackingService({ uow, permissions, states, prisma, logger });
+      scheduler.register({
+        name: 'tracking-status-changes',
+        everyMs: 60 * 60_000,
+        run: async () => {
+          await tracking.applyDue();
+        },
+      });
+      modules.register(createTrackingModule({ uow, registry, permissions, tracking }));
       for (const attachable of modules.attachables()) attachables.register(attachable);
       for (const type of modules.recycleTypes()) recycleBin.register(type);
       modules.mount(api);

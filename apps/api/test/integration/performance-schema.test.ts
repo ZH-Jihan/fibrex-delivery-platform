@@ -345,17 +345,41 @@ describe('sync runs and the unmatched queue', () => {
 describe('tracking', () => {
   it('needs a reason to make someone inactive, blocked or terminated', async () => {
     await inContext(app, a1(), async (c) => {
-      const entry = (status: string, reason: string | null) =>
+      // Row 4.7: one entry per person per date, and a status carries its apply state.
+      const entry = (status: string, reason: string | null, date: string) =>
         c.query(
           `INSERT INTO tracking.tracking_entry
-             (tenant_id, company_id, party_id, business_date, status_code, reason_id, effective_date, caller_user_id)
-           VALUES ($1, $2, $3, '2026-11-20', $4, $5, '2026-11-20', $6)`,
-          [f.tenantA, f.companyA1, riderId, status, reason, f.userA],
+             (tenant_id, company_id, party_id, business_date, status_code, reason_id, effective_date,
+              caller_user_id, status_state)
+           VALUES ($1, $2, $3, $7, $4, $5, $7, $6, 'pending')`,
+          [f.tenantA, f.companyA1, riderId, status, reason, f.userA, date],
         );
-      await entry('active', null);
-      await entry('blocked', reasonId);
-      expect(await sqlState(entry('blocked', null))).toBe(SQLSTATE.checkViolation);
+      await entry('active', null, '2026-11-18');
+      await entry('blocked', reasonId, '2026-11-19');
+      expect(await sqlState(entry('blocked', null, '2026-11-20'))).toBe(SQLSTATE.checkViolation);
     });
+  });
+
+  it('keeps one entry per person per date, and a status always has an apply state (row 4.7)', async () => {
+    const insert = (c: pg.Client, date: string, status: string | null, state: string) =>
+      c.query(
+        `INSERT INTO tracking.tracking_entry
+           (tenant_id, company_id, party_id, business_date, status_code, effective_date, status_state)
+         VALUES ($1, $2, $3, $4::date, $5::text, CASE WHEN $5::text IS NULL THEN NULL ELSE $4::date END, $6)`,
+        [f.tenantA, f.companyA1, riderId, date, status, state],
+      );
+    // Each refused insert in its own transaction (a failed statement ends the transaction).
+    const attempt = (date: string, status: string | null, state: string) =>
+      inContext(app, a1(), (c) => insert(c, date, status, state));
+    await inContext(app, a1(), async (c) => {
+      await insert(c, '2026-11-10', null, 'none');
+      expect(await sqlState(insert(c, '2026-11-10', null, 'none'))).toBe(SQLSTATE.uniqueViolation);
+    });
+    expect(await sqlState(attempt('2026-11-11', 'active', 'none'))).toBe(SQLSTATE.checkViolation);
+    // "applied" needs the history row it made.
+    expect(await sqlState(attempt('2026-11-12', 'active', 'applied'))).toBe(
+      SQLSTATE.checkViolation,
+    );
   });
 
   it('allows one operator per platform id at a time', async () => {

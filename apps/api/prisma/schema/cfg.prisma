@@ -101,7 +101,8 @@ model LookupValue {
   parent          LookupValue?    @relation("LookupValueTree", fields: [tenantId, parentId], references: [tenantId, id], map: "lookup_value_parent_fk", onDelete: NoAction, onUpdate: NoAction)
   children        LookupValue[]   @relation("LookupValueTree")
   stateHistory    StateHistory[]
-  trackingEntries TrackingEntry[]
+  trackingEntries TrackingEntry[] @relation("TrackingEntryReason")
+  trackingCalls   TrackingEntry[] @relation("TrackingEntryCallOutcome")
   callLogs        CallLog[]
 
   @@unique([tenantId, id], map: "lookup_value_tenant_id_uq")
@@ -560,6 +561,8 @@ model StateHistory {
 
   company Company      @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "state_history_company_fk", onDelete: NoAction, onUpdate: NoAction)
   reason  LookupValue? @relation(fields: [tenantId, reasonId], references: [tenantId, id], map: "state_history_reason_fk", onDelete: NoAction, onUpdate: NoAction)
+
+  trackingEntries TrackingEntry[]
 
   @@index([companyId, entityType, entityId, id], map: "state_history_entity_idx")
   @@map("state_history")

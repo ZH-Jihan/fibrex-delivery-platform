@@ -126,6 +126,8 @@ export const LOOKUP_SEED: readonly LookupSeedType[] = [
     values: [
       ['answered', 'Answered'],
       ['no_answer', 'No answer'],
+      // SPEC 3.3 (call sheet): answered, no answer, switched off. Added in row 4.7.
+      ['switched_off', 'Switched off'],
       ['busy', 'Busy'],
       ['wrong_number', 'Wrong number'],
       ['call_back_later', 'Call back later'],

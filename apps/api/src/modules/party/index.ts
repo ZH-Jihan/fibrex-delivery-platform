@@ -35,6 +35,7 @@ import type { PartyVault } from './vault.js';
 export { PartyReferenceRegistry, type PartyReference } from './merge.js';
 export {
   IDENTIFIER_START_UNKNOWN,
+  PLAIN_IDENTIFIER_TYPES,
   PartyVault,
   maskValue,
   normaliseIdentifierValue,

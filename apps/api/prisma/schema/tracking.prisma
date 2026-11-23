@@ -1,35 +1,49 @@
 // Schema `tracking`: daily status history, ID-operator periods and the call log
-// (PLAN 3.11, SPEC 3.3). Row 4.1 (migration 20261125000000_performance_tracking). The
-// reason rule (CHECK) and "one operator per id at a time" (exclusion) live only in the SQL.
+// (PLAN 3.11, SPEC 3.3). Row 4.1 (migration 20261125000000_performance_tracking); row 4.7
+// (migration 20261130000000_tracking_call_sheet) makes tracking_entry the call sheet's one
+// row per person per date. The CHECK rules (reason, status pair, apply state) and "one
+// operator per id at a time" (exclusion) live only in the SQL.
 
-/// One status change of a person on a date; the current status is the latest row.
+/// The call sheet's record of one person on one date: call outcome, status, reason,
+/// effective date, and how the status was applied to the employee state machine.
 model TrackingEntry {
-  id            String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
-  tenantId      String    @map("tenant_id") @db.Uuid
-  companyId     String    @map("company_id") @db.Uuid
-  partyId       String    @map("party_id") @db.Uuid
-  businessDate  DateTime  @map("business_date") @db.Date
-  statusCode    String    @map("status_code")
-  reasonId      String?   @map("reason_id") @db.Uuid
-  effectiveDate DateTime  @map("effective_date") @db.Date
-  note          String?
-  callerUserId  String?   @map("caller_user_id") @db.Uuid
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  createdBy     String?   @map("created_by") @db.Uuid
-  updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
-  updatedBy     String?   @map("updated_by") @db.Uuid
-  version       Int       @default(1)
-  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
-  deletedBy     String?   @map("deleted_by") @db.Uuid
-  deleteReason  String?   @map("delete_reason")
+  id              String    @id @default(dbgenerated("app.uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
+  partyId         String    @map("party_id") @db.Uuid
+  businessDate    DateTime  @map("business_date") @db.Date
+  statusCode      String?   @map("status_code")
+  reasonId        String?   @map("reason_id") @db.Uuid
+  effectiveDate   DateTime? @map("effective_date") @db.Date
+  note            String?
+  callerUserId    String?   @map("caller_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy       String?   @map("created_by") @db.Uuid
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy       String?   @map("updated_by") @db.Uuid
+  version         Int       @default(1)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy       String?   @map("deleted_by") @db.Uuid
+  deleteReason    String?   @map("delete_reason")
+  callOutcomeId   String?   @map("call_outcome_id") @db.Uuid
+  statusState     String    @default("none") @map("status_state")
+  statusSetBy     String?   @map("status_set_by") @db.Uuid
+  statusAppliedAt DateTime? @map("status_applied_at") @db.Timestamptz(6)
+  stateHistoryId  String?   @map("state_history_id") @db.Uuid
+  statusError     String?   @map("status_error")
 
-  company Company      @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "tracking_entry_company_fk", onDelete: NoAction, onUpdate: NoAction)
-  party   Party        @relation(fields: [companyId, partyId], references: [companyId, id], map: "tracking_entry_party_fk", onDelete: NoAction, onUpdate: NoAction)
-  reason  LookupValue? @relation(fields: [tenantId, reasonId], references: [tenantId, id], map: "tracking_entry_reason_fk", onDelete: NoAction, onUpdate: NoAction)
-  caller  UserAccount? @relation(fields: [tenantId, callerUserId], references: [tenantId, id], map: "tracking_entry_caller_fk", onDelete: NoAction, onUpdate: NoAction)
+  company      Company       @relation(fields: [tenantId, companyId], references: [tenantId, id], map: "tracking_entry_company_fk", onDelete: NoAction, onUpdate: NoAction)
+  party        Party         @relation(fields: [companyId, partyId], references: [companyId, id], map: "tracking_entry_party_fk", onDelete: NoAction, onUpdate: NoAction)
+  reason       LookupValue?  @relation("TrackingEntryReason", fields: [tenantId, reasonId], references: [tenantId, id], map: "tracking_entry_reason_fk", onDelete: NoAction, onUpdate: NoAction)
+  callOutcome  LookupValue?  @relation("TrackingEntryCallOutcome", fields: [tenantId, callOutcomeId], references: [tenantId, id], map: "tracking_entry_call_outcome_fk", onDelete: NoAction, onUpdate: NoAction)
+  caller       UserAccount?  @relation("TrackingEntryCaller", fields: [tenantId, callerUserId], references: [tenantId, id], map: "tracking_entry_caller_fk", onDelete: NoAction, onUpdate: NoAction)
+  statusSetter UserAccount?  @relation("TrackingEntryStatusSetBy", fields: [tenantId, statusSetBy], references: [tenantId, id], map: "tracking_entry_status_set_by_fk", onDelete: NoAction, onUpdate: NoAction)
+  stateHistory StateHistory? @relation(fields: [stateHistoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  @@unique([partyId, businessDate], map: "tracking_entry_person_day_uq", where: { deletedAt: null })
   @@index([partyId, businessDate(sort: Desc), createdAt(sort: Desc)], map: "tracking_entry_party_idx")
   @@index([companyId, businessDate], map: "tracking_entry_date_idx")
+  @@index([effectiveDate], map: "tracking_entry_pending_idx", where: raw("((status_state = 'pending'::text) AND (deleted_at IS NULL))"))
   @@map("tracking_entry")
   @@schema("tracking")
 }
