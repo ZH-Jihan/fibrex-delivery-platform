@@ -1,12 +1,13 @@
 /**
  * Tracking API: the morning call sheet (phase 4 row 4.7; SPEC 3.3, PLAN 5.13).
  *
- *   GET   /tracking?date=&status=&q=&notCalled=&zeroOrders=
+ *   GET   /tracking?date=&status=&q=&notCalled=&zeroOrders=&dayOffToday=
  *                                               the call sheet: rows and the strip of those rows
  *   GET   /tracking/settings                    the company's call sheet settings (low hours)
  *   PUT   /tracking/settings                    save them (tracking.entry.update)
  *   GET   /tracking/cross-check?date=           sheet status and figures against our status
  *   GET   /tracking/{partyId}/history           entries, status history, calls, operator periods
+ *   GET   /tracking/{partyId}/details?date=     the sheet details panel (row 4.8c)
  *   POST  /tracking/entries                     the day's entry of a person (outcome, status ...)
  *   PATCH /tracking/entries/{id}                change it (a new status is a new status change)
  *   POST  /tracking/calls                       log one call attempt
@@ -40,6 +41,7 @@ import {
   trackingSheetQuerySchema,
   trackingEntryUpdateSchema,
 } from '@fibrex/shared';
+import { can } from '@fibrex/shared';
 import { Router } from 'express';
 import { z } from 'zod';
 import { createRepository } from '../../kernel/db/repository.js';
@@ -48,6 +50,7 @@ import { ConflictError, NotFoundError, UnprocessableError } from '../../kernel/h
 import { registerRoute } from '../../kernel/http/openapi.js';
 import type { PermissionService } from '../../kernel/permissions/permission-service.js';
 import { PLAIN_IDENTIFIER_TYPES } from '../party/index.js';
+import { AMOUNTS_VIEW, loadPlatformDetails, platformDetailsSchema } from '../performance/index.js';
 import { EMPLOYEE_ENTITY } from '../people/index.js';
 import {
   TRACKING_SETTINGS_KEY,
@@ -142,6 +145,7 @@ const rowSchema = z
       hours: z.number().nullable(),
       lateMinutes: z.number().int().nullable(),
     }),
+    sheet: platformDetailsSchema.shape.sheet,
     sheetStatus: sheetStatusSchema,
     entry: entrySchema.nullable(),
     calledToday: z.boolean(),
@@ -177,6 +181,7 @@ const sheetSchema = z
       byStatus: z.record(z.string(), z.number().int()),
     }),
     lowHoursLimit: z.number(),
+    amountsVisible: z.boolean(),
   })
   .meta({ id: 'TrackingSheet' });
 const crossCheckSchema = z
@@ -274,8 +279,11 @@ export function createTrackingRouter(deps: TrackingRouterDeps): Router {
           q: query.q,
           notCalled: query.notCalled === 'true',
           zeroOrders: query.zeroOrders === 'true',
+          dayOffToday: query.dayOffToday === 'true',
         },
         await readLowHours(db, onlyCompany()),
+        // COD amounts only for people who hold performance.amounts.view.
+        can(await permissions.current(), AMOUNTS_VIEW),
       );
     });
     res.json(result);
@@ -352,6 +360,29 @@ export function createTrackingRouter(deps: TrackingRouterDeps): Router {
             kinds: row.crossCheck,
           })),
       };
+    });
+    res.json(result);
+  });
+
+  router.get('/tracking/:partyId/details', async (req, res) => {
+    const { partyId } = partyParams.parse(req.params);
+    const { date } = trackingDateQuerySchema.parse(req.query);
+    const result = await uow.run(async (db) => {
+      await permissions.require(ENTRY_VIEW);
+      const employee = await db.employee.findFirst({
+        where: { partyId, deletedAt: null },
+        select: { id: true },
+      });
+      if (employee === null) throw new NotFoundError();
+      // Same rule as the sheet: the balance amount and COD need performance.amounts.view.
+      const withAmounts = can(await permissions.current(), AMOUNTS_VIEW);
+      return loadPlatformDetails(
+        db,
+        partyId,
+        date ?? tracking.today(),
+        withAmounts,
+        PLAIN_IDENTIFIER_TYPES,
+      );
     });
     res.json(result);
   });
@@ -575,6 +606,15 @@ export function createTrackingRouter(deps: TrackingRouterDeps): Router {
     summary: 'People whose sheet status or figures do not match our employee status',
     request: { query: trackingDateQuerySchema },
     responses: { 200: { description: 'The differences', content: json(crossCheckSchema) } },
+  });
+  registerRoute(registry, {
+    method: 'get',
+    path: '/tracking/{partyId}/details',
+    tags,
+    summary:
+      'The platform sheet details of one person on a day (day off, duty time, COD, balance ...)',
+    request: { params: partyParams, query: trackingDateQuerySchema },
+    responses: { 200: { description: 'The details', content: json(platformDetailsSchema) } },
   });
   registerRoute(registry, {
     method: 'get',

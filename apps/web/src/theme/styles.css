@@ -2317,3 +2317,65 @@ a.btn.btn-sm {
   justify-content: space-between;
   gap: var(--space-2);
 }
+
+/* ---------- Sheet details on the call sheet (row 4.8c) ---------- */
+table.stack tr.sheet-row-off > td {
+  background: var(--info-soft);
+}
+.sheet-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+}
+.sheet-facts li {
+  white-space: nowrap;
+}
+.muted-heading {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+/* Phone: the Details panel is a bottom sheet. From tablet width: a side panel at the end edge. */
+@media (min-width: 768px) {
+  dialog.dialog-sheet.details-panel {
+    margin: 0;
+    margin-inline-start: auto;
+    inset-block: 0;
+    block-size: 100dvh;
+    max-block-size: 100dvh;
+    inline-size: min(560px, 92vw);
+    max-inline-size: min(560px, 92vw);
+    border-radius: 0;
+    border-block-end: 1px solid var(--border);
+  }
+  dialog.dialog-sheet.details-panel[open] {
+    animation: panel-in 220ms var(--ease);
+  }
+  [dir='rtl'] dialog.dialog-sheet.details-panel[open] {
+    animation-name: panel-in-rtl;
+  }
+}
+@keyframes panel-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+@keyframes panel-in-rtl {
+  from {
+    transform: translateX(-100%);
+  }
+}
+dialog.details-panel dl.details {
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 768px) {
+  dialog.details-panel dl.details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

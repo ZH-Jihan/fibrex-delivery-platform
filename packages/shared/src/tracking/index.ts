@@ -67,6 +67,7 @@ export const TRACKING_DEFAULT_LOW_HOURS = 4;
  *   q            text found in the name, employee code, phone or a platform ID;
  *   notCalled    "true": only people not yet called on the date;
  *   zeroOrders   "true": only people with no orders on a day the sheet reported.
+ *   dayOffToday  "true": only people whose sheet day off is the weekday of the date.
  */
 export const trackingSheetQuerySchema = z.object({
   date: isoDate.optional(),
@@ -74,6 +75,7 @@ export const trackingSheetQuerySchema = z.object({
   q: z.string().trim().min(1).max(200).optional(),
   notCalled: z.enum(['true', 'false']).optional(),
   zeroOrders: z.enum(['true', 'false']).optional(),
+  dayOffToday: z.enum(['true', 'false']).optional(),
 });
 export type TrackingSheetQuery = z.infer<typeof trackingSheetQuerySchema>;
 

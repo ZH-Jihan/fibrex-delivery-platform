@@ -16,6 +16,7 @@
  * only), cal (record and call, no status), dave (nothing), ann (all, company A2 only).
  */
 import { randomUUID } from 'node:crypto';
+import { can } from '@fibrex/shared';
 import type { Express } from 'express';
 import type { Redis } from 'ioredis';
 import type pg from 'pg';
@@ -60,8 +61,13 @@ import {
   createPeopleModule,
   seedEmployeeStatus,
 } from '../../src/modules/people/index.js';
-import { addDays, seedClientPlatforms } from '../../src/modules/performance/index.js';
-import { callSheetReport } from '../../src/modules/tracking/call-sheet-report.js';
+import {
+  AMOUNTS_VIEW,
+  PERFORMANCE_PERMISSIONS,
+  addDays,
+  seedClientPlatforms,
+} from '../../src/modules/performance/index.js';
+import { createCallSheetReport } from '../../src/modules/tracking/call-sheet-report.js';
 import {
   TRACKING_PERMISSIONS,
   TrackingService,
@@ -77,6 +83,15 @@ const storage = new MemoryStorageAdapter();
 /** The sheet's date: today (UTC, the state service's today), so moves made now are not "future". */
 const D = new Date().toISOString().slice(0, 10);
 const Y = addDays(D, -1);
+const WEEKDAY_NAMES = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
 
 let owner: pg.Client;
 let pool: Pool;
@@ -120,6 +135,19 @@ interface Row {
   lastCall: { outcomeCode: string } | null;
   operator: { operatorName: string } | null;
   crossCheck: string[];
+}
+interface SheetDetailsJson {
+  found: boolean;
+  dayOff: { text: string | null; isToday: boolean; notUpdated: boolean };
+  dutyTime: { from: string | null; to: string | null; notUpdated: boolean };
+  break: { from: string | null; to: string | null; text: string | null };
+  zone: string | null;
+  plate: string | null;
+  vehicleType: string | null;
+  skill: string | null;
+  tags: string | null;
+  cod: { amount: string; currency: string } | null;
+  balance: { amount: string; currency: string } | null;
 }
 interface Sheet {
   date: string;
@@ -274,6 +302,7 @@ beforeAll(async () => {
     ...KERNEL_PERMISSIONS,
     ...PEOPLE_PERMISSIONS,
     ...TRACKING_PERMISSIONS,
+    ...PERFORMANCE_PERMISSIONS,
   ]);
   slug =
     (
@@ -379,7 +408,9 @@ beforeAll(async () => {
         permissions,
         storage,
         renderer: new StubPdfRenderer(),
-        definitions: () => [callSheetReport],
+        definitions: () => [
+          createCallSheetReport(async () => can(await permissions.current(), AMOUNTS_VIEW)),
+        ],
       });
       api.use(createReportRouter({ uow, registry, permissions, reports }));
     },
@@ -393,6 +424,8 @@ beforeAll(async () => {
     f.companyA1,
   );
   await addUser('dave', [], f.companyA1);
+  // May view the sheet and export it, but may not see amounts.
+  await addUser('rex', ['tracking.entry.view', 'platform.report.export'], f.companyA1);
   await addUser('ann', 'all', f.companyA2);
 
   // The invented crew of company A1.
@@ -411,8 +444,35 @@ beforeAll(async () => {
 
   // Yesterday's sheet. Ana worked her new ID; the old one has figures two days ago only.
   await figure('ana', 'F-9001', 4, 200, { date: addDays(D, -2) });
-  await figure('ana', 'F-9002', 12, 450, { late: 4 });
-  await figure('ben', 'F-9003', 0, 0);
+  await figure('ana', 'F-9002', 12, 450, {
+    late: 4,
+    metrics: {
+      _fields: {
+        day_off: WEEKDAY_NAMES[new Date(D).getUTCDay()] ?? '',
+        schedule: '14:00-02:00',
+        break_start: '16:00',
+        break_end: '17:00',
+        zone: 'North Gate',
+        plate_number: '123456',
+        vehicle_type: 'Rider',
+        skill: 'Express',
+        tags: 'Night shift',
+        contact_number: '50001111',
+        pending_amount: 125.5,
+        balance_amount: 40,
+      },
+    },
+  });
+  await figure('ben', 'F-9003', 0, 0, {
+    metrics: {
+      _fields: {
+        day_off: 'Not updated',
+        schedule: 'Not updated',
+        break_start: null,
+        pending_amount: 10,
+      },
+    },
+  });
   await figure('cy', 'F-9004', 5, 300);
   await figure('dee', 'F-9005', 3, 180, { metrics: { _fields: { tags: 'Blocked' } } });
   await figure('eve', 'F-9006', 2, 90, { metrics: { _extra: { Status: 'Not Updated' } } });
@@ -949,7 +1009,7 @@ describe('row 4.8b: operator period edits, settings, history names and the expor
     const bytes = await storage.read(file.rows[0]?.object_key ?? '');
     const text = (bytes?.toString('utf8') ?? '').replace(/^\uFEFF/, '');
     expect(text.split(/\r?\n/)[0]).toBe(
-      'Person,Employee code,Platform ID,Zone,Phone,Status,Orders yesterday,Hours yesterday,Late minutes,Called,Call outcome,Last call at,Note',
+      'Person,Employee code,Platform ID,Zone,Day off,Day off today,Duty time,Break,Plate number,Driver or rider,Skill,Tags,COD (pending amount),Currency,Phone,Status,Orders yesterday,Hours yesterday,Late minutes,Called,Call outcome,Last call at,Note',
     );
     for (const name of listedNames) expect(text).toContain(name);
     expect(text).not.toContain('Cy Example');
@@ -986,6 +1046,122 @@ describe('row 4.8b: operator period edits, settings, history names and the expor
         )
       ).status,
     ).toBe(403);
+  });
+});
+
+describe('row 4.8c: platform sheet details on the call sheet', () => {
+  const sheetOf = (s: Sheet, key: string) =>
+    (rowOf(s, key) as Row & { sheet: SheetDetailsJson }).sheet;
+  const anaId = () => people.ana ?? '';
+
+  it('parses day off, duty time, break and the rest of the sheet row', async () => {
+    const ana = sheetOf(await sheet(), 'ana');
+    expect(ana.found).toBe(true);
+    expect(ana.dayOff.isToday).toBe(true);
+    expect(ana.dayOff.text).toBe(WEEKDAY_NAMES[new Date(D).getUTCDay()]);
+    expect(ana.dutyTime).toMatchObject({ from: '14:00', to: '02:00' });
+    expect(ana.break).toMatchObject({ from: '16:00', to: '17:00' });
+    expect(ana).toMatchObject({
+      zone: 'North Gate',
+      plate: '123456',
+      vehicleType: 'Rider',
+      skill: 'Express',
+      tags: 'Night shift',
+    });
+    expect(ana.cod).toEqual({ amount: '125.5000', currency: 'QAR' });
+  });
+
+  it('shows "Not updated" as empty with a flag, and never the balance on the sheet', async () => {
+    const s = await sheet();
+    const ben = sheetOf(s, 'ben');
+    expect(ben.dayOff).toMatchObject({ text: null, isToday: false, notUpdated: true });
+    expect(ben.dutyTime).toMatchObject({ from: null, to: null, notUpdated: true });
+    expect(ben.break).toMatchObject({ from: null, to: null, text: null });
+    expect(ben.cod?.amount).toBe('10.0000');
+    expect(sheetOf(s, 'ana').balance).toBeNull();
+    // A person whose sheet row has no fixed columns is not marked as having a day off.
+    expect(sheetOf(s, 'cy').dayOff.isToday).toBe(false);
+  });
+
+  it('filters "day off today", and the strip follows', async () => {
+    const res = await get(`/tracking?date=${D}&dayOffToday=true`);
+    const s = res.body as Sheet;
+    expect(s.rows.map((r) => r.name)).toEqual(['Ana Example']);
+    expect(s.summary.totalPeople).toBe(1);
+  });
+
+  it('hides every amount from people without performance.amounts.view', async () => {
+    for (const path of [`/tracking?date=${D}`, `/tracking/${anaId()}/details?date=${D}`]) {
+      const res = await get(path, 'vic');
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      const text = JSON.stringify(res.body);
+      expect(text).not.toContain('125.5');
+      expect(text).not.toContain('40.0000');
+      expect(text).toContain('"amountsVisible":false');
+    }
+    const mine = await get(`/tracking?date=${D}`, 'vic');
+    expect(sheetOf(mine.body as Sheet, 'ana').cod).toBeNull();
+    // Everything else about the person is still shown.
+    expect(sheetOf(mine.body as Sheet, 'ana').dutyTime.from).toBe('14:00');
+  });
+
+  it('the details route carries balance, platform IDs with valid-from and the last seven days', async () => {
+    const res = await get(`/tracking/${anaId()}/details?date=${D}`);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const d = res.body as {
+      amountsVisible: boolean;
+      sheet: SheetDetailsJson;
+      platformIds: { value: string; validFrom: string }[];
+      recentDays: {
+        date: string;
+        reported: boolean;
+        orders: number | null;
+        hours: number | null;
+      }[];
+    };
+    expect(d.amountsVisible).toBe(true);
+    expect(d.sheet.balance).toEqual({ amount: '40.0000', currency: 'QAR' });
+    expect(d.platformIds).toEqual([
+      expect.objectContaining({ value: 'F-9001', validFrom: '2026-01-01' }),
+      expect.objectContaining({ value: 'F-9002', validFrom: '2026-01-01' }),
+    ]);
+    expect(d.recentDays).toHaveLength(7);
+    expect(d.recentDays.at(-1)).toEqual({ date: Y, reported: true, orders: 12, hours: 7.5 });
+    expect(d.recentDays.at(-2)).toEqual({
+      date: addDays(Y, -1),
+      reported: true,
+      orders: 4,
+      hours: 3.33,
+    });
+    // A day the platform stored nothing for is "not reported", never a zero.
+    expect(d.recentDays[0]).toMatchObject({ reported: false, orders: null, hours: null });
+  });
+
+  it('exports the new columns, with the COD only for people who may see amounts', async () => {
+    const read = async (who: string) => {
+      const res = await post(
+        '/reports/tracking.call_sheet/export',
+        { format: 'csv', filters: { date: D } },
+        who,
+      );
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      const file = await owner.query<{ object_key: string }>(
+        `SELECT object_key FROM files.file_object WHERE id = $1`,
+        [(res.body as { fileId: string }).fileId],
+      );
+      const text = (await storage.read(file.rows[0]?.object_key ?? ''))?.toString('utf8') ?? '';
+      return text.split(/\r?\n/).find((line) => line.includes('Ana Example')) ?? '';
+    };
+    const full = await read('alice');
+    expect(full).toContain('14:00 - 02:00');
+    expect(full).toContain('16:00 - 17:00');
+    expect(full).toContain('125.5');
+    expect(full).toContain('QAR');
+    expect(full).not.toContain('40.0000'); // the balance is never exported
+    const limited = await read('rex');
+    expect(limited).toContain('14:00 - 02:00');
+    expect(limited).not.toContain('125.5');
+    expect(limited).not.toContain('QAR');
   });
 });
 

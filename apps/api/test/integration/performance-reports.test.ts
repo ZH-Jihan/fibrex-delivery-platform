@@ -291,7 +291,18 @@ beforeAll(async () => {
   await figure('2026-11-01', 'F2', ana, 7, 420, { metrics: { acceptance_rate: 0.95 } });
   await figure('2026-11-02', 'F2', ana, 2, 120);
   await figure('2026-11-03', 'F2', ana, 1, 60);
-  await figure('2026-11-25', 'F2', ana, 2, 120);
+  await figure('2026-11-25', 'F2', ana, 2, 120, {
+    metrics: {
+      _fields: {
+        day_off: 'Wed',
+        schedule: '10:00-20:00',
+        break_start: '14:00',
+        break_end: '15:00',
+        pending_amount: 75.25,
+        balance_amount: 12,
+      },
+    },
+  });
   // An ID nobody has claimed yet: stored without a person, never a row in the reports.
   await figure('2026-11-01', 'F9', null, 50, 600);
 });
@@ -381,9 +392,9 @@ describe('performance.cycle_summary', () => {
   });
 
   it('is empty, not zeros, when the platform reported nothing in the range', async () => {
-    expect(await rowsOf('performance.cycle_summary', { from: '2026-11-05', to: '2026-11-24' })).toEqual(
-      [],
-    );
+    expect(
+      await rowsOf('performance.cycle_summary', { from: '2026-11-05', to: '2026-11-24' }),
+    ).toEqual([]);
   });
 
   it('works out this and last cycle from the platform start day', async () => {
@@ -422,9 +433,9 @@ describe('performance.cycle_summary', () => {
       const res = await run('performance.cycle_summary', 'alice', filters);
       expect(res.status, JSON.stringify(filters)).toBe(400);
     }
-    expect((await run('performance.cycle_summary', 'alice', { platformId: randomUUID() })).status).toBe(
-      404,
-    );
+    expect(
+      (await run('performance.cycle_summary', 'alice', { platformId: randomUUID() })).status,
+    ).toBe(404);
   });
 });
 
@@ -459,7 +470,11 @@ describe('performance.daily', () => {
     const yesterday = yesterdayInQatar();
     await figure(yesterday, 'F1', people.ben ?? null, 4, 90);
     const rows = await rowsOf('performance.daily', {});
-    expect(byName(rows, 'Ben Example')).toMatchObject({ date: yesterday, orders: 4, hoursActive: 1.5 });
+    expect(byName(rows, 'Ben Example')).toMatchObject({
+      date: yesterday,
+      orders: 4,
+      hoursActive: 1.5,
+    });
     await owner.query(
       `UPDATE performance.daily_performance SET is_current = false
         WHERE business_date = $1 AND client_platform_id = $2`,
@@ -468,9 +483,14 @@ describe('performance.daily', () => {
   });
 
   it('sorts by a column', async () => {
-    const res = await run('performance.daily', 'alice', { date: '2026-10-26' }, {
-      sort: { key: 'orders', direction: 'desc' },
-    });
+    const res = await run(
+      'performance.daily',
+      'alice',
+      { date: '2026-10-26' },
+      {
+        sort: { key: 'orders', direction: 'desc' },
+      },
+    );
     expect((res.body as { rows: Row[] }).rows.map((r) => r.personName)).toEqual([
       'Ana Example',
       'Ben Example',
@@ -495,7 +515,11 @@ describe('performance.top_bottom', () => {
     // to 1 Nov is NOT a run, because 30 and 31 Oct were not reported by the platform.
     const streaks = rows.filter((r) => r.list === 'streak');
     expect(streaks.map((r) => r.personName)).toEqual(['Ben Example', 'Cy Example']);
-    expect(streaks[0]).toMatchObject({ streakDays: 3, streakFrom: '2026-11-01', streakTo: '2026-11-03' });
+    expect(streaks[0]).toMatchObject({
+      streakDays: 3,
+      streakFrom: '2026-11-01',
+      streakTo: '2026-11-03',
+    });
   });
 
   it('limits each list to 10 people and keeps the weakest apart from the best', async () => {
@@ -568,9 +592,58 @@ describe('GET /performance/person/{partyId}', () => {
   });
 });
 
+describe('GET /performance/person/{partyId}/platform-details (row 4.8c)', () => {
+  const url = (date: string) =>
+    `/performance/person/${people.ana ?? ''}/platform-details?date=${date}`;
+  interface Details {
+    amountsVisible: boolean;
+    sheet: {
+      found: boolean;
+      asOfDate: string | null;
+      dayOff: { isToday: boolean };
+      dutyTime: { from: string | null; to: string | null };
+      cod: { amount: string } | null;
+      balance: { amount: string } | null;
+    };
+    platformIds: { value: string }[];
+    recentDays: { date: string; orders: number | null }[];
+  }
+
+  it('reads the latest stored sheet row of the cycle, with amounts for people who may see them', async () => {
+    // 25 Nov 2026 is a Wednesday; the row of that day says the day off is Wed.
+    const res = await get(url('2026-11-25'), 'alice');
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const body = res.body as Details;
+    expect(body.sheet).toMatchObject({ found: true, asOfDate: '2026-11-25' });
+    expect(body.sheet.dayOff.isToday).toBe(true);
+    expect(body.sheet.dutyTime).toMatchObject({ from: '10:00', to: '20:00' });
+    expect(body.sheet.cod?.amount).toBe('75.2500');
+    expect(body.sheet.balance?.amount).toBe('12.0000');
+    expect(body.recentDays).toHaveLength(7);
+    // A later cycle with no stored row for the person has no details (nothing carried over).
+    expect(((await get(url('2027-01-15'), 'alice')).body as Details).sheet.found).toBe(false);
+  });
+
+  it('leaves the amounts out for people who only hold the report permission', async () => {
+    const res = await get(url('2026-11-25'), 'vera');
+    expect(res.status).toBe(200);
+    const body = res.body as Details;
+    expect(body.amountsVisible).toBe(false);
+    expect(body.sheet.cod).toBeNull();
+    expect(body.sheet.balance).toBeNull();
+    expect(JSON.stringify(body)).not.toContain('75.25');
+    expect(body.sheet.dutyTime.from).toBe('10:00');
+    expect((await get(url('2026-11-25'), 'dave')).status).toBe(403);
+  });
+});
+
 describe('permissions and export', () => {
   it('refuses people without performance.report.view on every route', async () => {
-    for (const key of ['performance.daily', 'performance.cycle_summary', 'performance.top_bottom']) {
+    for (const key of [
+      'performance.daily',
+      'performance.cycle_summary',
+      'performance.top_bottom',
+    ]) {
       expect((await run(key, 'dave', CYCLE)).status, key).toBe(403);
       expect((await get(`/reports/${key}/meta`, 'dave')).status, key).toBe(403);
     }
@@ -581,8 +654,12 @@ describe('permissions and export', () => {
   it('lets a viewer run but not export; an exporter gets CSV and Excel through the engine', async () => {
     expect((await run('performance.cycle_summary', 'vera', CYCLE)).status).toBe(200);
     expect(
-      (await post('/reports/performance.cycle_summary/export', 'vera', { format: 'csv', filters: CYCLE }))
-        .status,
+      (
+        await post('/reports/performance.cycle_summary/export', 'vera', {
+          format: 'csv',
+          filters: CYCLE,
+        })
+      ).status,
     ).toBe(403);
 
     const csv = await post('/reports/performance.cycle_summary/export', 'alice', {

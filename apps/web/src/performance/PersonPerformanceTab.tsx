@@ -12,13 +12,17 @@
  *     a zero (the reset guard rule).
  *   - The table is the exact data; the charts are a quick look and carry text labels.
  *
- * Depends on: api client, i18n, ui components, ./DayBars.tsx. Used by: people/EmployeeProfilePage.tsx.
+ * Row 4.8c adds a "Platform details" section above the figures: the same sheet details as the
+ * call sheet's Details panel (day off, duty time, break, plate, COD ...), from one shared view.
+ *
+ * Depends on: api client, i18n, ui components, ./DayBars.tsx, ./PlatformDetails.tsx. Used by: people/EmployeeProfilePage.tsx.
  */
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useI18n } from '../i18n';
 import { EmptyState, ErrorAlert, Skeleton } from '../ui/components';
 import { DayBars } from './DayBars';
+import { PlatformDetailsLoader } from './PlatformDetails';
 
 interface PersonDay {
   date: string;
@@ -37,6 +41,13 @@ interface PersonHistory {
   totals: { orders: number; hours: number; daysWorked: number; zeroDays: number };
   days: PersonDay[];
 }
+
+/** Today as the browser's calendar date (the day the profile's "day off today" compares with). */
+const todayText = () => {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${String(d.getFullYear())}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
 
 const cell = (value: number | null) => (value === null ? '—' : String(value));
 
@@ -69,6 +80,13 @@ export function PersonPerformanceTab({ partyId }: { partyId: string }) {
 
   return (
     <div className="stack">
+      <section className="card" aria-label={t('sheetDetails.title')}>
+        <h3>{t('sheetDetails.title')}</h3>
+        <PlatformDetailsLoader
+          path={`/performance/person/${partyId}/platform-details`}
+          date={todayText()}
+        />
+      </section>
       <div className="pick-group" role="group" aria-label={t('perfReports.cycle')}>
         {(['this', 'last'] as const).map((choice) => (
           <button

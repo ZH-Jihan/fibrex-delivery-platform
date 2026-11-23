@@ -47,6 +47,8 @@ export {
   SNOONU_METRICS,
 } from './platform-seed.js';
 export { addDays, blockDate, cycleContaining, type Cycle } from './cycle.js';
+export * from './sheet-details.js';
+export { platformDetailsSchema } from './performance-report-router.js';
 export * from './report-adapter.js';
 export { parseDailyReport, snoonuReportAdapter } from './snoonu-parser.js';
 export * from './source-providers.js';
@@ -112,6 +114,12 @@ export const PERFORMANCE_PERMISSIONS: readonly PermissionDef[] = [
     'performance.report',
     'view',
     'See the performance reports and a person’s performance history',
+  ),
+  permission(
+    'performance',
+    'performance.amounts',
+    'view',
+    'See the COD (pending amount) and balance amount of a person from the platform sheet',
   ),
   permission(
     'performance',

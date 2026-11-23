@@ -21,12 +21,27 @@
  *     tracking.entry.create or .update plus tracking.status.apply (status), and
  *     people.employee.read for the profile link.
  *
- * Depends on: api client, auth, i18n, ui components, ./status-dialog.tsx, toast.
+ * Row 4.8c adds the platform sheet's details to each row (a compact second line: day off, duty
+ * time, break, zone and the COD (pending amount)), a "Day off today" mark, filter and sort, and a
+ * "Details" button that opens a side panel (bottom sheet on a phone) with every sheet detail.
+ * The server parses the sheet values; the COD amount arrives only for people who hold
+ * performance.amounts.view (`amountsVisible`), and the balance amount only in the panel.
+ *
+ * Depends on: api client, auth, i18n, ui components, ./status-dialog.tsx, toast,
+ * ../performance/PlatformDetails.tsx.
  * Used by: App.tsx (route /tracking), performance/manifest.ts (menu).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ClipboardList, FileSpreadsheet, Phone, PhoneCall, Repeat, UserRound } from 'lucide-react';
+import {
+  ClipboardList,
+  FileSpreadsheet,
+  Info,
+  Phone,
+  PhoneCall,
+  Repeat,
+  UserRound,
+} from 'lucide-react';
 import { type CrossCheckKind } from '@fibrex/shared';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
@@ -45,6 +60,14 @@ import {
   Textarea,
 } from '../ui/components';
 import { useToast } from '../ui/toast';
+import {
+  PlatformDetailsLoader,
+  SheetValue,
+  dayOffLabel,
+  moneyLabel,
+  timeLabel,
+  type SheetDetails,
+} from '../performance/PlatformDetails';
 import { StatusDialog, useLookup, useStatuses, type Choice } from './status-dialog';
 import { isLowHours, isZeroOrders } from './sheet-rules';
 
@@ -59,6 +82,7 @@ export interface SheetRow {
   phone: string | null;
   statusCode: string | null;
   yesterday: { orders: number | null; hours: number | null; lateMinutes: number | null };
+  sheet: SheetDetails;
   entry: { id: string; version: number; callOutcomeId: string | null } | null;
   calledToday: boolean;
   lastCall: { outcomeId: string; outcomeCode: string | null; at: string } | null;
@@ -82,6 +106,30 @@ export interface Sheet {
   filtered: boolean;
   unfiltered: { totalPeople: number; byStatus: Record<string, number> };
   lowHoursLimit: number;
+  amountsVisible: boolean;
+}
+
+/** How the rows are ordered on screen (the server sends them by name). */
+type SortKey = 'name' | 'orders' | 'hours' | 'dayOff';
+const SORT_KEYS: SortKey[] = ['name', 'orders', 'hours', 'dayOff'];
+
+/** Fewest first for orders and hours (the people to call first); people without a figure last. */
+function sortRows(rows: SheetRow[], key: SortKey): SheetRow[] {
+  if (key === 'name') return rows;
+  const copy = [...rows];
+  const figure = (r: SheetRow) => (key === 'orders' ? r.yesterday.orders : r.yesterday.hours);
+  copy.sort((a, b) => {
+    if (key === 'dayOff') {
+      return Number(b.sheet.dayOff.isToday) - Number(a.sheet.dayOff.isToday);
+    }
+    const x = figure(a);
+    const y = figure(b);
+    if (x === null && y === null) return 0;
+    if (x === null) return 1;
+    if (y === null) return -1;
+    return x - y;
+  });
+  return copy;
 }
 
 const todayText = () => {
@@ -92,7 +140,11 @@ const todayText = () => {
 /** Digits and a leading plus only, so the `tel:` link works whatever the sheet wrote. */
 const telHref = (phone: string) => `tel:${phone.replace(/[^\d+]/g, '')}`;
 
-type Dialog = { kind: 'call'; row: SheetRow } | { kind: 'status'; row: SheetRow } | null;
+type Dialog =
+  | { kind: 'call'; row: SheetRow }
+  | { kind: 'status'; row: SheetRow }
+  | { kind: 'details'; row: SheetRow }
+  | null;
 
 export function CallSheetPage() {
   const { t, language } = useI18n();
@@ -110,6 +162,8 @@ export function CallSheetPage() {
   const [search, setSearch] = useState('');
   const [notCalledOnly, setNotCalledOnly] = useState(false);
   const [zeroOnly, setZeroOnly] = useState(false);
+  const [dayOffOnly, setDayOffOnly] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>('name');
   const [status, setStatus] = useState('');
   const [dialog, setDialog] = useState<Dialog>(null);
   const [exporting, setExporting] = useState(false);
@@ -145,8 +199,9 @@ export function CallSheetPage() {
       ...(query === '' ? {} : { q: query }),
       ...(notCalledOnly ? { notCalled: 'true' } : {}),
       ...(zeroOnly ? { zeroOrders: 'true' } : {}),
+      ...(dayOffOnly ? { dayOffToday: 'true' } : {}),
     }),
-    [status, query, notCalledOnly, zeroOnly],
+    [status, query, notCalledOnly, zeroOnly, dayOffOnly],
   );
 
   // Only the newest answer is shown: an older, slower one must not overwrite it.
@@ -172,7 +227,7 @@ export function CallSheetPage() {
     load();
   }, [load]);
 
-  const rows = sheet?.rows ?? [];
+  const rows = useMemo(() => sortRows(sheet?.rows ?? [], sortKey), [sheet?.rows, sortKey]);
 
   const outcomeLabel = (outcomeId: string, code: string | null) =>
     outcomes.find((o) => o.id === outcomeId)?.label ?? code ?? '—';
@@ -221,6 +276,7 @@ export function CallSheetPage() {
     query === '' ? null : t('callSheet.filterSearchIs', { text: query }),
     notCalledOnly ? t('callSheet.filterNotCalled') : null,
     zeroOnly ? t('callSheet.filterZero') : null,
+    dayOffOnly ? t('callSheet.filterDayOff') : null,
   ].filter((x): x is string => x !== null);
 
   const s = sheet?.summary;
@@ -301,6 +357,23 @@ export function CallSheetPage() {
         >
           {t('callSheet.filterZero')}
         </Button>
+        <Button
+          aria-pressed={dayOffOnly}
+          variant={dayOffOnly ? 'primary' : 'default'}
+          onClick={() => {
+            setDayOffOnly(!dayOffOnly);
+          }}
+        >
+          {t('callSheet.filterDayOff')}
+        </Button>
+        <Select
+          label={t('callSheet.sort')}
+          value={sortKey}
+          options={SORT_KEYS.map((k) => ({ value: k, label: t(`callSheet.sort.${k}` as const) }))}
+          onChange={(e) => {
+            setSortKey(e.target.value as SortKey);
+          }}
+        />
         {canExport ? (
           <Button
             icon={FileSpreadsheet}
@@ -417,7 +490,15 @@ export function CallSheetPage() {
                   return (
                     <tr
                       key={r.partyId}
-                      className={zero ? 'sheet-row-zero' : low ? 'sheet-row-low' : undefined}
+                      className={
+                        r.sheet.dayOff.isToday
+                          ? 'sheet-row-off'
+                          : zero
+                            ? 'sheet-row-zero'
+                            : low
+                              ? 'sheet-row-low'
+                              : undefined
+                      }
                     >
                       <td data-label={t('callSheet.person')}>
                         <strong>{r.name}</strong>
@@ -432,6 +513,10 @@ export function CallSheetPage() {
                         <Pill tone={r.statusCode === 'active' ? 'success' : 'neutral'}>
                           {statusLabel(r.statusCode)}
                         </Pill>
+                        {r.sheet.dayOff.isToday ? (
+                          <Pill tone="warning">{t('sheetDetails.dayOffToday')}</Pill>
+                        ) : null}
+                        <SheetFacts row={r} amountsVisible={sheet.amountsVisible} />
                       </td>
                       <td data-label={t('callSheet.phone')}>
                         {r.phone === null ? (
@@ -498,6 +583,15 @@ export function CallSheetPage() {
                               {t('callSheet.setStatus')}
                             </Button>
                           ) : null}
+                          <Button
+                            size="sm"
+                            icon={Info}
+                            onClick={() => {
+                              setDialog({ kind: 'details', row: r });
+                            }}
+                          >
+                            {t('callSheet.details')}
+                          </Button>
                           {canProfile ? (
                             <Link className="btn btn-sm" to={`/employees/${r.employeeId}`}>
                               <UserRound aria-hidden size={14} /> {t('callSheet.openProfile')}
@@ -524,6 +618,17 @@ export function CallSheetPage() {
           }}
           onDone={() => {
             done(t('callSheet.callLogged'));
+          }}
+        />
+      ) : null}
+      {dialog?.kind === 'details' ? (
+        <DetailsPanel
+          row={dialog.row}
+          date={date}
+          outcomes={outcomes}
+          statusLabel={statusLabel}
+          onClose={() => {
+            setDialog(null);
           }}
         />
       ) : null}
@@ -612,6 +717,171 @@ function CallDialog({
           </Button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+/** The compact second line of a row: day off, duty time, break, zone and the COD amount. */
+function SheetFacts({ row, amountsVisible }: { row: SheetRow; amountsVisible: boolean }) {
+  const { t, language } = useI18n();
+  const sheet = row.sheet;
+  const zone = sheet.zone ?? row.zone ?? '';
+  const facts: { key: string; label: string; value: string; notUpdated?: boolean }[] = [
+    {
+      key: 'dayOff',
+      label: t('sheetDetails.dayOff'),
+      value: dayOffLabel(sheet, language),
+      notUpdated: sheet.dayOff.notUpdated,
+    },
+    {
+      key: 'duty',
+      label: t('sheetDetails.dutyTime'),
+      value: timeLabel(sheet.dutyTime),
+      notUpdated: sheet.dutyTime.notUpdated,
+    },
+    {
+      key: 'break',
+      label: t('sheetDetails.break'),
+      value: timeLabel(sheet.break),
+      notUpdated: sheet.break.notUpdated,
+    },
+    { key: 'zone', label: t('sheetDetails.zone'), value: zone },
+    ...(amountsVisible
+      ? [
+          {
+            key: 'cod',
+            label: t('sheetDetails.cod'),
+            value: sheet.cod === null ? '' : moneyLabel(sheet.cod),
+          },
+        ]
+      : []),
+  ];
+  return (
+    <ul className="sheet-facts" aria-label={t('callSheet.sheetFacts')}>
+      {facts.map((f) => (
+        <li key={f.key}>
+          <span className="muted">{f.label}:</span>{' '}
+          <SheetValue value={f.value} notUpdated={f.notUpdated === true} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+interface History {
+  calls: {
+    id: string;
+    at: string;
+    outcomeId: string;
+    outcomeCode: string | null;
+    note: string | null;
+  }[];
+  statusHistory: {
+    id: string;
+    fromCode: string | null;
+    toCode: string;
+    effectiveDate: string;
+    at: string;
+  }[];
+}
+
+/** Side panel (bottom sheet on a phone) with every sheet detail, the latest calls and moves. */
+function DetailsPanel({
+  row,
+  date,
+  outcomes,
+  statusLabel,
+  onClose,
+}: {
+  row: SheetRow;
+  date: string;
+  outcomes: Choice[];
+  statusLabel: (code: string | null) => string;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const [history, setHistory] = useState<History | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api<History>(`/tracking/${row.partyId}/history`)
+      .then((r) => {
+        if (!cancelled) setHistory(r);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setError(e);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [row.partyId]);
+  const latest = <T extends { at: string }>(list: T[]) =>
+    [...list].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5);
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      variant="sheet"
+      className="details-panel"
+      aria-labelledby="details-title"
+    >
+      <div className="dialog-head">
+        <h2 id="details-title">{t('callSheet.detailsTitle', { name: row.name })}</h2>
+        <Button onClick={onClose}>{t('common.close')}</Button>
+      </div>
+      <PlatformDetailsLoader
+        path={`/tracking/${row.partyId}/details`}
+        date={date}
+        extra={
+          <>
+            <div className="detail">
+              <dt>{t('callSheet.person')}</dt>
+              <dd>{row.name}</dd>
+            </div>
+            <div className="detail">
+              <dt>{t('callSheet.code')}</dt>
+              <dd className="mono">{row.employeeCode}</dd>
+            </div>
+            <div className="detail">
+              <dt>{t('callSheet.phone')}</dt>
+              <dd dir="ltr">{row.phone ?? '—'}</dd>
+            </div>
+            <div className="detail">
+              <dt>{t('callSheet.profession')}</dt>
+              <dd>{row.profession}</dd>
+            </div>
+          </>
+        }
+      />
+      <ErrorAlert error={error} />
+      <h4 className="muted-heading">{t('callSheet.latestCalls')}</h4>
+      {history === null && error === null ? <Skeleton lines={2} /> : null}
+      {history !== null && history.calls.length === 0 ? (
+        <p className="muted">{t('personTracking.noCalls')}</p>
+      ) : null}
+      <ul className="plain-list">
+        {latest(history?.calls ?? []).map((c) => (
+          <li key={c.id}>
+            <span className="nowrap muted">{c.at.slice(0, 16).replace('T', ' ')}</span>{' '}
+            {outcomes.find((o) => o.id === c.outcomeId)?.label ?? c.outcomeCode ?? '—'}
+            {c.note === null || c.note === '' ? '' : ` — ${c.note}`}
+          </li>
+        ))}
+      </ul>
+      <h4 className="muted-heading">{t('callSheet.latestStatusChanges')}</h4>
+      {history !== null && history.statusHistory.length === 0 ? (
+        <p className="muted">{t('personTracking.noStatus')}</p>
+      ) : null}
+      <ul className="plain-list">
+        {latest(history?.statusHistory ?? []).map((h) => (
+          <li key={h.id}>
+            <span className="nowrap muted">{h.effectiveDate}</span>{' '}
+            {h.fromCode === null ? '' : `${statusLabel(h.fromCode)} → `}
+            {statusLabel(h.toCode)}
+          </li>
+        ))}
+      </ul>
     </Modal>
   );
 }

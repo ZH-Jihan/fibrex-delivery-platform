@@ -3,6 +3,8 @@
  *
  *   GET /performance/report-options        platforms with this and last cycle, yesterday
  *   GET /performance/person/{partyId}      one person's day-by-day figures for a cycle or range
+ *   GET /performance/person/{partyId}/platform-details?date=
+ *                                           the platform sheet's details of the person (row 4.8c)
  *
  * Purpose: the report pages need the platforms and cycle dates to fill their pickers, and the
  * employee profile needs one person's cycle (daily orders and hours for a table and a chart).
@@ -17,12 +19,14 @@
  * openapi). Used by: ./index.ts.
  */
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
+import { can } from '@fibrex/shared';
 import { Router } from 'express';
 import { z } from 'zod';
 import { currentUnit, type UnitOfWork } from '../../kernel/db/unit-of-work.js';
 import { NotFoundError } from '../../kernel/http/errors.js';
 import { registerRoute } from '../../kernel/http/openapi.js';
 import type { PermissionService } from '../../kernel/permissions/permission-service.js';
+import { PLAIN_IDENTIFIER_TYPES } from '../party/index.js';
 import { addDays } from './cycle.js';
 import {
   REPORT_VIEW,
@@ -33,6 +37,7 @@ import {
   yesterdayInQatar,
 } from './performance-reports.js';
 import { acceptancePercent, hoursOf, indexFigures, totalsFor } from './report-calc.js';
+import { AMOUNTS_VIEW, loadPlatformDetails } from './sheet-details.js';
 
 const day = z.iso.date();
 const cycleSchema = z.object({ start: day, end: day });
@@ -54,6 +59,63 @@ const optionsResponse = z
     ),
   })
   .meta({ id: 'PerformanceReportOptions' });
+
+const detailsQuery = z.object({ date: day.optional() });
+const timeRange = z.object({
+  from: z.string().nullable(),
+  to: z.string().nullable(),
+  text: z.string().nullable(),
+  notUpdated: z.boolean(),
+});
+const amountSchema = z.object({ amount: z.string(), currency: z.string() }).nullable();
+/** The platform details response, shared with the tracking router's details route. */
+export const platformDetailsSchema = z
+  .object({
+    partyId: z.uuid(),
+    date: day,
+    amountsVisible: z.boolean(),
+    sheet: z.object({
+      found: z.boolean(),
+      asOfDate: day.nullable(),
+      updatedAt: z.iso.datetime().nullable(),
+      dayOff: z.object({
+        text: z.string().nullable(),
+        weekdays: z.array(z.number().int()),
+        isToday: z.boolean(),
+        notUpdated: z.boolean(),
+      }),
+      dutyTime: timeRange,
+      break: timeRange,
+      zone: z.string().nullable(),
+      plate: z.string().nullable(),
+      vehicleType: z.string().nullable(),
+      skill: z.string().nullable(),
+      tags: z.string().nullable(),
+      contactNumber: z.string().nullable(),
+      company: z.string().nullable(),
+      cod: amountSchema,
+      balance: amountSchema,
+      notUpdatedFields: z.array(z.string()),
+    }),
+    platformIds: z.array(
+      z.object({
+        identifierId: z.uuid(),
+        type: z.string(),
+        value: z.string(),
+        validFrom: day,
+        validTo: day.nullable(),
+      }),
+    ),
+    recentDays: z.array(
+      z.object({
+        date: day,
+        reported: z.boolean(),
+        orders: z.number().int().nullable(),
+        hours: z.number().nullable(),
+      }),
+    ),
+  })
+  .meta({ id: 'PlatformDetails' });
 
 const personQuery = z.object({
   platformId: z.uuid().optional(),
@@ -178,6 +240,26 @@ export function createPerformanceReportRouter(deps: PerformanceReportRouterDeps)
     res.json(result);
   });
 
+  router.get('/performance/person/:partyId/platform-details', async (req, res) => {
+    const { partyId } = personParams.parse(req.params);
+    const query = detailsQuery.parse(req.query);
+    const result = await uow.run(async (db) => {
+      await permissions.require(REPORT_VIEW);
+      const party = await db.party.findFirst({ where: { id: partyId }, select: { id: true } });
+      if (party === null) throw new NotFoundError('That person does not exist.');
+      // Amounts need their own permission; without it they never leave the server.
+      const withAmounts = can(await permissions.current(), AMOUNTS_VIEW);
+      return loadPlatformDetails(
+        db,
+        partyId,
+        query.date ?? yesterdayInQatar(),
+        withAmounts,
+        PLAIN_IDENTIFIER_TYPES,
+      );
+    });
+    res.json(result);
+  });
+
   const tags = ['Performance reports'];
   const json = <T extends z.ZodType>(schema: T) => ({ 'application/json': { schema } });
   registerRoute(registry, {
@@ -186,6 +268,14 @@ export function createPerformanceReportRouter(deps: PerformanceReportRouterDeps)
     tags,
     summary: 'Platforms with their this and last cycle dates, and yesterday (Qatar date)',
     responses: { 200: { description: 'Report options', content: json(optionsResponse) } },
+  });
+  registerRoute(registry, {
+    method: 'get',
+    path: '/performance/person/{partyId}/platform-details',
+    tags,
+    summary: "The platform sheet's details of one person (day off, duty time, break, COD ...)",
+    request: { params: personParams, query: detailsQuery },
+    responses: { 200: { description: 'The details', content: json(platformDetailsSchema) } },
   });
   registerRoute(registry, {
     method: 'get',

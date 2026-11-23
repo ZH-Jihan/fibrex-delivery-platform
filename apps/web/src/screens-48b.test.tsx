@@ -9,6 +9,7 @@ import { setAccessToken } from './api/client';
 import { AuthProvider } from './auth/AuthContext';
 import { I18nProvider } from './i18n';
 import { urlOf } from './test/helpers';
+import { NO_SHEET } from './test/sheet-fixture';
 import { ThemeProvider } from './theme/theme';
 import { CallSheetPage } from './tracking/CallSheetPage';
 import { PersonTrackingTab } from './tracking/PersonTrackingTab';
@@ -471,6 +472,7 @@ const SHEET = {
       phone: null,
       statusCode: 'active',
       yesterday: { orders: 5, hours: 5, lateMinutes: 0 },
+      sheet: NO_SHEET,
       entry: null,
       calledToday: true,
       lastCall: null,

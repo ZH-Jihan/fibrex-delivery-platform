@@ -16,7 +16,9 @@ import type { UnitOfWork } from '../../kernel/db/unit-of-work.js';
 import type { ModuleManifest } from '../../kernel/module-registry/index.js';
 import { permission, type PermissionDef } from '../../kernel/permissions/catalogue.js';
 import type { PermissionService } from '../../kernel/permissions/permission-service.js';
-import { callSheetReport } from './call-sheet-report.js';
+import { can } from '@fibrex/shared';
+import { AMOUNTS_VIEW } from '../performance/index.js';
+import { createCallSheetReport } from './call-sheet-report.js';
 import { createTrackingRouter } from './tracking-router.js';
 import type { TrackingService } from './tracking-service.js';
 
@@ -68,12 +70,18 @@ export interface TrackingModuleDeps {
   tracking: TrackingService;
 }
 
+/** Whether the caller may see COD amounts in the export (never, without the permission service). */
+function amountsAllowed(deps: TrackingModuleDeps | undefined): () => Promise<boolean> {
+  return async () =>
+    deps === undefined ? false : can(await deps.permissions.current(), AMOUNTS_VIEW);
+}
+
 export function createTrackingModule(deps?: TrackingModuleDeps): ModuleManifest {
   return {
     key: 'tracking',
     label: 'Tracking',
     permissions: TRACKING_PERMISSIONS,
-    reports: [callSheetReport],
+    reports: [createCallSheetReport(amountsAllowed(deps))],
     nav: [
       {
         path: '/tracking',

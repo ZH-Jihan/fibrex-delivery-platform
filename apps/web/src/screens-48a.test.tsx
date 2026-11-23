@@ -8,6 +8,7 @@ import { setAccessToken } from './api/client';
 import { AuthProvider } from './auth/AuthContext';
 import { I18nProvider } from './i18n';
 import { urlOf } from './test/helpers';
+import { NO_SHEET } from './test/sheet-fixture';
 import { ThemeProvider } from './theme/theme';
 import { CallSheetPage } from './tracking/CallSheetPage';
 import { ToastProvider } from './ui/toast';
@@ -118,6 +119,7 @@ const person = (n: number, over: Record<string, unknown> = {}) => ({
   phone: `+9745550000${String(n)}`,
   statusCode: 'active',
   yesterday: { orders: 12, hours: 8.5, lateMinutes: 0 },
+  sheet: NO_SHEET,
   entry: null,
   calledToday: false,
   lastCall: null,

@@ -17,11 +17,16 @@
  * The status shown is the employee's status on the sheet's date: the current status for today
  * or later, the dated history (`cfg.state_history`) for a past date.
  *
+ * The platform sheet details of each person (row 4.8c: day off, duty time, break, zone, plate,
+ * COD ...) come from the person's latest stored sheet row of the date's cycle (loadSheetDetails).
+ * The COD amount is included only when the caller may see amounts, and the balance amount is
+ * never on the call sheet (it is only in the details panel).
+ *
  * Everything is read through the caller's unit of work, so row-level security keeps each
  * company's sheet to itself.
  *
  * Depends on: @fibrex/shared, kernel/db, ../party (PLAIN_IDENTIFIER_TYPES), ../people
- * (EMPLOYEE_ENTITY), ../performance (addDays), ./tracking-calc.ts, ./tracking-service.ts
+ * (EMPLOYEE_ENTITY), ../performance (addDays, sheet details), ./tracking-calc.ts, ./tracking-service.ts
  * (entryView). Used by: ./tracking-router.ts.
  */
 import {
@@ -32,7 +37,12 @@ import {
 import type { Db } from '../../kernel/db/prisma.js';
 import { PLAIN_IDENTIFIER_TYPES } from '../party/index.js';
 import { EMPLOYEE_ENTITY } from '../people/index.js';
-import { addDays } from '../performance/index.js';
+import {
+  addDays,
+  loadSheetDetails,
+  NO_SHEET_DETAILS,
+  type SheetDetails,
+} from '../performance/index.js';
 import {
   crossCheck,
   sheetStatusOf,
@@ -97,6 +107,8 @@ export interface SheetRow {
     hours: number | null;
     lateMinutes: number | null;
   };
+  /** The platform sheet's details (balance always null here; COD only with the permission). */
+  sheet: SheetDetails;
   sheetStatus: SheetStatus | null;
   entry: EntryView | null;
   calledToday: boolean;
@@ -111,6 +123,8 @@ export interface SheetFilters {
   q?: string | undefined;
   notCalled?: boolean | undefined;
   zeroOrders?: boolean | undefined;
+  /** Only people whose sheet day off is the weekday of the chosen date. */
+  dayOffToday?: boolean | undefined;
 }
 
 export interface CallSheet {
@@ -128,6 +142,8 @@ export interface CallSheet {
   unfiltered: { totalPeople: number; byStatus: Record<string, number> };
   /** Active hours below which a person is marked "low hours" (company setting). */
   lowHoursLimit: number;
+  /** Whether COD amounts are in the rows (the caller holds performance.amounts.view). */
+  amountsVisible: boolean;
 }
 
 type OperatorRow = NonNullable<Awaited<ReturnType<Db['idOperatorPeriod']['findFirst']>>>;
@@ -236,6 +252,7 @@ export function matchesFilters(row: SheetRow, f: SheetFilters, reported: boolean
   if (f.status !== undefined && row.statusCode !== f.status) return false;
   if (f.notCalled === true && row.calledToday) return false;
   if (f.zeroOrders === true && !hasZeroOrders(row.yesterday.orders, reported)) return false;
+  if (f.dayOffToday === true && !row.sheet.dayOff.isToday) return false;
   const q = f.q?.trim().toLowerCase() ?? '';
   if (q === '') return true;
   return [row.name, row.employeeCode, row.phone ?? '', ...row.platformIds.map((p) => p.value)]
@@ -256,6 +273,7 @@ export async function loadCallSheet(
   today: string,
   filters: SheetFilters = {},
   lowHoursLimit: number = TRACKING_DEFAULT_LOW_HOURS,
+  withAmounts = false,
 ): Promise<CallSheet> {
   const day = toDay(date);
   const figuresDate = addDays(date, -1);
@@ -295,6 +313,7 @@ export async function loadCallSheet(
       filtered: false,
       unfiltered: { totalPeople: 0, byStatus: {} },
       lowHoursLimit,
+      amountsVisible: withAmounts,
     };
   }
 
@@ -366,6 +385,7 @@ export async function loadCallSheet(
     date,
     today,
   );
+  const sheets = await loadSheetDetails(db, partyIds, date, withAmounts);
   const outcomeCodes = await lookupCodes(
     db,
     lastCalls.map((c) => c.outcomeId),
@@ -427,6 +447,8 @@ export async function loadCallSheet(
         hours: figure === undefined ? null : Math.round((figure.minutes / 60) * 100) / 100,
         lateMinutes: figure?.late ?? null,
       },
+      // The balance amount is only for the details panel, never the call sheet.
+      sheet: { ...(sheets.get(partyId) ?? NO_SHEET_DETAILS), balance: null },
       sheetStatus,
       entry: entry === undefined ? null : entryView(entry),
       calledToday: calledOn.has(partyId) || (entry?.callOutcomeId ?? null) !== null,
@@ -468,5 +490,6 @@ export async function loadCallSheet(
     filtered: shown.length !== rows.length,
     unfiltered,
     lowHoursLimit,
+    amountsVisible: withAmounts,
   };
 }
