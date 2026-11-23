@@ -41,6 +41,8 @@ import {
   syncPermissionCatalogue,
 } from '../../src/kernel/permissions/catalogue.js';
 import { PermissionService } from '../../src/kernel/permissions/permission-service.js';
+import { createReportRouter } from '../../src/kernel/reports/report-router.js';
+import { ReportService } from '../../src/kernel/reports/report-service.js';
 import { createRedis } from '../../src/kernel/redis/client.js';
 import { AttachableRegistry } from '../../src/modules/files/index.js';
 import {
@@ -57,6 +59,7 @@ import {
   seedEmployeeStatus,
 } from '../../src/modules/people/index.js';
 import {
+  FdbApplyService,
   FdbService,
   PERFORMANCE_PERMISSIONS,
   ReportSourceProviders,
@@ -82,6 +85,8 @@ let f: Fixture;
 let app: Express;
 let alice: string;
 let vic: string;
+let carl: string;
+let dora: string;
 let syncSourceId: string;
 let queue: SyncQueue;
 let tab: SheetGrid | null = null;
@@ -251,6 +256,29 @@ beforeAll(async () => {
   };
   await addUser(f.userA, 'alice', await addRole('fdb_admin', 'all'));
   await addUser(randomUUID(), 'vic', await addRole('fdb_reader', ['performance.fdb_check.read']));
+  // Row 4.9b: carl may run and review and write documents, but has no apply permission; dora
+  // has the apply permission but may not write documents.
+  await addUser(
+    randomUUID(),
+    'carl',
+    await addRole('fdb_no_apply', [
+      'performance.fdb_check.read',
+      'performance.fdb_check.run',
+      'performance.fdb_check.review',
+      'people.document.read',
+      'people.document.create',
+      'people.document.update',
+    ]),
+  );
+  await addUser(
+    randomUUID(),
+    'dora',
+    await addRole('fdb_apply_only', [
+      'performance.fdb_check.read',
+      'performance.fdb_check.apply',
+      'people.document.read',
+    ]),
+  );
 
   expect(await seedEmployeeStatus(owner, f.tenantA)).toBe(true);
   await seedDocumentTypes(owner, f.tenantA, f.companyA1);
@@ -363,10 +391,38 @@ beforeAll(async () => {
         importTargets,
       });
       modules.register(people.manifest);
+      const fdbApply = new FdbApplyService({
+        uow,
+        documents: people.documentDates,
+        audit: createAuditService(),
+        logger,
+      });
       modules.register(
-        createPerformanceModule({ uow, registry, permissions, sync, syncQueue: queue, fdb }),
+        createPerformanceModule({
+          uow,
+          registry,
+          permissions,
+          sync,
+          syncQueue: queue,
+          fdb,
+          fdbApply,
+        }),
       );
       modules.mount(api);
+      // The people reports (missing documents) run through the real report router.
+      api.use(
+        createReportRouter({
+          uow,
+          registry,
+          permissions,
+          reports: new ReportService({
+            permissions,
+            storage: {} as never,
+            renderer: {} as never,
+            definitions: () => modules.reports(),
+          }),
+        }),
+      );
     },
   });
 
@@ -379,6 +435,8 @@ beforeAll(async () => {
   };
   alice = await signIn('alice');
   vic = await signIn('vic');
+  carl = await signIn('carl');
+  dora = await signIn('dora');
 
   const typeList = await get(alice, '/document-types?pageSize=50');
   for (const t of (typeList.body as { items: { id: string; code: string }[] }).items) {
@@ -553,5 +611,218 @@ describe('FDB report check', () => {
     expect(old.items.length).toBe(l.items.length);
     const runs = await get(alice, '/performance/fdb-check/runs');
     expect((runs.body as { items: unknown[] }).items).toHaveLength(2);
+  });
+});
+
+describe('taking dates from the FDB check into our documents (row 4.9b)', () => {
+  let pia: { id: string; partyId: string };
+  let rita: { id: string; partyId: string };
+  let sam: { id: string; partyId: string };
+  let quin: { id: string; partyId: string };
+
+  const docsOf = async (partyId: string) => {
+    const res = await get(alice, `/documents?ownerId=${partyId}&pageSize=50`);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    return (
+      res.body as {
+        items: {
+          id: string;
+          documentTypeId: string;
+          expiryDate: string | null;
+          source: string | null;
+        }[];
+      }
+    ).items;
+  };
+  const docCount = async () =>
+    (await owner.query<{ n: number }>('SELECT count(*)::int AS n FROM people.document')).rows[0]
+      ?.n ?? 0;
+  const diffFor = async (name: string, kind: string, field: string | null) => {
+    const l = await listing();
+    const found = l.items.find(
+      (d) => d.displayName === name && d.kind === kind && d.field === field,
+    );
+    if (found === undefined) throw new Error(`no ${kind} difference for ${name}`);
+    return found;
+  };
+  const auditCount = async (entityType: string, action: string, entityId?: string) =>
+    (
+      await owner.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM audit.audit_log
+          WHERE entity_type = $1 AND action = $2 AND ($3::uuid IS NULL OR entity_id = $3::uuid)`,
+        [entityType, action, entityId ?? null],
+      )
+    ).rows[0]?.n ?? 0;
+  interface Preview {
+    people: number;
+    documents: number;
+    byType: { field: string; count: number }[];
+    examples: { displayName: string | null }[];
+    skipped: { reason: string; count: number }[];
+  }
+  interface Applied {
+    people: number;
+    created: number;
+    updated: number;
+    applied: { displayName: string | null; field: string | null }[];
+    skipped: { displayName: string | null; field: string | null; reason: string }[];
+  }
+
+  beforeAll(async () => {
+    pia = await newEmployee('Pia Apply', '+97450000011', 'FX-9101');
+    quin = await newEmployee('Quin Apply', '+97450000012', 'FX-9102');
+    await addDoc(quin.partyId, 'passport', '2030-01-01');
+    rita = await newEmployee('Rita Apply', '+97450000013', 'FX-9103');
+    sam = await newEmployee('Sam Apply', '+97450000014', 'FX-9104');
+    // Only the QID and passport columns carry dates; licence and health card are left empty.
+    const only = (qid: string | null, passport: string | null) => ({
+      8: qid === null ? null : day(qid),
+      9: passport === null ? null : day(passport),
+      11: null,
+      14: null,
+    });
+    tab = grid(
+      fdbRow('FX-9101', 'Pia Apply', only('2027-04-01', '2029-01-01')),
+      fdbRow('FX-9102', 'Quin Apply', only(null, '2031-01-01')),
+      fdbRow('FX-9103', 'Rita Apply', only('2027-06-01', null)),
+      fdbRow('FX-9104', 'Sam Apply', only('1999-05-05', '2101-01-01')),
+      fdbRow('FX-9998', 'Stranger Apply', only('2027-07-07', null)),
+    );
+    const res = await runCheck();
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+  }, 60_000);
+
+  it('refuses without the apply permission, or without the documents write permission', async () => {
+    const d = await diffFor('Pia Apply', 'missing_ours', 'qid');
+    for (const token of [vic, carl, dora]) {
+      expect((await get(token, '/performance/fdb-check/apply-all/preview')).status).toBe(403);
+      expect((await post(token, '/performance/fdb-check/apply-all')).status).toBe(403);
+      expect((await post(token, `/performance/fdb-check/differences/${d.id}/apply`)).status).toBe(
+        403,
+      );
+    }
+    expect(await docsOf(pia.partyId)).toHaveLength(0);
+  });
+
+  it('applies one difference: date only, marked Snoonu FDB, no file, difference Applied', async () => {
+    const d = await diffFor('Pia Apply', 'missing_ours', 'qid');
+    const before = await auditCount('people.document', 'create');
+    const res = await post(alice, `/performance/fdb-check/differences/${d.id}/apply`);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect((res.body as Json).skipped).toBeNull();
+    const docs = await docsOf(pia.partyId);
+    expect(docs).toHaveLength(1);
+    expect(docs[0]).toMatchObject({
+      documentTypeId: types.qid,
+      expiryDate: '2027-04-01',
+      source: 'snoonu_fdb',
+    });
+    const files = await owner.query(
+      "SELECT 1 FROM files.file_attachment WHERE entity_type = 'people.document' AND entity_id = $1",
+      [docs[0]?.id],
+    );
+    expect(files.rows).toHaveLength(0);
+    expect(await auditCount('people.document', 'create')).toBe(before + 1);
+    expect((await diffFor('Pia Apply', 'missing_ours', 'qid')).reviewStatus).toBe('applied');
+    // Applying it again is refused: it is not open any more.
+    expect((await post(alice, `/performance/fdb-check/differences/${d.id}/apply`)).status).toBe(
+      422,
+    );
+    // An applied difference cannot be reopened by hand either.
+    const reopen = await post(alice, `/performance/fdb-check/differences/${d.id}/review`, {
+      status: 'open',
+    });
+    expect(reopen.status).toBe(422);
+  });
+
+  it('refuses to apply differences of the manual-review kinds', async () => {
+    const differs = await diffFor('Quin Apply', 'expiry_differs', 'passport');
+    const res = await post(alice, `/performance/fdb-check/differences/${differs.id}/apply`);
+    expect(res.status).toBe(422);
+    expect(JSON.stringify(res.body)).toContain('not_applicable');
+  });
+
+  it('the missing-documents report still asks for the scan of a date-only document', async () => {
+    const res = await post(alice, '/reports/people.missing_documents/run', {
+      filters: { documentTypeId: types.qid },
+      page: 1,
+      pageSize: 100,
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const names = (res.body as { rows: { employeeName: string }[] }).rows.map(
+      (r) => r.employeeName,
+    );
+    expect(names).toContain('Pia Apply');
+  });
+
+  it('the expiry engine picks up an applied date', async () => {
+    const res = await get(alice, '/documents/expiring?withinDays=365');
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const items = (res.body as { items: { ownerName: string; expiryDate: string }[] }).items;
+    expect(
+      items.find((i) => i.ownerName === 'Pia Apply' && i.expiryDate === '2027-04-01'),
+    ).toBeDefined();
+  });
+
+  it('previews the bulk run: counts by type, examples, what is left out', async () => {
+    // Staff type Rita's QID date before the bulk run: it must not be overwritten.
+    await addDoc(rita.partyId, 'qid', '2027-12-01');
+    const res = await get(alice, '/performance/fdb-check/apply-all/preview');
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const p = res.body as Preview;
+    expect(p.documents).toBe(1);
+    expect(p.people).toBe(1);
+    expect(p.byType).toEqual([{ field: 'passport', count: 1 }]);
+    expect(p.examples.map((e) => e.displayName)).toEqual(['Pia Apply']);
+    const skipped = Object.fromEntries(p.skipped.map((k) => [k.reason, k.count]));
+    expect(skipped).toEqual({ odd_date: 2, has_date: 1 });
+    // The preview changes nothing.
+    expect(await docsOf(pia.partyId)).toHaveLength(1);
+  });
+
+  it('applies all: creates, skips odd dates, never overwrites, leaves other kinds open', async () => {
+    const summaryBefore = await auditCount('performance.fdb_check', 'apply');
+    const res = await post(alice, '/performance/fdb-check/apply-all');
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const r = res.body as Applied;
+    expect(r).toMatchObject({ people: 1, created: 1, updated: 0 });
+    expect(r.applied).toEqual([
+      expect.objectContaining({ displayName: 'Pia Apply', field: 'passport' }),
+    ]);
+    const skipped = r.skipped.map((k) => `${k.displayName}:${k.field}:${k.reason}`).sort();
+    expect(skipped).toEqual([
+      'Rita Apply:qid:has_date',
+      'Sam Apply:passport:odd_date',
+      'Sam Apply:qid:odd_date',
+    ]);
+
+    const piaDocs = await docsOf(pia.partyId);
+    expect(piaDocs.map((d) => d.expiryDate).sort()).toEqual(['2027-04-01', '2029-01-01']);
+    // Rita keeps the date staff typed; Sam got nothing; Quin's own date is untouched.
+    expect(await docsOf(rita.partyId)).toEqual([
+      expect.objectContaining({ expiryDate: '2027-12-01', source: null }),
+    ]);
+    expect(await docsOf(sam.partyId)).toHaveLength(0);
+    expect(await docsOf(quin.partyId)).toEqual([
+      expect.objectContaining({ expiryDate: '2030-01-01', source: null }),
+    ]);
+    // The manual-review kinds and the odd dates are still open.
+    expect((await diffFor('Quin Apply', 'expiry_differs', 'passport')).reviewStatus).toBe('open');
+    expect((await diffFor('Sam Apply', 'missing_ours', 'qid')).reviewStatus).toBe('open');
+    expect((await diffFor('Pia Apply', 'missing_ours', 'passport')).reviewStatus).toBe('applied');
+    // One summary audit entry, and the new document is in the audit trail.
+    expect(await auditCount('performance.fdb_check', 'apply')).toBe(summaryBefore + 1);
+    const created = piaDocs.find((d) => d.expiryDate === '2029-01-01');
+    expect(await auditCount('people.document', 'create', created?.id)).toBe(1);
+  });
+
+  it('a second bulk run changes nothing', async () => {
+    const documents = await docCount();
+    const res = await post(alice, '/performance/fdb-check/apply-all');
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const r = res.body as Applied;
+    expect(r).toMatchObject({ people: 0, created: 0, updated: 0, applied: [] });
+    expect(r.skipped).toHaveLength(3);
+    expect(await docCount()).toBe(documents);
   });
 });

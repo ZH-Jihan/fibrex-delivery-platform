@@ -202,9 +202,25 @@ export const missingDocumentsReport: ReportDef = {
         ownerId: { in: employees.map((e) => e.partyId) },
         documentTypeId: { not: null },
       },
-      select: { ownerId: true, documentTypeId: true },
+      select: { id: true, ownerId: true, documentTypeId: true, source: true },
     });
-    const held = new Set(docs.map((d) => `${d.ownerId}:${d.documentTypeId}`));
+    // Row 4.9b: a date taken from the FDB check is not a held document until a scan is attached.
+    const dateOnly = docs.filter((d) => d.source !== null).map((d) => d.id);
+    const scanned = new Set(
+      dateOnly.length === 0
+        ? []
+        : (
+            await db.fileAttachment.findMany({
+              where: { entityType: 'people.document', entityId: { in: dateOnly }, deletedAt: null },
+              select: { entityId: true },
+            })
+          ).map((a) => a.entityId),
+    );
+    const held = new Set(
+      docs
+        .filter((d) => d.source === null || scanned.has(d.id))
+        .map((d) => `${d.ownerId}:${d.documentTypeId}`),
+    );
     const rows: Row[] = [];
     for (const emp of employees) {
       const profession = emp.placements[0]?.profession ?? '';

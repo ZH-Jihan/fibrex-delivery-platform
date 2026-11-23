@@ -19,7 +19,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ClipboardCheck, Download, Play, UserRound } from 'lucide-react';
+import { ClipboardCheck, Download, FilePlus2, Play, UserRound } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { uploadFile } from '../data/upload';
@@ -56,7 +56,9 @@ const DOCS = [
   'food_handling',
   'health_card',
 ] as const;
-const REVIEWS = ['open', 'reviewed', 'ignored'] as const;
+const REVIEWS = ['open', 'reviewed', 'ignored', 'applied'] as const;
+/** The kinds of skip the apply routes report (row 4.9b). */
+type SkipReason = 'odd_date' | 'not_in_system' | 'has_date' | 'no_type' | 'failed';
 
 type Kind = (typeof KINDS)[number];
 type Review = (typeof REVIEWS)[number];
@@ -98,6 +100,27 @@ interface Source {
   adapterKind: string;
   active: boolean;
 }
+interface ApplyLine {
+  differenceId: string;
+  displayName: string | null;
+  externalId: string | null;
+  field: string | null;
+  date: string | null;
+}
+interface ApplyPreview {
+  people: number;
+  documents: number;
+  byType: { field: string; count: number }[];
+  examples: ApplyLine[];
+  skipped: { reason: SkipReason; count: number }[];
+}
+interface ApplyResult {
+  people: number;
+  created: number;
+  updated: number;
+  applied: ApplyLine[];
+  skipped: (ApplyLine & { reason: SkipReason })[];
+}
 interface RunResult {
   rowsRead: number;
   differences: number;
@@ -112,7 +135,7 @@ const kindTone = (kind: Kind): PillTone =>
       ? 'info'
       : 'warning';
 const reviewTone = (r: Review): PillTone =>
-  r === 'open' ? 'warning' : r === 'reviewed' ? 'success' : 'neutral';
+  r === 'open' ? 'warning' : r === 'reviewed' || r === 'applied' ? 'success' : 'neutral';
 
 /** The rows as a CSV text (quotes doubled, a leading = + - @ made harmless). */
 function toCsv(rows: string[][]): string {
@@ -135,6 +158,8 @@ export function FdbCheckPage() {
   const canRun = auth.can('performance.fdb_check.run');
   const canReview = auth.can('performance.fdb_check.review');
   const canProfile = auth.can('people.employee.read');
+  // Row 4.9b: writing documents needs the apply permission and the documents write permission.
+  const canApply = auth.can('performance.fdb_check.apply') && auth.can('people.document.update');
 
   const [data, setData] = useState<Listing | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -149,6 +174,11 @@ export function FdbCheckPage() {
   const [busy, setBusy] = useState(false);
   const [runError, setRunError] = useState<unknown>(null);
   const [positional, setPositional] = useState<string[]>([]);
+  const [applyOpen, setApplyOpen] = useState(false);
+  const [preview, setPreview] = useState<ApplyPreview | null>(null);
+  const [applyResult, setApplyResult] = useState<ApplyResult | null>(null);
+  const [applyBusy, setApplyBusy] = useState(false);
+  const [applyError, setApplyError] = useState<unknown>(null);
 
   const load = useCallback(() => {
     api<Listing>('/performance/fdb-check', {
@@ -231,6 +261,57 @@ export function FdbCheckPage() {
       });
   };
 
+  const openApply = () => {
+    setApplyError(null);
+    setApplyResult(null);
+    setPreview(null);
+    setApplyOpen(true);
+    api<ApplyPreview>('/performance/fdb-check/apply-all/preview')
+      .then(setPreview)
+      .catch((e: unknown) => {
+        setApplyError(e);
+      });
+  };
+  const confirmApply = () => {
+    setApplyBusy(true);
+    setApplyError(null);
+    api<ApplyResult>('/performance/fdb-check/apply-all', { method: 'POST', body: {} })
+      .then((r) => {
+        setApplyResult(r);
+        toast.show(
+          t('fdb.applyDone', {
+            documents: String(r.created + r.updated),
+            people: String(r.people),
+            skipped: String(r.skipped.length),
+          }),
+          r.skipped.length === 0 ? 'success' : 'info',
+        );
+        load();
+      })
+      .catch((e: unknown) => {
+        setApplyError(e);
+      })
+      .finally(() => {
+        setApplyBusy(false);
+      });
+  };
+  const applyOne = (item: Difference) => {
+    api<{ skipped: SkipReason | null }>(`/performance/fdb-check/differences/${item.id}/apply`, {
+      method: 'POST',
+      body: {},
+    })
+      .then((r) => {
+        toast.show(
+          r.skipped === null ? t('fdb.useDateDone') : t(`fdb.skip.${r.skipped}` as never),
+          r.skipped === null ? 'success' : 'info',
+        );
+        load();
+      })
+      .catch((e: unknown) => {
+        setError(e);
+      });
+  };
+
   const docName = (code: string | null) => (code === null ? '' : t(`fdb.doc.${code}` as never));
   const finding = (d: Difference) =>
     d.field === null
@@ -282,6 +363,11 @@ export function FdbCheckPage() {
             >
               {t('fdb.exportCsv')}
             </Button>
+            {canApply && (data?.openByKind.missing_ours ?? 0) > 0 ? (
+              <Button icon={FilePlus2} onClick={openApply}>
+                {t('fdb.applyAll')}
+              </Button>
+            ) : null}
             {canRun ? (
               <Button
                 icon={Play}
@@ -413,6 +499,20 @@ export function FdbCheckPage() {
                         </td>
                         <td data-label={t('fdb.actions')}>
                           <div className="row-actions">
+                            {canApply &&
+                            d.kind === 'missing_ours' &&
+                            d.reviewStatus === 'open' &&
+                            d.partyId !== null ? (
+                              <Button
+                                size="sm"
+                                variant="primary"
+                                onClick={() => {
+                                  applyOne(d);
+                                }}
+                              >
+                                {t('fdb.useDate')}
+                              </Button>
+                            ) : null}
                             {canReview && d.reviewStatus === 'open' ? (
                               <>
                                 <Button
@@ -433,7 +533,9 @@ export function FdbCheckPage() {
                                 </Button>
                               </>
                             ) : null}
-                            {canReview && d.reviewStatus !== 'open' ? (
+                            {canReview &&
+                            d.reviewStatus !== 'open' &&
+                            d.reviewStatus !== 'applied' ? (
                               <Button
                                 size="sm"
                                 onClick={() => {
@@ -459,6 +561,141 @@ export function FdbCheckPage() {
           )}
         </>
       ) : null}
+
+      <Modal
+        open={applyOpen}
+        onClose={() => {
+          setApplyOpen(false);
+        }}
+        aria-labelledby="fdb-apply-title"
+      >
+        <h2 id="fdb-apply-title">{t('fdb.applyTitle')}</h2>
+        <ErrorAlert error={applyError} />
+        {applyResult !== null ? (
+          <>
+            <p>
+              {t('fdb.applyDone', {
+                documents: String(applyResult.created + applyResult.updated),
+                people: String(applyResult.people),
+                skipped: String(applyResult.skipped.length),
+              })}
+            </p>
+            <div className="table-wrap">
+              <table className="stack" aria-label={t('fdb.applyResult')}>
+                <thead>
+                  <tr>
+                    <th>{t('fdb.person')}</th>
+                    <th>{t('fdb.docLabel')}</th>
+                    <th>{t('fdb.applyDate')}</th>
+                    <th>{t('fdb.applyResult')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {applyResult.skipped.map((l) => (
+                    <tr key={l.differenceId}>
+                      <td data-label={t('fdb.person')}>{l.displayName ?? '—'}</td>
+                      <td data-label={t('fdb.docLabel')}>{docName(l.field)}</td>
+                      <td data-label={t('fdb.applyDate')} className="nowrap">
+                        {l.date ?? '—'}
+                      </td>
+                      <td data-label={t('fdb.applyResult')}>
+                        <Pill tone="warning">{t(`fdb.skip.${l.reason}` as never)}</Pill>
+                      </td>
+                    </tr>
+                  ))}
+                  {applyResult.applied.map((l) => (
+                    <tr key={l.differenceId}>
+                      <td data-label={t('fdb.person')}>{l.displayName ?? '—'}</td>
+                      <td data-label={t('fdb.docLabel')}>{docName(l.field)}</td>
+                      <td data-label={t('fdb.applyDate')} className="nowrap">
+                        {l.date ?? '—'}
+                      </td>
+                      <td data-label={t('fdb.applyResult')}>
+                        <Pill tone="success">{t('fdb.applyApplied')}</Pill>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="dialog-actions">
+              <Button
+                onClick={() => {
+                  setApplyOpen(false);
+                }}
+              >
+                {t('common.close')}
+              </Button>
+            </div>
+          </>
+        ) : preview === null ? (
+          applyError === null ? (
+            <Skeleton lines={3} />
+          ) : null
+        ) : (
+          <>
+            <p className="muted">{t('fdb.applyIntro')}</p>
+            {preview.documents === 0 ? (
+              <p>{t('fdb.applyNothing')}</p>
+            ) : (
+              <>
+                <p>
+                  <strong>
+                    {t('fdb.applySummary', {
+                      documents: String(preview.documents),
+                      people: String(preview.people),
+                    })}
+                  </strong>
+                </p>
+                <h3>{t('fdb.applyByType')}</h3>
+                <ul>
+                  {preview.byType.map((b) => (
+                    <li key={b.field}>
+                      {docName(b.field)}: {b.count}
+                    </li>
+                  ))}
+                </ul>
+                <h3>{t('fdb.applyExamples')}</h3>
+                <ul>
+                  {preview.examples.map((e) => (
+                    <li key={e.differenceId}>
+                      {e.displayName ?? '—'} · {docName(e.field)} · {e.date ?? '—'}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {preview.skipped.length > 0 ? (
+              <>
+                <h3>{t('fdb.applyLeftOut')}</h3>
+                <ul>
+                  {preview.skipped.map((k) => (
+                    <li key={k.reason}>
+                      {t(`fdb.skip.${k.reason}` as never)}: {k.count}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+            <div className="dialog-actions">
+              <Button
+                onClick={() => {
+                  setApplyOpen(false);
+                }}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button
+                variant="primary"
+                disabled={applyBusy || preview.documents === 0}
+                onClick={confirmApply}
+              >
+                {t('common.confirm')}
+              </Button>
+            </div>
+          </>
+        )}
+      </Modal>
 
       <Modal
         open={runOpen}

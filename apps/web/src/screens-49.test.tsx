@@ -231,3 +231,127 @@ describe('FDB report check (row 4.9)', () => {
     expect(await screen.findByText('No check has been run yet.')).toBeInTheDocument();
   });
 });
+
+describe('FDB check: taking dates into our records (row 4.9b)', () => {
+  const missing = diff({
+    id: 'd3',
+    kind: 'missing_ours',
+    displayName: 'Chandra Test',
+    externalId: '9003',
+    oursValue: null,
+    theirsValue: '2027-04-01',
+  });
+  const withMissing = {
+    ...listing,
+    items: [...listing.items, missing],
+    openByKind: { ...listing.openByKind, missing_ours: 1 },
+  };
+  const preview = {
+    checkId: 'k1',
+    people: 1,
+    documents: 1,
+    byType: [{ field: 'qid', count: 1 }],
+    examples: [
+      {
+        differenceId: 'd3',
+        displayName: 'Chandra Test',
+        externalId: '9003',
+        field: 'qid',
+        date: '2027-04-01',
+      },
+    ],
+    skipped: [{ reason: 'odd_date', count: 2 }],
+  };
+
+  it('hides both apply buttons without the apply permission', async () => {
+    stub(
+      base(
+        ['performance.fdb_check.read', 'performance.fdb_check.review', 'people.document.update'],
+        {
+          'GET /performance/fdb-check': () => json(200, withMissing),
+        },
+      ),
+    );
+    render(wrap(<FdbCheckPage />));
+    await screen.findByText('Chandra Test');
+    expect(screen.queryByRole('button', { name: 'Use Snoonu date' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Apply all open/ })).not.toBeInTheDocument();
+  });
+
+  it('hides them when the documents write permission is missing too', async () => {
+    stub(
+      base(['performance.fdb_check.read', 'performance.fdb_check.apply'], {
+        'GET /performance/fdb-check': () => json(200, withMissing),
+      }),
+    );
+    render(wrap(<FdbCheckPage />));
+    await screen.findByText('Chandra Test');
+    expect(screen.queryByRole('button', { name: /Apply all open/ })).not.toBeInTheDocument();
+  });
+
+  it('uses the Snoonu date of one row, only on "We have no date" rows', async () => {
+    const calls = stub(
+      base(
+        ['performance.fdb_check.read', 'performance.fdb_check.apply', 'people.document.update'],
+        {
+          'GET /performance/fdb-check': () => json(200, withMissing),
+          'POST /performance/fdb-check/differences/d3/apply': () =>
+            json(200, { line: {}, skipped: null }),
+        },
+      ),
+    );
+    render(wrap(<FdbCheckPage />));
+    await screen.findByText('Chandra Test');
+    const buttons = screen.getAllByRole('button', { name: 'Use Snoonu date' });
+    expect(buttons).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Use Snoonu date' }));
+    await waitFor(() => {
+      expect(calls.some((c) => c.path === '/performance/fdb-check/differences/d3/apply')).toBe(
+        true,
+      );
+    });
+  });
+
+  it('previews first, then applies on Confirm and shows the result table', async () => {
+    const calls = stub(
+      base(
+        ['performance.fdb_check.read', 'performance.fdb_check.apply', 'people.document.update'],
+        {
+          'GET /performance/fdb-check': () => json(200, withMissing),
+          'GET /performance/fdb-check/apply-all/preview': () => json(200, preview),
+          'POST /performance/fdb-check/apply-all': () =>
+            json(200, {
+              checkId: 'k1',
+              people: 1,
+              created: 1,
+              updated: 0,
+              applied: preview.examples,
+              skipped: [
+                {
+                  differenceId: 'd9',
+                  displayName: 'Sam Test',
+                  externalId: '9009',
+                  field: 'passport',
+                  date: '1999-05-05',
+                  reason: 'odd_date',
+                },
+              ],
+            }),
+        },
+      ),
+    );
+    render(wrap(<FdbCheckPage />));
+    await screen.findByText('Chandra Test');
+    await userEvent.click(screen.getByRole('button', { name: /Apply all open/ }));
+    expect(
+      await screen.findByText('1 documents for 1 people will be created or filled in.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Skipped: odd date: 2')).toBeInTheDocument();
+    // Nothing was written by the preview.
+    expect(calls.some((c) => c.method === 'POST' && c.path.startsWith('/performance'))).toBe(false);
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+    const table = await screen.findByRole('table', { name: 'Result' });
+    expect(within(table).getByText('Skipped: odd date')).toBeInTheDocument();
+    expect(within(table).getByText('Applied')).toBeInTheDocument();
+  });
+});

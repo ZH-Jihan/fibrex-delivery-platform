@@ -28,6 +28,7 @@ import {
 import type { PermissionService } from '../../kernel/permissions/permission-service.js';
 import type { GoogleConnectionService } from './google-connection.js';
 import { createFdbRouter } from './fdb-router.js';
+import type { FdbApplyService } from './fdb-apply.js';
 import type { FdbService } from './fdb-service.js';
 import { createGoogleRouter } from './google-router.js';
 import type { PartyService } from '../party/index.js';
@@ -68,7 +69,8 @@ export {
 } from './google-connection.js';
 export { GOOGLE_MANAGE } from './google-router.js';
 export { FdbService, type FdbRunResult } from './fdb-service.js';
-export { FDB_READ, FDB_RUN, FDB_REVIEW } from './fdb-router.js';
+export { FDB_READ, FDB_RUN, FDB_REVIEW, FDB_APPLY } from './fdb-router.js';
+export { FdbApplyService, type FdbDocumentWriter } from './fdb-apply.js';
 export { parseFdbReport, FDB_TAB } from './fdb-parser.js';
 export { compareFdb } from './fdb-compare.js';
 export {
@@ -154,6 +156,12 @@ export const PERFORMANCE_PERMISSIONS: readonly PermissionDef[] = [
   ),
   permission(
     'performance',
+    'performance.fdb_check',
+    'apply',
+    'Take expiry dates from the Snoonu FDB check into our employee documents',
+  ),
+  permission(
+    'performance',
     'performance.google_connection',
     'manage',
     'Connect, test and disconnect the Google account that reads platform sheets (read-only)',
@@ -177,6 +185,8 @@ export interface PerformanceModuleDeps {
   summary?: SummaryService;
   /** Row 4.9: with it, the FDB report check routes are mounted. */
   fdb?: FdbService;
+  /** Row 4.9b: taking dates from the FDB check into our documents. */
+  fdbApply?: FdbApplyService;
 }
 
 /** The module manifest. Routers are added by the rows that build them. */
@@ -229,6 +239,7 @@ export function createPerformanceModule(deps?: PerformanceModuleDeps): ModuleMan
                     registry: deps.registry,
                     permissions: deps.permissions,
                     fdb: deps.fdb,
+                    apply: deps.fdbApply,
                   }),
                 ]),
             ...(deps.parties === undefined || deps.employees === undefined

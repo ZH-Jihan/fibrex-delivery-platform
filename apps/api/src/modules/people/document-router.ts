@@ -91,6 +91,8 @@ const item = z
     status: z.enum(DOCUMENT_STATUSES),
     replacesId: z.uuid().nullable(),
     ocrJobId: z.uuid().nullable(),
+    /** Where the row came from: null, or 'snoonu_fdb' (a date only, file still to come). */
+    source: z.string().nullable(),
     version: z.number().int(),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
@@ -131,6 +133,7 @@ export function toDocumentItem(row: DocumentRow) {
     status: row.status as (typeof DOCUMENT_STATUSES)[number],
     replacesId: row.replacesId,
     ocrJobId: row.ocrJobId,
+    source: row.source,
     version: row.version,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -295,6 +298,8 @@ export function createDocumentRepository(deps: {
             status,
             replacesId,
             ocrJobId,
+            // Only code (the FDB date service) sets this; the API schemas have no such field.
+            source: typeof data.source === 'string' ? data.source : null,
           },
           DATES,
         ),

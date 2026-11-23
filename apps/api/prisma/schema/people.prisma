@@ -182,6 +182,8 @@ model Document {
   status          String    @default("valid")
   replacesId      String?   @map("replaces_id") @db.Uuid
   ocrJobId        String?   @map("ocr_job_id") @db.Uuid
+  /// Where the row came from: null (staff or scan) or 'snoonu_fdb' (date only, row 4.9b).
+  source          String?
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   createdBy       String?   @map("created_by") @db.Uuid
   updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)

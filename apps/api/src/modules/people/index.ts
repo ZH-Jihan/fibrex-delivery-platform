@@ -43,6 +43,7 @@ import {
   createDocumentRepository,
   createDocumentRouter,
 } from './document-router.js';
+import { createDocumentDateWriter, type DocumentDateWriter } from './document-dates.js';
 import {
   createDocumentTypeRepository,
   createDocumentTypeRouter,
@@ -77,6 +78,12 @@ export type {
 } from './employee-directory.js';
 export { seedEmployeeStatus } from './employee-status.js';
 export { DOCUMENT_ENTITY } from './document-router.js';
+export {
+  createDocumentDateWriter,
+  type DocumentDateWriter,
+  type ExternalDocumentDate,
+  type ExternalDocumentDateOutcome,
+} from './document-dates.js';
 export { seedDocumentTypes } from './document-type-router.js';
 export {
   EXPIRY_EVENT,
@@ -145,6 +152,8 @@ export interface PeopleModule {
   expiry: ExpiryService;
   /** Service interface for other modules (row 4.5b: the unmatched riders queue). */
   directory: EmployeeDirectory;
+  /** Service interface for other modules (row 4.9b: dates from the FDB check). */
+  documentDates: DocumentDateWriter;
 }
 
 export function createPeopleModule(deps: PeopleModuleDeps): PeopleModule {
@@ -310,5 +319,6 @@ export function createPeopleModule(deps: PeopleModuleDeps): PeopleModule {
     employeeStateTarget: createEmployeeStateTarget(employees),
     expiry,
     directory: createEmployeeDirectory(employees),
+    documentDates: createDocumentDateWriter(documents),
   };
 }

@@ -8,9 +8,14 @@
  *                                               fileObjectId? } (an uploaded Excel copy, or the
  *                                               source's read-only reader)
  *   POST /performance/fdb-check/differences/{id}/review   mark open, reviewed or ignored (note)
+ *   POST /performance/fdb-check/differences/{id}/apply    row 4.9b: take Snoonu's date for a
+ *                                               "We have no date" difference into our documents
+ *   GET  /performance/fdb-check/apply-all/preview  what the bulk apply would do (changes nothing)
+ *   POST /performance/fdb-check/apply-all       apply every open "We have no date" difference
  *
- * Permissions: `performance.fdb_check.read`, `.run`, `.review`. Nothing here changes an
- * employee, a document or a status; staff do that on the employee profile.
+ * Permissions: `performance.fdb_check.read`, `.run`, `.review`, and `.apply` (which also needs
+ * people.document.create and .update). Only the apply routes write documents, and only for
+ * "We have no date"; everything else is done by staff on the employee profile.
  *
  * Depends on: express, zod, kernel/db, kernel/http, ./fdb-service.ts, ./fdb-compare.ts.
  * Used by: ./index.ts.
@@ -19,20 +24,24 @@ import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { Router } from 'express';
 import { z } from 'zod';
 import { currentUnit, type UnitOfWork } from '../../kernel/db/unit-of-work.js';
-import { NotFoundError } from '../../kernel/http/errors.js';
+import { NotFoundError, UnprocessableError } from '../../kernel/http/errors.js';
 import { registerRoute } from '../../kernel/http/openapi.js';
 import type { PermissionService } from '../../kernel/permissions/permission-service.js';
 import { FDB_DIFFERENCE_KINDS } from './fdb-compare.js';
 import { FDB_DOC_KEYS } from './fdb-parser.js';
+import { APPLY_SKIP_REASONS, type FdbApplyService } from './fdb-apply.js';
 import type { FdbService } from './fdb-service.js';
 
 export const FDB_READ = 'performance.fdb_check.read';
 export const FDB_RUN = 'performance.fdb_check.run';
 export const FDB_REVIEW = 'performance.fdb_check.review';
+export const FDB_APPLY = 'performance.fdb_check.apply';
 
 const MAX_DIFFERENCES = 2000;
 
-const REVIEW_STATES = ['open', 'reviewed', 'ignored'] as const;
+/** 'applied' is set only by the apply routes, never by a manual mark. */
+const REVIEW_STATES = ['open', 'reviewed', 'ignored', 'applied'] as const;
+const MARK_STATES = ['open', 'reviewed', 'ignored'] as const;
 
 const listQuery = z.object({
   checkId: z.uuid().optional(),
@@ -47,7 +56,7 @@ const runBody = z.object({
   fileObjectId: z.uuid().optional(),
 });
 const reviewBody = z.object({
-  status: z.enum(REVIEW_STATES),
+  status: z.enum(MARK_STATES),
   note: z.string().trim().max(500).optional(),
 });
 
@@ -113,6 +122,8 @@ export interface FdbRouterDeps {
   registry: OpenAPIRegistry;
   permissions: PermissionService;
   fdb: FdbService;
+  /** Row 4.9b; without it the apply routes are not mounted. */
+  apply?: FdbApplyService | undefined;
 }
 
 interface CheckRow {
@@ -251,6 +262,9 @@ export function createFdbRouter(deps: FdbRouterDeps): Router {
       await permissions.require(FDB_REVIEW);
       const found = await db.fdbDifference.findFirst({ where: { id, deletedAt: null } });
       if (found === null) throw new NotFoundError();
+      if (found.reviewStatus === 'applied') {
+        throw new UnprocessableError('already_applied', 'This difference was already applied.');
+      }
       const { context } = currentUnit();
       const reopen = body.status === 'open';
       const updated = await db.fdbDifference.update({
@@ -273,6 +287,34 @@ export function createFdbRouter(deps: FdbRouterDeps): Router {
     });
     res.json(out);
   });
+
+  const { apply } = deps;
+  if (apply !== undefined) {
+    // Writing documents needs the apply permission and the documents write permissions.
+    const requireApply = () =>
+      uow.run(async () => {
+        await permissions.require(FDB_APPLY);
+        await permissions.require('people.document.create');
+        await permissions.require('people.document.update');
+      });
+    const checkQuery = z.object({ checkId: z.uuid().optional() });
+
+    router.get('/performance/fdb-check/apply-all/preview', async (req, res) => {
+      const { checkId } = checkQuery.parse(req.query);
+      await requireApply();
+      res.json(await apply.preview(checkId));
+    });
+    router.post('/performance/fdb-check/apply-all', async (req, res) => {
+      const { checkId } = checkQuery.parse(req.body ?? {});
+      await requireApply();
+      res.json(await apply.applyAll(checkId));
+    });
+    router.post('/performance/fdb-check/differences/:id/apply', async (req, res) => {
+      const { id } = idParams.parse(req.params);
+      await requireApply();
+      res.json(await apply.applyOne(id));
+    });
+  }
 
   const tags = ['Performance FDB check'];
   const json = <T extends z.ZodType>(schema: T) => ({ 'application/json': { schema } });
@@ -319,6 +361,72 @@ export function createFdbRouter(deps: FdbRouterDeps): Router {
             version: z.number().int(),
           }),
         ),
+      },
+    },
+  });
+  const applyLine = z.object({
+    differenceId: z.uuid(),
+    displayName: z.string().nullable(),
+    externalId: z.string().nullable(),
+    field: z.string().nullable(),
+    date: z.string().nullable(),
+  });
+  const skipReason = z.enum(APPLY_SKIP_REASONS);
+  registerRoute(registry, {
+    method: 'get',
+    path: '/performance/fdb-check/apply-all/preview',
+    tags,
+    summary: 'Preview taking all open "We have no date" dates into our documents',
+    request: { query: z.object({ checkId: z.uuid().optional() }) },
+    responses: {
+      200: {
+        description: 'People, documents by type, first ten examples, what is left out',
+        content: json(
+          z.object({
+            checkId: z.uuid().nullable(),
+            people: z.number().int(),
+            documents: z.number().int(),
+            byType: z.array(z.object({ field: z.string(), count: z.number().int() })),
+            examples: z.array(applyLine),
+            skipped: z.array(z.object({ reason: skipReason, count: z.number().int() })),
+          }),
+        ),
+      },
+    },
+  });
+  registerRoute(registry, {
+    method: 'post',
+    path: '/performance/fdb-check/apply-all',
+    tags,
+    summary:
+      'Take all open "We have no date" dates into our documents (one transaction per person)',
+    request: { body: { content: json(z.object({ checkId: z.uuid().optional() })) } },
+    responses: {
+      200: {
+        description: 'What was applied and what was skipped, with reasons',
+        content: json(
+          z.object({
+            checkId: z.uuid().nullable(),
+            people: z.number().int(),
+            created: z.number().int(),
+            updated: z.number().int(),
+            applied: z.array(applyLine),
+            skipped: z.array(applyLine.extend({ reason: skipReason })),
+          }),
+        ),
+      },
+    },
+  });
+  registerRoute(registry, {
+    method: 'post',
+    path: '/performance/fdb-check/differences/{id}/apply',
+    tags,
+    summary: 'Take the Snoonu date of one "We have no date" difference into our documents',
+    request: { params: idParams },
+    responses: {
+      200: {
+        description: 'The line, and the reason when it was skipped',
+        content: json(z.object({ line: applyLine, skipped: skipReason.nullable() })),
       },
     },
   });

@@ -157,6 +157,7 @@ import {
   SummaryService,
   SyncQueue,
   SyncService,
+  FdbApplyService,
   FdbService,
   createPerformanceModule,
 } from './modules/performance/index.js';
@@ -638,17 +639,6 @@ async function main(): Promise<void> {
     box: new SecretBox(env.DATA_ENCRYPTION_KEY),
     logger,
   });
-  // Snoonu FDB report check (row 4.9): runs on request, reads the FDB tab, never writes.
-  const fdbService = new FdbService({
-    uow,
-    storage,
-    parties: new PartyService(
-      new PartyVault(new SecretBox(env.DATA_ENCRYPTION_KEY), env.DATA_ENCRYPTION_KEY),
-    ),
-    providers: reportSources,
-    box: new SecretBox(env.DATA_ENCRYPTION_KEY),
-    logger,
-  });
   const syncQueue = new SyncQueue({
     redisUrl: env.REDIS_URL,
     service: syncService,
@@ -764,6 +754,22 @@ async function main(): Promise<void> {
         ocr: { adapter: new StubOcrAdapter(), storage },
       });
       stateTargets.register(EMPLOYEE_ENTITY, people.employeeStateTarget);
+      // Snoonu FDB report check (row 4.9): runs on request, reads the FDB tab, never writes.
+      const fdbService = new FdbService({
+        uow,
+        storage,
+        parties: partyService,
+        providers: reportSources,
+        box: new SecretBox(env.DATA_ENCRYPTION_KEY),
+        logger,
+      });
+      // Row 4.9b: takes "We have no date" dates into our documents, through the people service.
+      const fdbApply = new FdbApplyService({
+        uow,
+        documents: people.documentDates,
+        audit,
+        logger,
+      });
       // Document expiry (row 3.4): daily; safe to run twice (the alert log is the guard).
       scheduler.register({
         name: 'document-expiry',
@@ -794,6 +800,7 @@ async function main(): Promise<void> {
           syncQueue,
           summary: summaryService,
           fdb: fdbService,
+          fdbApply,
           parties: partyService,
           employees: people.directory,
           google: googleConnection,
