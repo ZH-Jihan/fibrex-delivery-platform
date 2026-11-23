@@ -10,6 +10,7 @@ import {
   BarChart3,
   CalendarRange,
   ClipboardList,
+  GitCompareArrows,
   History,
   Mail,
   PlugZap,
@@ -48,6 +49,12 @@ export const performanceManifest: WebModuleManifest = {
           label: 'nav.callSheet',
           permission: 'tracking.entry.view',
           icon: ClipboardList,
+        },
+        {
+          to: '/performance/status-differences',
+          label: 'nav.statusDiff',
+          permission: 'tracking.entry.view',
+          icon: GitCompareArrows,
         },
         {
           to: '/performance/sync-sources',

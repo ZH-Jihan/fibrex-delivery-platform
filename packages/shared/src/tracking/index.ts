@@ -57,6 +57,33 @@ export const trackingDateQuerySchema = z.object({
   date: isoDate.optional(),
 });
 
+/** The low-hours limit when the company has not set one (active hours; below it is "low"). */
+export const TRACKING_DEFAULT_LOW_HOURS = 4;
+
+/**
+ * `GET /tracking`: the day plus the filters of the call sheet screen. The server applies them,
+ * so the rows, the summary strip and the exported sheet always describe the same people.
+ *   status       our status code on the date (exact);
+ *   q            text found in the name, employee code, phone or a platform ID;
+ *   notCalled    "true": only people not yet called on the date;
+ *   zeroOrders   "true": only people with no orders on a day the sheet reported.
+ */
+export const trackingSheetQuerySchema = z.object({
+  date: isoDate.optional(),
+  status: z.string().trim().min(1).max(60).optional(),
+  q: z.string().trim().min(1).max(200).optional(),
+  notCalled: z.enum(['true', 'false']).optional(),
+  zeroOrders: z.enum(['true', 'false']).optional(),
+});
+export type TrackingSheetQuery = z.infer<typeof trackingSheetQuerySchema>;
+
+/** `PUT /tracking/settings`: the company's call sheet settings. */
+export const trackingSettingsSchema = z.strictObject({
+  /** Active hours yesterday below which the call sheet marks a person (0.5 to 24). */
+  lowHours: z.number().min(0.5).max(24),
+});
+export type TrackingSettings = z.infer<typeof trackingSettingsSchema>;
+
 const reasonRule = (b: { statusCode?: string | null; reasonId?: string | null }) =>
   b.statusCode === undefined ||
   b.statusCode === null ||
@@ -127,6 +154,7 @@ const operatorFields = {
   codAtHandover: decimalStringSchema.nullable().optional(),
   currency: currencyCodeSchema.nullable().optional(),
   ordersAtHandover: z.number().int().min(0).nullable().optional(),
+  note: note.nullable().optional(),
 };
 
 /** `POST /tracking/operator-periods`: someone else works a person's platform ID from a date. */

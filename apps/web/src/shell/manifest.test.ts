@@ -81,6 +81,7 @@ describe('buildNav', () => {
           '/performance/reports/cycle',
           '/performance/reports/top-bottom',
           '/tracking',
+          '/performance/status-differences',
           '/performance/sync-sources',
           '/performance/sync-runs',
           '/performance/unmatched',

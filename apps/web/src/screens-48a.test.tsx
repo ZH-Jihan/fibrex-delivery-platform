@@ -20,7 +20,7 @@ interface Call {
   query: string;
   body: unknown;
 }
-function stub(routes: Record<string, () => Response>) {
+function stub(routes: Record<string, (query: URLSearchParams) => Response>) {
   const calls: Call[] = [];
   vi.stubGlobal(
     'fetch',
@@ -37,13 +37,15 @@ function stub(routes: Record<string, () => Response>) {
       });
       const hit = Object.keys(routes).find((k) => `${method} ${path}` === k);
       if (hit === undefined) return Promise.reject(new Error(`unexpected ${method} ${url}`));
-      return Promise.resolve((routes[hit] as () => Response)());
+      return Promise.resolve(
+        (routes[hit] as (q: URLSearchParams) => Response)(new URLSearchParams(query)),
+      );
     }),
   );
   return calls;
 }
 
-const base = (permissions: string[], extra: Record<string, () => Response>) => ({
+const base = (permissions: string[], extra: Record<string, (q: URLSearchParams) => Response>) => ({
   'POST /auth/refresh': () =>
     json(200, {
       accessToken: 'tok',
@@ -136,6 +138,9 @@ const SHEET = {
     statusChangesToday: 2,
     byStatus: { active: 2, inactive: 1 },
   },
+  filtered: false,
+  unfiltered: { totalPeople: 3, byStatus: { active: 2, inactive: 1 } },
+  lowHoursLimit: 4,
   rows: [
     person(1, { calledToday: true }),
     person(2, { yesterday: { orders: 0, hours: 0, lateMinutes: 30 } }),
@@ -150,6 +155,44 @@ const ALL = [
   'people.employee.read',
 ];
 const sheet = () => json(200, SHEET);
+
+/**
+ * A stand-in for the server's filtering, so the screen test checks that the screen sends the
+ * filters and shows the strip it is given. (The real rules are tested through the API.)
+ */
+function filteredSheet(q: URLSearchParams): Response {
+  const text = q.get('q')?.toLowerCase() ?? '';
+  const rows = SHEET.rows.filter((r) => {
+    if (q.get('status') !== null && r.statusCode !== q.get('status')) return false;
+    if (q.get('notCalled') === 'true' && r.calledToday) return false;
+    if (q.get('zeroOrders') === 'true' && r.yesterday.orders !== 0) return false;
+    return (
+      text === '' ||
+      [r.name, r.employeeCode, r.phone, ...r.platformIds.map((x) => x.value)]
+        .join(' ')
+        .toLowerCase()
+        .includes(text)
+    );
+  });
+  return json(200, {
+    ...SHEET,
+    rows,
+    filtered: rows.length !== SHEET.rows.length,
+    summary: {
+      ...SHEET.summary,
+      totalPeople: rows.length,
+      called: rows.filter((r) => r.calledToday).length,
+      notCalled: rows.filter((r) => !r.calledToday).length,
+      ordersYesterday: rows.reduce((n, r) => n + r.yesterday.orders, 0),
+      hoursYesterday: rows.reduce((n, r) => n + r.yesterday.hours, 0),
+      zeroOrders: rows.filter((r) => r.yesterday.orders === 0).length,
+    },
+  });
+}
+const stripValue = (label: string) =>
+  within(screen.getByRole('list', { name: 'Summary' }))
+    .getByText(label)
+    .parentElement?.querySelector('.sheet-strip-value')?.textContent;
 
 describe('Morning call sheet (row 4.8a)', () => {
   it('shows the summary strip, rows, tap-to-call links and marks the quiet rows', async () => {
@@ -172,36 +215,87 @@ describe('Morning call sheet (row 4.8a)', () => {
     );
   });
 
-  it('filters: not yet called, zero orders, status and search; the date asks the server again', async () => {
+  it('sends the filters to the server and shows the strip it returns for those rows', async () => {
+    const calls = stub(base(ALL, { 'GET /tracking': filteredSheet }));
+    render(wrap(<CallSheetPage />));
+    await screen.findByText('Test Rider 1');
+    expect(screen.getByTestId('sheet-showing')).toHaveTextContent('Showing 3 of 3');
+    expect(stripValue('People')).toBe('3');
+    const last = () => calls.filter((c) => c.path === '/tracking').at(-1)?.query ?? '';
+
+    await userEvent.click(screen.getByRole('button', { name: 'Not yet called' }));
+    await waitFor(() => {
+      expect(screen.queryByText('Test Rider 1')).not.toBeInTheDocument();
+    });
+    expect(last()).toContain('notCalled=true');
+    expect(stripValue('People')).toBe('2');
+    expect(screen.getByTestId('sheet-showing')).toHaveTextContent('Showing 2 of 3');
+    expect(screen.getByTestId('sheet-showing')).toHaveTextContent('Filters: Not yet called');
+    await userEvent.click(screen.getByRole('button', { name: 'Not yet called' }));
+    await screen.findByText('Test Rider 1');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Zero orders yesterday' }));
+    await waitFor(() => {
+      expect(screen.queryByText('Test Rider 3')).not.toBeInTheDocument();
+    });
+    expect(last()).toContain('zeroOrders=true');
+    expect(stripValue('People')).toBe('1');
+    expect(stripValue('Zero-order people')).toBe('1');
+    expect(stripValue('Orders yesterday')).toBe('0');
+    await userEvent.click(screen.getByRole('button', { name: 'Zero orders yesterday' }));
+    await screen.findByText('Test Rider 3');
+
+    // The status filter: the strip counts only the active people and their orders and hours.
+    await userEvent.selectOptions(screen.getByLabelText('Status'), 'active');
+    await waitFor(() => {
+      expect(screen.queryByText('Test Rider 3')).not.toBeInTheDocument();
+    });
+    expect(last()).toContain('status=active');
+    expect(stripValue('People')).toBe('2');
+    expect(stripValue('Orders yesterday')).toBe('12');
+    expect(stripValue('Hours yesterday')).toBe('8.5');
+    expect(stripValue('Zero-order people')).toBe('1');
+    expect(screen.getByTestId('sheet-showing')).toHaveTextContent('Showing 2 of 3');
+    expect(screen.getByTestId('sheet-showing')).toHaveTextContent('Filters: Status: Active');
+    // The status list keeps offering every status, whatever the filter hides.
+    expect(screen.getByRole('option', { name: 'Inactive' })).toBeInTheDocument();
+  });
+
+  it('combines two filters and the search into one request and one strip', async () => {
+    const calls = stub(base(ALL, { 'GET /tracking': filteredSheet }));
+    render(wrap(<CallSheetPage />));
+    await screen.findByText('Test Rider 1');
+    await userEvent.selectOptions(screen.getByLabelText('Status'), 'active');
+    await userEvent.click(screen.getByRole('button', { name: 'Not yet called' }));
+    await userEvent.type(screen.getByLabelText('Search name, code, ID or phone'), '91002');
+    await waitFor(() => {
+      expect(screen.queryByText('Test Rider 3')).not.toBeInTheDocument();
+      expect(screen.queryByText('Test Rider 1')).not.toBeInTheDocument();
+    });
+    // The search is sent once typing pauses; wait for that request.
+    await waitFor(() => {
+      expect(calls.filter((c) => c.path === '/tracking').at(-1)?.query).toContain('q=91002');
+    });
+    const last = calls.filter((c) => c.path === '/tracking').at(-1)?.query ?? '';
+    expect(last).toContain('status=active');
+    expect(last).toContain('notCalled=true');
+    expect(screen.getByText('Test Rider 2')).toBeInTheDocument();
+    expect(stripValue('People')).toBe('1');
+    expect(stripValue('Not yet called')).toBe('1');
+    expect(stripValue('Zero-order people')).toBe('1');
+    expect(screen.getByTestId('sheet-showing')).toHaveTextContent('Showing 1 of 3');
+    await userEvent.clear(screen.getByLabelText('Search name, code, ID or phone'));
+    await userEvent.type(screen.getByLabelText('Search name, code, ID or phone'), 'nobody');
+    expect(await screen.findByText('Nobody matches these filters.')).toBeInTheDocument();
+    expect(stripValue('People')).toBe('0');
+  });
+
+  it('asks the server again when the date changes', async () => {
     const calls = stub(base(ALL, { 'GET /tracking': sheet }));
     render(wrap(<CallSheetPage />));
     await screen.findByText('Test Rider 1');
-
-    await userEvent.click(screen.getByRole('button', { name: 'Not yet called' }));
-    expect(screen.queryByText('Test Rider 1')).not.toBeInTheDocument();
-    expect(screen.getByText('Test Rider 2')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Not yet called' }));
-
-    await userEvent.click(screen.getByRole('button', { name: 'Zero orders yesterday' }));
-    expect(screen.getByText('Test Rider 2')).toBeInTheDocument();
-    expect(screen.queryByText('Test Rider 3')).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Zero orders yesterday' }));
-
-    await userEvent.selectOptions(screen.getByLabelText('Status'), 'inactive');
-    expect(screen.getByText('Test Rider 3')).toBeInTheDocument();
-    expect(screen.queryByText('Test Rider 2')).not.toBeInTheDocument();
-    await userEvent.selectOptions(screen.getByLabelText('Status'), '');
-
-    await userEvent.type(screen.getByLabelText('Search name, code, ID or phone'), '91002');
-    expect(screen.getByText('Test Rider 2')).toBeInTheDocument();
-    expect(screen.queryByText('Test Rider 1')).not.toBeInTheDocument();
-    await userEvent.clear(screen.getByLabelText('Search name, code, ID or phone'));
-    await userEvent.type(screen.getByLabelText('Search name, code, ID or phone'), 'nobody');
-    expect(screen.getByText('Nobody matches these filters.')).toBeInTheDocument();
-
     const before = calls.filter((c) => c.path === '/tracking').length;
-    const date = screen.getByLabelText('Date');
-    fireEvent.change(date, { target: { value: '2026-11-20' } });
+    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-11-20' } });
     await waitFor(() => {
       expect(calls.filter((c) => c.path === '/tracking').length).toBeGreaterThan(before);
     });

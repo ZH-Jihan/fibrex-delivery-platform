@@ -63,6 +63,7 @@ model IdOperatorPeriod {
   codAtHandover     Decimal?  @map("cod_at_handover") @db.Decimal(18, 4)
   currency          String?   @db.Char(3)
   ordersAtHandover  Int?      @map("orders_at_handover")
+  note              String?
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   createdBy         String?   @map("created_by") @db.Uuid
   updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)

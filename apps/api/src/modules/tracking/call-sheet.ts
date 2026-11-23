@@ -24,7 +24,11 @@
  * (EMPLOYEE_ENTITY), ../performance (addDays), ./tracking-calc.ts, ./tracking-service.ts
  * (entryView). Used by: ./tracking-router.ts.
  */
-import type { CrossCheckKind } from '@fibrex/shared';
+import {
+  TRACKING_DEFAULT_LOW_HOURS,
+  trackingSettingsSchema,
+  type CrossCheckKind,
+} from '@fibrex/shared';
 import type { Db } from '../../kernel/db/prisma.js';
 import { PLAIN_IDENTIFIER_TYPES } from '../party/index.js';
 import { EMPLOYEE_ENTITY } from '../people/index.js';
@@ -72,6 +76,9 @@ export interface OperatorView {
   codAtHandover: string | null;
   currency: string | null;
   ordersAtHandover: number | null;
+  note: string | null;
+  /** The user who recorded the period (null for rows made by the system). */
+  createdBy: string | null;
   version: number;
 }
 
@@ -98,14 +105,29 @@ export interface SheetRow {
   crossCheck: CrossCheckKind[];
 }
 
+/** The filters of `GET /tracking` (all optional; they combine with "and"). */
+export interface SheetFilters {
+  status?: string | undefined;
+  q?: string | undefined;
+  notCalled?: boolean | undefined;
+  zeroOrders?: boolean | undefined;
+}
+
 export interface CallSheet {
   date: string;
   /** The day the figures are from (the day before `date`). */
   figuresDate: string;
   /** Whether the company has stored figures for `figuresDate`. */
   reported: boolean;
+  /** The strip for exactly the rows returned (the filtered set). */
   summary: Summary;
   rows: SheetRow[];
+  /** True when at least one filter narrowed the list. */
+  filtered: boolean;
+  /** People and status counts of the whole sheet, whatever the filters. */
+  unfiltered: { totalPeople: number; byStatus: Record<string, number> };
+  /** Active hours below which a person is marked "low hours" (company setting). */
+  lowHoursLimit: number;
 }
 
 type OperatorRow = NonNullable<Awaited<ReturnType<Db['idOperatorPeriod']['findFirst']>>>;
@@ -124,6 +146,8 @@ export function operatorView(row: OperatorRow): OperatorView {
     codAtHandover: row.codAtHandover === null ? null : row.codAtHandover.toFixed(4),
     currency: row.currency,
     ordersAtHandover: row.ordersAtHandover,
+    note: row.note,
+    createdBy: row.createdBy,
     version: row.version,
   };
 }
@@ -184,8 +208,55 @@ async function statusesOn(
   return result;
 }
 
-/** The whole call sheet of `date`. `today` is the state service's today (UTC date). */
-export async function loadCallSheet(db: Db, date: string, today: string): Promise<CallSheet> {
+/** Key of the company setting that holds the low-hours limit: `{ "lowHours": 4 }`. */
+export const TRACKING_SETTINGS_KEY = 'tracking.call_sheet';
+
+/** The company's low-hours limit, or the default; a bad stored value falls back to the default. */
+export async function readLowHours(db: Db, companyId: string | null): Promise<number> {
+  if (companyId === null) return TRACKING_DEFAULT_LOW_HOURS;
+  const row = await db.setting.findFirst({
+    where: { scope: 'company', companyId, key: TRACKING_SETTINGS_KEY, deletedAt: null },
+    orderBy: { validFrom: 'desc' },
+  });
+  const parsed = trackingSettingsSchema.safeParse({
+    lowHours: (row?.value as { lowHours?: unknown } | null | undefined)?.lowHours,
+  });
+  return parsed.success ? parsed.data.lowHours : TRACKING_DEFAULT_LOW_HOURS;
+}
+
+/**
+ * Whether a row has no orders on a reported day. A person the sheet has no row for on a day it
+ * reported delivered nothing, so they count as zero (the same rule as the strip).
+ */
+export const hasZeroOrders = (orders: number | null, reported: boolean): boolean =>
+  reported && (orders ?? 0) === 0;
+
+/** Does the row pass every filter given? Text matches name, code, phone or a platform ID. */
+export function matchesFilters(row: SheetRow, f: SheetFilters, reported: boolean): boolean {
+  if (f.status !== undefined && row.statusCode !== f.status) return false;
+  if (f.notCalled === true && row.calledToday) return false;
+  if (f.zeroOrders === true && !hasZeroOrders(row.yesterday.orders, reported)) return false;
+  const q = f.q?.trim().toLowerCase() ?? '';
+  if (q === '') return true;
+  return [row.name, row.employeeCode, row.phone ?? '', ...row.platformIds.map((p) => p.value)]
+    .join(' ')
+    .toLowerCase()
+    .includes(q);
+}
+
+/**
+ * The whole call sheet of `date`. `today` is the state service's today (UTC date).
+ *
+ * Filters narrow the rows first; the summary strip is then computed over those rows only, so
+ * every number on the strip (and every exported line) describes exactly the people listed.
+ */
+export async function loadCallSheet(
+  db: Db,
+  date: string,
+  today: string,
+  filters: SheetFilters = {},
+  lowHoursLimit: number = TRACKING_DEFAULT_LOW_HOURS,
+): Promise<CallSheet> {
   const day = toDay(date);
   const figuresDate = addDays(date, -1);
   const live = { validFrom: { lte: day }, OR: [{ validTo: null }, { validTo: { gte: day } }] };
@@ -215,7 +286,16 @@ export async function loadCallSheet(db: Db, date: string, today: string): Promis
       where: { isCurrent: true, businessDate: toDay(figuresDate) },
     })) > 0;
   if (partyIds.length === 0) {
-    return { date, figuresDate, reported, summary: summarise([], reported), rows: [] };
+    return {
+      date,
+      figuresDate,
+      reported,
+      summary: summarise([], reported),
+      rows: [],
+      filtered: false,
+      unfiltered: { totalPeople: 0, byStatus: {} },
+      lowHoursLimit,
+    };
   }
 
   const inParties = { in: partyIds };
@@ -361,8 +441,14 @@ export async function loadCallSheet(db: Db, date: string, today: string): Promis
     };
   });
   rows.sort((a, b) => a.name.localeCompare(b.name) || a.employeeCode.localeCompare(b.employeeCode));
+  const unfiltered = { totalPeople: rows.length, byStatus: {} as Record<string, number> };
+  for (const row of rows) {
+    const key = row.statusCode ?? 'none';
+    unfiltered.byStatus[key] = (unfiltered.byStatus[key] ?? 0) + 1;
+  }
+  const shown = rows.filter((row) => matchesFilters(row, filters, reported));
   const summary = summarise(
-    rows.map((row) => ({
+    shown.map((row) => ({
       statusCode: row.statusCode,
       called: row.calledToday,
       orders: row.yesterday.orders,
@@ -373,5 +459,14 @@ export async function loadCallSheet(db: Db, date: string, today: string): Promis
     })),
     reported,
   );
-  return { date, figuresDate, reported, summary, rows };
+  return {
+    date,
+    figuresDate,
+    reported,
+    summary,
+    rows: shown,
+    filtered: shown.length !== rows.length,
+    unfiltered,
+    lowHoursLimit,
+  };
 }

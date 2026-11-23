@@ -1,7 +1,10 @@
 /**
  * Tracking API: the morning call sheet (phase 4 row 4.7; SPEC 3.3, PLAN 5.13).
  *
- *   GET   /tracking?date=                       the call sheet: rows and summary strip
+ *   GET   /tracking?date=&status=&q=&notCalled=&zeroOrders=
+ *                                               the call sheet: rows and the strip of those rows
+ *   GET   /tracking/settings                    the company's call sheet settings (low hours)
+ *   PUT   /tracking/settings                    save them (tracking.entry.update)
  *   GET   /tracking/cross-check?date=           sheet status and figures against our status
  *   GET   /tracking/{partyId}/history           entries, status history, calls, operator periods
  *   POST  /tracking/entries                     the day's entry of a person (outcome, status ...)
@@ -33,6 +36,8 @@ import {
   trackingCallCreateSchema,
   trackingDateQuerySchema,
   trackingEntryCreateSchema,
+  trackingSettingsSchema,
+  trackingSheetQuerySchema,
   trackingEntryUpdateSchema,
 } from '@fibrex/shared';
 import { Router } from 'express';
@@ -42,10 +47,13 @@ import { currentUnit, type UnitOfWork } from '../../kernel/db/unit-of-work.js';
 import { ConflictError, NotFoundError, UnprocessableError } from '../../kernel/http/errors.js';
 import { registerRoute } from '../../kernel/http/openapi.js';
 import type { PermissionService } from '../../kernel/permissions/permission-service.js';
+import { PLAIN_IDENTIFIER_TYPES } from '../party/index.js';
 import { EMPLOYEE_ENTITY } from '../people/index.js';
 import {
+  TRACKING_SETTINGS_KEY,
   callView,
   loadCallSheet,
+  readLowHours,
   lookupCodes,
   operatorView,
   type OperatorView,
@@ -112,6 +120,8 @@ const operatorSchema = z
     codAtHandover: z.string().nullable(),
     currency: z.string().nullable(),
     ordersAtHandover: z.number().int().nullable(),
+    note: z.string().nullable(),
+    createdBy: z.uuid().nullable(),
     version: z.number().int(),
   })
   .meta({ id: 'TrackingOperatorPeriod' });
@@ -161,6 +171,12 @@ const sheetSchema = z
     reported: z.boolean(),
     summary: summarySchema,
     rows: z.array(rowSchema),
+    filtered: z.boolean(),
+    unfiltered: z.object({
+      totalPeople: z.number().int(),
+      byStatus: z.record(z.string(), z.number().int()),
+    }),
+    lowHoursLimit: z.number(),
   })
   .meta({ id: 'TrackingSheet' });
 const crossCheckSchema = z
@@ -171,9 +187,11 @@ const crossCheckSchema = z
     items: z.array(
       z.object({
         partyId: z.uuid(),
+        employeeId: z.uuid(),
         employeeCode: z.string(),
         name: z.string(),
         platformIds: z.array(z.string()),
+        entry: z.object({ id: z.uuid(), version: z.number().int() }).nullable(),
         ourStatus: z.string().nullable(),
         sheetStatus: sheetStatusSchema,
         orders: z.number().int().nullable(),
@@ -201,8 +219,17 @@ const historySchema = z
     ),
     calls: z.array(callSchema),
     operatorPeriods: z.array(operatorSchema),
+    /** The person's platform IDs (to pick one when recording an operator period). */
+    platformIds: z.array(z.object({ identifierId: z.uuid(), type: z.string(), value: z.string() })),
+    /** Display names of the users named above (who did it), by user id. */
+    users: z.record(z.string(), z.string()),
   })
   .meta({ id: 'TrackingHistory' });
+
+const settingsSchema = z
+  .object({ companyId: z.uuid().nullable(), lowHours: z.number() })
+  .meta({ id: 'TrackingSettings' });
+const settingsQuery = z.object({ companyId: z.uuid().optional() });
 
 export interface TrackingRouterDeps {
   uow: UnitOfWork;
@@ -235,10 +262,68 @@ export function createTrackingRouter(deps: TrackingRouterDeps): Router {
   const utcToday = () => new Date().toISOString().slice(0, 10);
 
   router.get('/tracking', async (req, res) => {
-    const query = trackingDateQuerySchema.parse(req.query);
+    const query = trackingSheetQuerySchema.parse(req.query);
     const result = await uow.run(async (db) => {
       await permissions.require(ENTRY_VIEW);
-      return loadCallSheet(db, query.date ?? tracking.today(), utcToday());
+      return loadCallSheet(
+        db,
+        query.date ?? tracking.today(),
+        utcToday(),
+        {
+          status: query.status,
+          q: query.q,
+          notCalled: query.notCalled === 'true',
+          zeroOrders: query.zeroOrders === 'true',
+        },
+        await readLowHours(db, onlyCompany()),
+      );
+    });
+    res.json(result);
+  });
+
+  /** The caller's only company, or null when they have several (the default limit applies). */
+  const onlyCompany = (): string | null => {
+    const { companyIds } = currentUnit().context;
+    return companyIds.length === 1 ? (companyIds[0] ?? null) : null;
+  };
+
+  router.get('/tracking/settings', async (req, res) => {
+    const query = settingsQuery.parse(req.query);
+    const result = await uow.run(async (db) => {
+      await permissions.require(ENTRY_VIEW);
+      const companyId = query.companyId ?? onlyCompany();
+      return { companyId, lowHours: await readLowHours(db, companyId) };
+    });
+    res.json(result);
+  });
+
+  router.put('/tracking/settings', async (req, res) => {
+    const query = settingsQuery.parse(req.query);
+    const body = trackingSettingsSchema.parse(req.body);
+    const result = await uow.run(async (db) => {
+      await permissions.require(ENTRY_UPDATE);
+      const { context } = currentUnit();
+      const companyId = query.companyId ?? onlyCompany();
+      if (companyId === null || !context.companyIds.includes(companyId)) {
+        throw new UnprocessableError('company_required', 'Choose the company (companyId).');
+      }
+      const where = { scope: 'company', companyId, key: TRACKING_SETTINGS_KEY, deletedAt: null };
+      const current = await db.setting.findFirst({ where, orderBy: { validFrom: 'desc' } });
+      const value = { lowHours: body.lowHours };
+      if (current === null) {
+        await db.setting.create({
+          data: {
+            tenantId: context.tenantId,
+            companyId,
+            scope: 'company',
+            key: TRACKING_SETTINGS_KEY,
+            value,
+          },
+        });
+      } else {
+        await db.setting.update({ where: { id: current.id }, data: { value } });
+      }
+      return { companyId, lowHours: body.lowHours };
     });
     res.json(result);
   });
@@ -256,9 +341,11 @@ export function createTrackingRouter(deps: TrackingRouterDeps): Router {
           .filter((row) => row.crossCheck.length > 0)
           .map((row) => ({
             partyId: row.partyId,
+            employeeId: row.employeeId,
             employeeCode: row.employeeCode,
             name: row.name,
             platformIds: row.platformIds.map((p) => p.value),
+            entry: row.entry === null ? null : { id: row.entry.id, version: row.entry.version },
             ourStatus: row.statusCode,
             sheetStatus: row.sheetStatus,
             orders: row.yesterday.orders,
@@ -298,7 +385,36 @@ export function createTrackingRouter(deps: TrackingRouterDeps): Router {
         db,
         calls.map((c) => c.outcomeId),
       );
+      const identifiers = await db.partyIdentifier.findMany({
+        where: { partyId, type: { in: [...PLAIN_IDENTIFIER_TYPES] }, deletedAt: null },
+        orderBy: [{ validFrom: 'asc' }, { id: 'asc' }],
+        select: { id: true, type: true, valuePlain: true, valueMasked: true },
+      });
+      // Who did it: names of every user that appears in the lists below.
+      const userIds = [
+        ...new Set(
+          [
+            ...entries.map((e) => e.callerUserId),
+            ...history.map((h) => h.actorId),
+            ...calls.map((c) => c.callerUserId),
+            ...periods.map((p) => p.createdBy),
+          ].filter((id): id is string => id !== null),
+        ),
+      ];
+      const users =
+        userIds.length === 0
+          ? []
+          : await db.userAccount.findMany({
+              where: { id: { in: userIds } },
+              select: { id: true, displayName: true },
+            });
       return {
+        platformIds: identifiers.map((i) => ({
+          identifierId: i.id,
+          type: i.type,
+          value: i.valuePlain ?? i.valueMasked,
+        })),
+        users: Object.fromEntries(users.map((u) => [u.id, u.displayName])),
         partyId,
         employeeId: employee.id,
         entries: entries.map(entryView),
@@ -384,6 +500,7 @@ export function createTrackingRouter(deps: TrackingRouterDeps): Router {
           codAtHandover: body.codAtHandover ?? null,
           currency: body.currency ?? null,
           ordersAtHandover: body.ordersAtHandover ?? null,
+          note: body.note ?? null,
         }),
       );
       return operatorView(row);
@@ -414,6 +531,7 @@ export function createTrackingRouter(deps: TrackingRouterDeps): Router {
         'codAtHandover',
         'currency',
         'ordersAtHandover',
+        'note',
       ] as const) {
         if (body[key] !== undefined) changes[key] = body[key];
       }
@@ -431,8 +549,24 @@ export function createTrackingRouter(deps: TrackingRouterDeps): Router {
     tags,
     summary:
       'The morning call sheet of a date (default today): riders and drivers, yesterday’s figures, the day’s entry, last call and summary strip',
-    request: { query: trackingDateQuerySchema },
+    request: { query: trackingSheetQuerySchema },
     responses: { 200: { description: 'The call sheet', content: json(sheetSchema) } },
+  });
+  registerRoute(registry, {
+    method: 'get',
+    path: '/tracking/settings',
+    tags,
+    summary: 'The company’s call sheet settings (the low-hours limit, default 4)',
+    request: { query: settingsQuery },
+    responses: { 200: { description: 'The settings', content: json(settingsSchema) } },
+  });
+  registerRoute(registry, {
+    method: 'put',
+    path: '/tracking/settings',
+    tags,
+    summary: 'Save the company’s call sheet settings',
+    request: { query: settingsQuery, body: { content: json(trackingSettingsSchema) } },
+    responses: { 200: { description: 'Saved', content: json(settingsSchema) } },
   });
   registerRoute(registry, {
     method: 'get',

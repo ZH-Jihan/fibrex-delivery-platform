@@ -69,6 +69,7 @@ import { SyncSourcesPage } from './performance/SyncSourcesPage';
 import { SummarySettingsPage } from './performance/SummarySettingsPage';
 import { UnmatchedPage } from './performance/UnmatchedPage';
 import { CallSheetPage } from './tracking/CallSheetPage';
+import { StatusDifferencesPage } from './tracking/StatusDifferencesPage';
 import type { ReactNode } from 'react';
 import { ThemeProvider } from './theme/theme';
 import { Skeleton } from './ui/components';
@@ -267,6 +268,14 @@ function Gate() {
           element={
             <Guarded permission="tracking.entry.view">
               <CallSheetPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="performance/status-differences"
+          element={
+            <Guarded permission="tracking.entry.view">
+              <StatusDifferencesPage />
             </Guarded>
           }
         />

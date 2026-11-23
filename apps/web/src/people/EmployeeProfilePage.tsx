@@ -36,6 +36,7 @@ import { EntityForm, type FormField, type FormSchema } from '../ui/EntityForm';
 import { HistoryTab } from '../ui/HistoryTab';
 import { useToast } from '../ui/toast';
 import { PersonPerformanceTab } from '../performance/PersonPerformanceTab';
+import { PersonTrackingTab } from '../tracking/PersonTrackingTab';
 import { OcrConfirmPanel, type OcrJob } from './OcrScan';
 
 interface Employee {
@@ -90,7 +91,7 @@ export interface BankAccount {
   reviewNote: string | null;
   version: number;
 }
-type Tab = 'profile' | 'documents' | 'placement' | 'performance' | 'history';
+type Tab = 'profile' | 'documents' | 'placement' | 'performance' | 'tracking' | 'history';
 type Tone = 'success' | 'neutral' | 'danger' | 'warning';
 
 const DOC_TONE: Record<string, Tone> = {
@@ -163,6 +164,7 @@ export function EmployeeProfilePage() {
     'documents',
     'placement',
     ...(can('performance.report.view') ? (['performance'] as const) : []),
+    ...(can('tracking.entry.view') ? (['tracking'] as const) : []),
     'history',
   ];
   return (
@@ -209,6 +211,7 @@ export function EmployeeProfilePage() {
           {tab === 'documents' ? <DocumentsTab partyId={employee.partyId} /> : null}
           {tab === 'placement' ? <PlacementTab employeeId={employee.id} /> : null}
           {tab === 'performance' ? <PersonPerformanceTab partyId={employee.partyId} /> : null}
+          {tab === 'tracking' ? <PersonTrackingTab partyId={employee.partyId} /> : null}
           {tab === 'history' ? (
             <HistoryTab entityType="people.employee" entityId={employee.id} />
           ) : null}

@@ -21,6 +21,8 @@ import type { Redis } from 'ioredis';
 import type pg from 'pg';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { StubPdfRenderer } from '../../src/adapters/pdf/stub.js';
+import { MemoryStorageAdapter } from '../../src/adapters/storage/memory.js';
 import { API_PREFIX, createApp } from '../../src/app.js';
 import { createAuditService } from '../../src/kernel/audit/audit-service.js';
 import { AccessTokens } from '../../src/kernel/auth/access-token.js';
@@ -46,6 +48,8 @@ import {
   syncPermissionCatalogue,
 } from '../../src/kernel/permissions/catalogue.js';
 import { PermissionService } from '../../src/kernel/permissions/permission-service.js';
+import { createReportRouter } from '../../src/kernel/reports/report-router.js';
+import { ReportService } from '../../src/kernel/reports/report-service.js';
 import { createRedis } from '../../src/kernel/redis/client.js';
 import { StateService, StateTargets } from '../../src/kernel/states/state-service.js';
 import { AttachableRegistry } from '../../src/modules/files/index.js';
@@ -57,6 +61,7 @@ import {
   seedEmployeeStatus,
 } from '../../src/modules/people/index.js';
 import { addDays, seedClientPlatforms } from '../../src/modules/performance/index.js';
+import { callSheetReport } from '../../src/modules/tracking/call-sheet-report.js';
 import {
   TRACKING_PERMISSIONS,
   TrackingService,
@@ -68,6 +73,7 @@ import { connect, testDatabase } from './helpers.js';
 import { TEST_AUTH_ENV } from './test-env.js';
 
 const PASSWORD = 'synthetic-pass-4-7';
+const storage = new MemoryStorageAdapter();
 /** The sheet's date: today (UTC, the state service's today), so moves made now are not "future". */
 const D = new Date().toISOString().slice(0, 10);
 const Y = addDays(D, -1);
@@ -121,6 +127,7 @@ interface Sheet {
   reported: boolean;
   summary: Record<string, unknown>;
   rows: Row[];
+  lowHoursLimit: number;
 }
 
 async function sheet(who = 'alice', date = D): Promise<Sheet> {
@@ -368,6 +375,13 @@ beforeAll(async () => {
       stateTargets.register(EMPLOYEE_ENTITY, peopleModule.employeeStateTarget);
       modules.register(createTrackingModule({ uow, registry, permissions, tracking }));
       modules.mount(api);
+      const reports = new ReportService({
+        permissions,
+        storage,
+        renderer: new StubPdfRenderer(),
+        definitions: () => [callSheetReport],
+      });
+      api.use(createReportRouter({ uow, registry, permissions, reports }));
     },
   });
 
@@ -447,6 +461,89 @@ describe('GET /tracking: who is on the call sheet', () => {
       operatedByOthers: 0,
       crossCheckFlags: 4,
     });
+  });
+});
+
+describe('GET /tracking filters (row 4.8b): the strip follows the filtered rows', () => {
+  const filtered = async (
+    query: string,
+  ): Promise<Sheet & { filtered: boolean; unfiltered: Json }> => {
+    const res = await get(`/tracking?date=${D}&${query}`);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    return res.body as Sheet & { filtered: boolean; unfiltered: Json };
+  };
+  const names = (s: Sheet) => s.rows.map((r) => r.name);
+
+  it('without filters nothing is hidden and the unfiltered totals equal the strip', async () => {
+    const s = await filtered('');
+    expect(s.filtered).toBe(false);
+    expect(s.unfiltered).toEqual({ totalPeople: 5, byStatus: { active: 4, inactive: 1 } });
+    expect(s.summary).toMatchObject({ totalPeople: 5, ordersYesterday: 22, hoursYesterday: 17 });
+  });
+
+  it('a status filter recomputes every number for exactly those people', async () => {
+    const active = await filtered('status=active');
+    expect(names(active)).toEqual(['Ana Example', 'Ben Example', 'Dee Example', 'Eve Example']);
+    expect(active.filtered).toBe(true);
+    expect(active.summary).toMatchObject({
+      totalPeople: 4,
+      called: 0,
+      notCalled: 4,
+      ordersYesterday: 17,
+      hoursYesterday: 12,
+      zeroOrders: 1,
+      byStatus: { active: 4 },
+    });
+    // The total without filters is still the whole sheet, and the status list keeps every status.
+    expect(active.unfiltered).toEqual({ totalPeople: 5, byStatus: { active: 4, inactive: 1 } });
+
+    const inactive = await filtered('status=inactive');
+    expect(names(inactive)).toEqual(['Cy Example']);
+    expect(inactive.summary).toMatchObject({
+      totalPeople: 1,
+      ordersYesterday: 5,
+      hoursYesterday: 5,
+      zeroOrders: 0,
+    });
+  });
+
+  it('zero orders keeps only people with no orders on a reported day', async () => {
+    const zero = await filtered('zeroOrders=true');
+    expect(names(zero)).toEqual(['Ben Example']);
+    expect(zero.summary).toMatchObject({ totalPeople: 1, ordersYesterday: 0, zeroOrders: 1 });
+  });
+
+  it('search finds a name, a platform ID or a phone, and the strip follows', async () => {
+    expect(names(await filtered('q=example'))).toHaveLength(5);
+    const byId = await filtered('q=f-9003');
+    expect(names(byId)).toEqual(['Ben Example']);
+    expect(byId.summary).toMatchObject({ totalPeople: 1, zeroOrders: 1 });
+    const none = await filtered('q=nobody-by-this-name');
+    expect(none.rows).toEqual([]);
+    expect(none.summary).toMatchObject({ totalPeople: 0, ordersYesterday: 0, hoursYesterday: 0 });
+    expect(none.unfiltered).toMatchObject({ totalPeople: 5 });
+  });
+
+  it('combines two filters and the search with "and"', async () => {
+    const both = await filtered('status=active&zeroOrders=true');
+    expect(names(both)).toEqual(['Ben Example']);
+    expect(both.summary).toMatchObject({ totalPeople: 1, zeroOrders: 1, ordersYesterday: 0 });
+    const withSearch = await filtered('status=active&notCalled=true&q=dee');
+    expect(names(withSearch)).toEqual(['Dee Example']);
+    expect(withSearch.summary).toMatchObject({
+      totalPeople: 1,
+      notCalled: 1,
+      ordersYesterday: 3,
+      hoursYesterday: 3,
+    });
+    // Inactive people never have zero orders here, so the two filters leave nobody.
+    const empty = await filtered('status=inactive&zeroOrders=true');
+    expect(empty.rows).toEqual([]);
+    expect(empty.summary).toMatchObject({ totalPeople: 0, zeroOrders: 0 });
+  });
+
+  it('refuses a malformed filter', async () => {
+    expect((await get(`/tracking?date=${D}&notCalled=maybe`)).status).toBe(400);
   });
 });
 
@@ -739,6 +836,156 @@ describe('ID-operator periods', () => {
     expect(rowOf(await sheet('alice', Y), 'ana').operator?.operatorName).toBe('Sample Stand In');
     const history = await get(`/tracking/${people.ana ?? ''}/history`);
     expect((history.body as { operatorPeriods: unknown[] }).operatorPeriods).toHaveLength(1);
+  });
+});
+
+describe('row 4.8b: operator period edits, settings, history names and the export', () => {
+  it('refuses an edit that makes two periods overlap, and keeps the note', async () => {
+    const first = await post('/tracking/operator-periods', {
+      partyIdentifierId: identifiers['F-9003'],
+      operatorName: 'Sample Cover One',
+      fromDate: addDays(D, -30),
+      toDate: addDays(D, -20),
+      note: 'Rider on leave',
+    });
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    expect(first.body).toMatchObject({ note: 'Rider on leave' });
+    const one = first.body as { id: string; version: number };
+    // The day after the first period ends is free.
+    const second = await post('/tracking/operator-periods', {
+      partyIdentifierId: identifiers['F-9003'],
+      operatorName: 'Sample Cover Two',
+      fromDate: addDays(D, -19),
+    });
+    expect(second.status, JSON.stringify(second.body)).toBe(201);
+    // Stretching the first over the second is refused with the clear message.
+    const stretched = await patch(`/tracking/operator-periods/${one.id}`, {
+      version: one.version,
+      toDate: addDays(D, -5),
+    });
+    expect(stretched.status).toBe(409);
+    expect(stretched.body).toMatchObject({
+      code: 'operator_period_overlap',
+      detail: 'Someone else is already recorded as working this ID on some of these days.',
+    });
+    // A correction that does not overlap works, and a note can be changed.
+    const fixed = await patch(`/tracking/operator-periods/${one.id}`, {
+      version: one.version,
+      toDate: addDays(D, -21),
+      note: 'Corrected end',
+    });
+    expect(fixed.status, JSON.stringify(fixed.body)).toBe(200);
+    expect(fixed.body).toMatchObject({ toDate: addDays(D, -21), note: 'Corrected end' });
+  });
+
+  it("the history names who did it, lists the person's platform IDs, and carries the note", async () => {
+    const res = await get(`/tracking/${people.ben ?? ''}/history`);
+    expect(res.status).toBe(200);
+    const body = res.body as {
+      platformIds: { identifierId: string; value: string }[];
+      users: Record<string, string>;
+      operatorPeriods: { createdBy: string | null; note: string | null }[];
+    };
+    expect(body.platformIds.map((i) => i.value)).toEqual(['F-9003']);
+    expect(body.operatorPeriods).toHaveLength(2);
+    const creator = body.operatorPeriods[0]?.createdBy ?? '';
+    expect(body.users[creator]).toBeTruthy();
+    expect(body.operatorPeriods.map((p) => p.note).sort()).toEqual(['Corrected end', null]);
+  });
+
+  it('the cross-check items carry what "Set status" needs', async () => {
+    const res = await get(`/tracking/cross-check?date=${D}`);
+    const item = (
+      res.body as { items: { partyId: string; employeeId: string; entry: unknown }[] }
+    ).items.find((i) => i.partyId === people.ben);
+    expect(item?.employeeId).toBe(employees.ben);
+    expect(item).toHaveProperty('entry');
+  });
+
+  it('the low-hours limit is a company setting: default 4, changed by people who may update', async () => {
+    expect((await sheet()).lowHoursLimit).toBe(4);
+    expect((await get('/tracking/settings')).body).toMatchObject({ lowHours: 4 });
+    const put = (body: Json, who = 'alice') =>
+      as(request(app).put(`${API_PREFIX}/tracking/settings`), who)
+        .set('Idempotency-Key', randomUUID())
+        .send(body);
+    // View only and record-only users cannot change it.
+    expect((await put({ lowHours: 3 }, 'vic')).status).toBe(403);
+    expect((await put({ lowHours: 3 }, 'cal')).status).toBe(403);
+    expect((await put({ lowHours: 0 })).status).toBe(400);
+    expect((await put({ lowHours: 25 })).status).toBe(400);
+    expect((await put({ lowHours: 'six' })).status).toBe(400);
+    const saved = await put({ lowHours: 6.5 });
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    expect((await sheet()).lowHoursLimit).toBe(6.5);
+    // A second save changes the same row.
+    expect((await put({ lowHours: 3 })).status).toBe(200);
+    expect((await sheet()).lowHoursLimit).toBe(3);
+    const rows = await owner.query(
+      `SELECT 1 FROM platform.setting WHERE company_id = $1 AND key = 'tracking.call_sheet' AND deleted_at IS NULL`,
+      [f.companyA1],
+    );
+    expect(rows.rowCount).toBe(1);
+    // Another company is not affected, and a user of that company cannot set ours.
+    expect((await sheet('ann')).lowHoursLimit).toBe(4);
+    expect((await put({ lowHours: 2 }, 'ann')).status).toBe(200);
+    expect((await sheet()).lowHoursLimit).toBe(3);
+    expect((await sheet('ann')).lowHoursLimit).toBe(2);
+  });
+
+  it('exports the filtered sheet with call outcomes, the same people the screen lists', async () => {
+    const filters = { date: D, status: 'active', notCalled: 'true' };
+    const listed = await get(`/tracking?date=${D}&status=active&notCalled=true`);
+    const listedNames = (listed.body as Sheet).rows.map((r) => r.name);
+    expect(listedNames).not.toContain('Eve Example'); // called earlier today
+    const res = await post('/reports/tracking.call_sheet/export', { format: 'csv', filters });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const { fileId, rowCount } = res.body as { fileId: string; rowCount: number };
+    expect(rowCount).toBe(listedNames.length);
+    const file = await owner.query<{ object_key: string }>(
+      `SELECT object_key FROM files.file_object WHERE id = $1`,
+      [fileId],
+    );
+    const bytes = await storage.read(file.rows[0]?.object_key ?? '');
+    const text = (bytes?.toString('utf8') ?? '').replace(/^\uFEFF/, '');
+    expect(text.split(/\r?\n/)[0]).toBe(
+      'Person,Employee code,Platform ID,Zone,Phone,Status,Orders yesterday,Hours yesterday,Late minutes,Called,Call outcome,Last call at,Note',
+    );
+    for (const name of listedNames) expect(text).toContain(name);
+    expect(text).not.toContain('Cy Example');
+
+    // Everyone, so the call logged on Eve's row (outcome and note) is in the file.
+    const all = await post('/reports/tracking.call_sheet/export', {
+      format: 'csv',
+      filters: { date: D },
+    });
+    expect(all.status).toBe(201);
+    const allFile = await owner.query<{ object_key: string }>(
+      `SELECT object_key FROM files.file_object WHERE id = $1`,
+      [(all.body as { fileId: string }).fileId],
+    );
+    const allText = (await storage.read(allFile.rows[0]?.object_key ?? ''))?.toString('utf8') ?? '';
+    const eve = allText.split(/\r?\n/).find((line) => line.startsWith('Eve Example')) ?? '';
+    expect(eve).toContain('Switched off');
+    expect(eve).toContain('Try later');
+  });
+
+  it('needs the export permission as well as the view permission', async () => {
+    const res = await post(
+      '/reports/tracking.call_sheet/export',
+      { format: 'csv', filters: { date: D } },
+      'cal',
+    );
+    expect(res.status).toBe(403);
+    expect(
+      (
+        await post(
+          '/reports/tracking.call_sheet/export',
+          { format: 'csv', filters: { date: D } },
+          'dave',
+        )
+      ).status,
+    ).toBe(403);
   });
 });
 
