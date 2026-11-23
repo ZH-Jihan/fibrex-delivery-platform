@@ -80,6 +80,7 @@ describe('buildNav', () => {
           '/performance/reports/daily',
           '/performance/reports/cycle',
           '/performance/reports/top-bottom',
+          '/tracking',
           '/performance/sync-sources',
           '/performance/sync-runs',
           '/performance/unmatched',

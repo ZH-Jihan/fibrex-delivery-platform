@@ -68,6 +68,7 @@ import { SyncRunsPage } from './performance/SyncRunsPage';
 import { SyncSourcesPage } from './performance/SyncSourcesPage';
 import { SummarySettingsPage } from './performance/SummarySettingsPage';
 import { UnmatchedPage } from './performance/UnmatchedPage';
+import { CallSheetPage } from './tracking/CallSheetPage';
 import type { ReactNode } from 'react';
 import { ThemeProvider } from './theme/theme';
 import { Skeleton } from './ui/components';
@@ -258,6 +259,14 @@ function Gate() {
           element={
             <Guarded permission="performance.unmatched.read">
               <UnmatchedPage />
+            </Guarded>
+          }
+        />
+        <Route
+          path="tracking"
+          element={
+            <Guarded permission="tracking.entry.view">
+              <CallSheetPage />
             </Guarded>
           }
         />

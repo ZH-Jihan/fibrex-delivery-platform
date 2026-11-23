@@ -9,6 +9,7 @@
 import {
   BarChart3,
   CalendarRange,
+  ClipboardList,
   History,
   Mail,
   PlugZap,
@@ -41,6 +42,12 @@ export const performanceManifest: WebModuleManifest = {
           label: 'nav.perfTopBottom',
           permission: 'performance.report.view',
           icon: Trophy,
+        },
+        {
+          to: '/tracking',
+          label: 'nav.callSheet',
+          permission: 'tracking.entry.view',
+          icon: ClipboardList,
         },
         {
           to: '/performance/sync-sources',
