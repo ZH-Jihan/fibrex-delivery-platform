@@ -138,7 +138,12 @@ interface Row {
 }
 interface SheetDetailsJson {
   found: boolean;
-  dayOff: { text: string | null; isToday: boolean; notUpdated: boolean };
+  dayOff: {
+    text: string | null;
+    onFiguresDate: boolean;
+    onCallDate: boolean;
+    notUpdated: boolean;
+  };
   dutyTime: { from: string | null; to: string | null; notUpdated: boolean };
   break: { from: string | null; to: string | null; text: string | null };
   zone: string | null;
@@ -1009,7 +1014,7 @@ describe('row 4.8b: operator period edits, settings, history names and the expor
     const bytes = await storage.read(file.rows[0]?.object_key ?? '');
     const text = (bytes?.toString('utf8') ?? '').replace(/^\uFEFF/, '');
     expect(text.split(/\r?\n/)[0]).toBe(
-      'Person,Employee code,Platform ID,Zone,Day off,Day off today,Duty time,Break,Plate number,Driver or rider,Skill,Tags,COD (pending amount),Currency,Phone,Status,Orders yesterday,Hours yesterday,Late minutes,Called,Call outcome,Last call at,Note',
+      'Person,Employee code,Platform ID,Zone,Day off,Day off yesterday,Day off today,Duty time,Break,Plate number,Driver or rider,Skill,Tags,COD (pending amount),Currency,Phone,Status,Orders yesterday,Hours yesterday,Late minutes,Called,Call outcome,Last call at,Note',
     );
     for (const name of listedNames) expect(text).toContain(name);
     expect(text).not.toContain('Cy Example');
@@ -1057,7 +1062,9 @@ describe('row 4.8c: platform sheet details on the call sheet', () => {
   it('parses day off, duty time, break and the rest of the sheet row', async () => {
     const ana = sheetOf(await sheet(), 'ana');
     expect(ana.found).toBe(true);
-    expect(ana.dayOff.isToday).toBe(true);
+    expect(ana.dayOff.onCallDate).toBe(true);
+    // The figures are from the day before, which is a different weekday.
+    expect(ana.dayOff.onFiguresDate).toBe(false);
     expect(ana.dayOff.text).toBe(WEEKDAY_NAMES[new Date(D).getUTCDay()]);
     expect(ana.dutyTime).toMatchObject({ from: '14:00', to: '02:00' });
     expect(ana.break).toMatchObject({ from: '16:00', to: '17:00' });
@@ -1074,13 +1081,19 @@ describe('row 4.8c: platform sheet details on the call sheet', () => {
   it('shows "Not updated" as empty with a flag, and never the balance on the sheet', async () => {
     const s = await sheet();
     const ben = sheetOf(s, 'ben');
-    expect(ben.dayOff).toMatchObject({ text: null, isToday: false, notUpdated: true });
+    expect(ben.dayOff).toMatchObject({
+      text: null,
+      onFiguresDate: false,
+      onCallDate: false,
+      notUpdated: true,
+    });
     expect(ben.dutyTime).toMatchObject({ from: null, to: null, notUpdated: true });
     expect(ben.break).toMatchObject({ from: null, to: null, text: null });
     expect(ben.cod?.amount).toBe('10.0000');
     expect(sheetOf(s, 'ana').balance).toBeNull();
     // A person whose sheet row has no fixed columns is not marked as having a day off.
-    expect(sheetOf(s, 'cy').dayOff.isToday).toBe(false);
+    expect(sheetOf(s, 'cy').dayOff.onCallDate).toBe(false);
+    expect(sheetOf(s, 'cy').dayOff.onFiguresDate).toBe(false);
   });
 
   it('filters "day off today", and the strip follows', async () => {
@@ -1126,9 +1139,16 @@ describe('row 4.8c: platform sheet details on the call sheet', () => {
       expect.objectContaining({ value: 'F-9002', validFrom: '2026-01-01' }),
     ]);
     expect(d.recentDays).toHaveLength(7);
-    expect(d.recentDays.at(-1)).toEqual({ date: Y, reported: true, orders: 12, hours: 7.5 });
+    expect(d.recentDays.at(-1)).toEqual({
+      date: Y,
+      dayOff: false,
+      reported: true,
+      orders: 12,
+      hours: 7.5,
+    });
     expect(d.recentDays.at(-2)).toEqual({
       date: addDays(Y, -1),
+      dayOff: false,
       reported: true,
       orders: 4,
       hours: 3.33,
@@ -1162,6 +1182,74 @@ describe('row 4.8c: platform sheet details on the call sheet', () => {
     expect(limited).toContain('14:00 - 02:00');
     expect(limited).not.toContain('125.5');
     expect(limited).not.toContain('QAR');
+  });
+});
+
+describe('row 4.8d: day off on the figures date and on the call date', () => {
+  // Gil: day off was the figures date, no orders then. Hal: day off is the call date, no orders
+  // yesterday. Ben (above) has no day off set and no orders. Each date is checked on its own.
+  beforeAll(async () => {
+    await person('gil', 'Gil Example', 'rider', { falconIds: ['F-9201'] });
+    await person('hal', 'Hal Example', 'rider', { falconIds: ['F-9202'] });
+    await figure('gil', 'F-9201', 0, 90, {
+      metrics: { _fields: { day_off: WEEKDAY_NAMES[new Date(Y).getUTCDay()] ?? '' } },
+    });
+    await figure('hal', 'F-9202', 0, 90, {
+      metrics: { _fields: { day_off: WEEKDAY_NAMES[new Date(D).getUTCDay()] ?? '' } },
+    });
+  });
+  const flagsOf = async (key: string) =>
+    (rowOf(await sheet(), key) as Row & { sheet: SheetDetailsJson }).sheet.dayOff;
+
+  it('works out both dates for each person', async () => {
+    expect(await flagsOf('gil')).toMatchObject({ onFiguresDate: true, onCallDate: false });
+    expect(await flagsOf('hal')).toMatchObject({ onFiguresDate: false, onCallDate: true });
+    expect(await flagsOf('ben')).toMatchObject({ onFiguresDate: false, onCallDate: false });
+  });
+
+  it('does not flag zero orders on the figures date day off, and still flags the others', async () => {
+    const s = await sheet();
+    expect(rowOf(s, 'gil').crossCheck).not.toContain('active_no_orders');
+    expect(rowOf(s, 'hal').crossCheck).toContain('active_no_orders');
+    expect(rowOf(s, 'ben').crossCheck).toContain('active_no_orders');
+
+    const zero = (await get(`/tracking?date=${D}&zeroOrders=true`)).body as Sheet;
+    const names = zero.rows.map((r) => r.name);
+    expect(names).not.toContain('Gil Example');
+    expect(names).toEqual(expect.arrayContaining(['Hal Example', 'Ben Example']));
+  });
+
+  it('counts the strip with the same rule', async () => {
+    const s = await sheet();
+    const expected = s.rows.filter(
+      (r) => (r.yesterday.orders ?? 0) === 0 && r.partyId !== people.gil,
+    ).length;
+    expect(expected).toBeGreaterThan(0);
+    expect(s.summary.zeroOrders).toBe(expected);
+  });
+
+  it('filters "day off yesterday" and "day off today" separately', async () => {
+    const yesterday = (await get(`/tracking?date=${D}&dayOffYesterday=true`)).body as Sheet;
+    expect(yesterday.rows.map((r) => r.name)).toEqual(['Gil Example']);
+    const today = (await get(`/tracking?date=${D}&dayOffToday=true`)).body as Sheet;
+    expect(today.rows.map((r) => r.name).sort()).toEqual(['Ana Example', 'Hal Example']);
+  });
+
+  it('exports both day-off columns', async () => {
+    const res = await post(
+      '/reports/tracking.call_sheet/export',
+      { format: 'csv', filters: { date: D } },
+      'alice',
+    );
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const file = await owner.query<{ object_key: string }>(
+      `SELECT object_key FROM files.file_object WHERE id = $1`,
+      [(res.body as { fileId: string }).fileId],
+    );
+    const key = file.rows[0]?.object_key ?? '';
+    const text = (await storage.read(key))?.toString('utf8') ?? '';
+    expect(text).toContain('Day off yesterday');
+    expect(text).toContain('Day off today');
   });
 });
 

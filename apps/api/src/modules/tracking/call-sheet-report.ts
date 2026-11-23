@@ -16,6 +16,8 @@
  *     plate, driver or rider, skill, tags and "COD (pending amount)" with its currency. The COD
  *     amount is filled only when the caller holds performance.amounts.view (`canSeeAmounts`);
  *     without it the cells stay empty. The balance amount is never exported.
+ *   - Row 4.8d: "Day off yesterday" (the figures date) and "Day off today" (the sheet's date) are
+ *     two separate columns and filters; a zero-order person on their day off is not a zero.
  *
  * Depends on: ./call-sheet.ts, ../performance (qatarToday), kernel/db. Used by: ./index.ts.
  */
@@ -43,6 +45,7 @@ export function createCallSheetReport(canSeeAmounts: () => Promise<boolean>): Re
       { key: 'platformId', label: 'Platform ID', type: 'text', sortable: true },
       { key: 'zone', label: 'Zone', type: 'text', sortable: true },
       { key: 'dayOff', label: 'Day off', type: 'text', sortable: true },
+      { key: 'dayOffYesterday', label: 'Day off yesterday', type: 'boolean', sortable: true },
       { key: 'dayOffToday', label: 'Day off today', type: 'boolean', sortable: true },
       { key: 'dutyTime', label: 'Duty time', type: 'text' },
       { key: 'breakTime', label: 'Break', type: 'text' },
@@ -68,6 +71,7 @@ export function createCallSheetReport(canSeeAmounts: () => Promise<boolean>): Re
       { key: 'q', label: 'Search', type: 'text' },
       { key: 'notCalled', label: 'Not yet called', type: 'select', options: YES_NO },
       { key: 'zeroOrders', label: 'Zero orders yesterday', type: 'select', options: YES_NO },
+      { key: 'dayOffYesterday', label: 'Day off yesterday', type: 'select', options: YES_NO },
       { key: 'dayOffToday', label: 'Day off today', type: 'select', options: YES_NO },
     ],
     async run(db: Db, input) {
@@ -82,6 +86,7 @@ export function createCallSheetReport(canSeeAmounts: () => Promise<boolean>): Re
           notCalled: input.filters.notCalled === 'true',
           zeroOrders: input.filters.zeroOrders === 'true',
           dayOffToday: input.filters.dayOffToday === 'true',
+          dayOffYesterday: input.filters.dayOffYesterday === 'true',
         },
         undefined,
         await canSeeAmounts(),
@@ -108,7 +113,8 @@ export function createCallSheetReport(canSeeAmounts: () => Promise<boolean>): Re
           platformId: row.platformIds.map((p) => p.value).join(', '),
           zone: row.sheet.zone ?? row.zone,
           dayOff: row.sheet.dayOff.text,
-          dayOffToday: row.sheet.dayOff.isToday,
+          dayOffYesterday: row.sheet.dayOff.onFiguresDate,
+          dayOffToday: row.sheet.dayOff.onCallDate,
           dutyTime: range(row.sheet.dutyTime),
           breakTime: range(row.sheet.break),
           plate: row.sheet.plate,

@@ -12,6 +12,8 @@
  *   2. Best = the most orders, among people with at least one order. Weakest = the fewest
  *      orders among everyone not already on the best list, so a small team does not show a
  *      person twice. Ties break by name so the lists never change between runs.
+ *   4. A person whose weekly day off is the summarised date is not counted as zero orders and
+ *      is left off the weakest list when they had none (./day-off.ts, shared with the call sheet).
  *   3. The schedule is due once the local clock in the company's time zone has reached the
  *      send time; the date summarised is the day before the local date (the sheet holds
  *      complete figures only up to the day before, see SyncRequest.readOn).
@@ -20,6 +22,7 @@
  * Used by: ./summary-service.ts, ./summary-calc.test.ts.
  */
 import { addDays } from './cycle.js';
+import { isZeroOrderProblem } from './day-off.js';
 import { hoursOf } from './report-calc.js';
 
 export const SUMMARY_LIST_SIZE = 5;
@@ -28,6 +31,8 @@ export interface SummaryPerson {
   name: string;
   orders: number;
   workingMinutes: number;
+  /** The date summarised was the person's weekly day off (row 4.8d, ./day-off.ts). */
+  dayOff?: boolean;
 }
 
 export interface SummaryLine {
@@ -55,6 +60,9 @@ export function summariseDay(people: readonly SummaryPerson[]): DaySummary {
     orders: person.orders,
     hours: hoursOf(person.workingMinutes),
   });
+  // Rule 4: a person on their day off with no orders is not a problem (shared rule).
+  const problem = (p: SummaryPerson) => isZeroOrderProblem(p.orders, true, p.dayOff === true);
+  const isRestDay = (p: SummaryPerson) => p.orders === 0 && p.dayOff === true;
   // Rule 2.
   const best = people
     .filter((p) => p.orders > 0)
@@ -62,7 +70,7 @@ export function summariseDay(people: readonly SummaryPerson[]): DaySummary {
     .slice(0, SUMMARY_LIST_SIZE);
   const bestNames = new Set(best);
   const worst = people
-    .filter((p) => !bestNames.has(p))
+    .filter((p) => !bestNames.has(p) && !isRestDay(p))
     .sort((a, b) => a.orders - b.orders || a.name.localeCompare(b.name))
     .slice(0, SUMMARY_LIST_SIZE);
   return {
@@ -70,7 +78,7 @@ export function summariseDay(people: readonly SummaryPerson[]): DaySummary {
     peopleWithOrders: people.filter((p) => p.orders > 0).length,
     totalOrders: people.reduce((sum, p) => sum + p.orders, 0),
     totalHours: hoursOf(people.reduce((sum, p) => sum + p.workingMinutes, 0)),
-    zeroOrders: people.filter((p) => p.orders === 0).length,
+    zeroOrders: people.filter(problem).length,
     best: best.map(line),
     worst: worst.map(line),
   };

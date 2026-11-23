@@ -73,6 +73,7 @@ export const platformDetailsSchema = z
   .object({
     partyId: z.uuid(),
     date: day,
+    figuresDate: day,
     amountsVisible: z.boolean(),
     sheet: z.object({
       found: z.boolean(),
@@ -81,7 +82,8 @@ export const platformDetailsSchema = z
       dayOff: z.object({
         text: z.string().nullable(),
         weekdays: z.array(z.number().int()),
-        isToday: z.boolean(),
+        onFiguresDate: z.boolean(),
+        onCallDate: z.boolean(),
         notUpdated: z.boolean(),
       }),
       dutyTime: timeRange,
@@ -109,6 +111,7 @@ export const platformDetailsSchema = z
     recentDays: z.array(
       z.object({
         date: day,
+        dayOff: z.boolean(),
         reported: z.boolean(),
         orders: z.number().int().nullable(),
         hours: z.number().nullable(),
@@ -204,7 +207,12 @@ export function createPerformanceReportRouter(deps: PerformanceReportRouterDeps)
       const data = await loadFigures(db, scope);
       const days = indexFigures(data.figures.filter((f) => f.partyId === partyId)).get(partyId);
       const reported = new Set(data.reportedDates);
-      const totals = totalsFor(partyId, days, data.reportedDates);
+      const totals = totalsFor(
+        partyId,
+        days,
+        data.reportedDates,
+        data.dayOffTexts.get(partyId) ?? null,
+      );
 
       // One entry per calendar date of the range, so a chart can show gaps honestly.
       const list: z.infer<typeof personResponse>['days'] = [];

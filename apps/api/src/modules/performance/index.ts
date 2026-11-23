@@ -48,6 +48,7 @@ export {
 } from './platform-seed.js';
 export { addDays, blockDate, cycleContaining, type Cycle } from './cycle.js';
 export * from './sheet-details.js';
+export { dayOffFlags, isZeroOrderProblem, type DayOffFlags } from './day-off.js';
 export { platformDetailsSchema } from './performance-report-router.js';
 export * from './report-adapter.js';
 export { parseDailyReport, snoonuReportAdapter } from './snoonu-parser.js';

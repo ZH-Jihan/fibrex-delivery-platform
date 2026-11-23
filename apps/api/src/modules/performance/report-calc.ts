@@ -20,10 +20,15 @@
  *      and all zero; an unreported date breaks a run because we do not know what happened.
  *   5. Acceptance rate is stored as the sheet gives it: a fraction (0.93) or a percentage
  *      (93). Values up to 1 are shown as percentages (x 100), larger values as they are.
+ *   6. A day that is the person's weekly day off is never a zero-order day, and it breaks a
+ *      "no orders in a row" run (row 4.8d). The rule itself is in ./day-off.ts, shared with the
+ *      call sheet and the summary email. The day-off text is the person's latest sheet reading,
+ *      applied to every day of the range.
  *
- * Depends on: ./cycle.ts (addDays). Used by: ./performance-reports.ts, ./performance-report-router.ts.
+ * Depends on: ./cycle.ts (addDays), ./day-off.ts. Used by: ./performance-reports.ts, ./performance-report-router.ts.
  */
 import { addDays } from './cycle.js';
+import { isDayOffOn, isZeroOrderProblem } from './day-off.js';
 
 /** One person's stored figures for one reported date. */
 export interface DayFigure {
@@ -82,6 +87,7 @@ export function totalsFor(
   partyId: string,
   days: ReadonlyMap<string, DayFigure> | undefined,
   reportedDates: readonly string[],
+  dayOffText: string | null = null,
 ): PersonTotals {
   let orders = 0;
   let minutes = 0;
@@ -94,7 +100,8 @@ export function totalsFor(
     orders += dayOrders;
     minutes += dayMinutes;
     if (dayOrders > 0 || dayMinutes > 0) daysWorked += 1;
-    if (dayOrders === 0) zeroDays += 1;
+    // Rule 6: a day off with no orders is not a zero-order day.
+    if (isZeroOrderProblem(dayOrders, true, isDayOffOn(dayOffText, date))) zeroDays += 1;
   }
   const hours = minutes / 60;
   return {
@@ -115,11 +122,17 @@ export function totalsFor(
 export function longestZeroRun(
   days: ReadonlyMap<string, DayFigure> | undefined,
   reportedDates: readonly string[],
+  dayOffText: string | null = null,
 ): ZeroRun | null {
   let best: ZeroRun | null = null;
   let current: ZeroRun | null = null;
   for (const date of [...reportedDates].sort()) {
-    const zero = (days?.get(date)?.orders ?? 0) === 0;
+    // Rule 6: a day off is not a zero day, and it ends a run (the person was not due to work).
+    const zero = isZeroOrderProblem(
+      days?.get(date)?.orders ?? 0,
+      true,
+      isDayOffOn(dayOffText, date),
+    );
     if (!zero) {
       current = null;
       continue;

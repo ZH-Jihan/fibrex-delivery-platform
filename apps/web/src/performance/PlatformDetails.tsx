@@ -37,7 +37,15 @@ export interface SheetDetails {
   found: boolean;
   asOfDate: string | null;
   updatedAt: string | null;
-  dayOff: { text: string | null; weekdays: number[]; isToday: boolean; notUpdated: boolean };
+  dayOff: {
+    text: string | null;
+    weekdays: number[];
+    /** Day off on the figures date (the day before the call date). */
+    onFiguresDate: boolean;
+    /** Day off on the call date (the sheet's date). */
+    onCallDate: boolean;
+    notUpdated: boolean;
+  };
   dutyTime: SheetTime;
   break: SheetTime;
   zone: string | null;
@@ -54,9 +62,17 @@ export interface SheetDetails {
 export interface PlatformDetails {
   partyId: string;
   date: string;
+  /** The day the figures are from (the day before `date`). */
+  figuresDate: string;
   sheet: SheetDetails;
   platformIds: { identifierId: string; type: string; value: string; validFrom: string }[];
-  recentDays: { date: string; reported: boolean; orders: number | null; hours: number | null }[];
+  recentDays: {
+    date: string;
+    dayOff: boolean;
+    reported: boolean;
+    orders: number | null;
+    hours: number | null;
+  }[];
   amountsVisible: boolean;
 }
 
@@ -64,6 +80,13 @@ export interface PlatformDetails {
 export function weekdayName(index: number, language: Language): string {
   return new Intl.DateTimeFormat(language, { weekday: 'long', timeZone: 'UTC' }).format(
     new Date(Date.UTC(2023, 0, 1 + index)),
+  );
+}
+
+/** The weekday name of a calendar date `YYYY-MM-DD` in the language (the date itself, no time zone). */
+export function dateWeekdayName(date: string, language: Language): string {
+  return new Intl.DateTimeFormat(language, { weekday: 'long', timeZone: 'UTC' }).format(
+    new Date(`${date}T00:00:00.000Z`),
   );
 }
 
@@ -161,7 +184,31 @@ export function PlatformDetailsView({
         </Detail>
         <Detail label={t('sheetDetails.dayOff')}>
           <SheetValue value={dayOffLabel(s, language)} notUpdated={s.dayOff.notUpdated} />
-          {s.dayOff.isToday ? <Pill tone="warning">{t('sheetDetails.dayOffToday')}</Pill> : null}
+        </Detail>
+        {/* Row 4.8d: each date on its own, with its weekday, so nobody mixes them up. */}
+        <Detail
+          label={t('sheetDetails.figuresDateLine', {
+            date: data.figuresDate,
+            weekday: dateWeekdayName(data.figuresDate, language),
+          })}
+        >
+          {s.dayOff.onFiguresDate ? (
+            <Pill tone="info">{t('sheetDetails.dayOffYesterday')}</Pill>
+          ) : (
+            <span className="muted">{t('sheetDetails.notDayOff')}</span>
+          )}
+        </Detail>
+        <Detail
+          label={t('sheetDetails.callDateLine', {
+            date: data.date,
+            weekday: dateWeekdayName(data.date, language),
+          })}
+        >
+          {s.dayOff.onCallDate ? (
+            <Pill tone="warning">{t('sheetDetails.dayOffToday')}</Pill>
+          ) : (
+            <span className="muted">{t('sheetDetails.notDayOff')}</span>
+          )}
         </Detail>
         <Detail label={t('sheetDetails.dutyTime')}>
           <SheetValue value={timeLabel(s.dutyTime)} notUpdated={s.dutyTime.notUpdated} />
@@ -216,7 +263,10 @@ export function PlatformDetailsView({
               <tbody>
                 {data.recentDays.map((d) => (
                   <tr key={d.date} className={d.reported ? undefined : 'row-muted'}>
-                    <td data-label={t('perfReports.col.date')}>{d.date}</td>
+                    <td data-label={t('perfReports.col.date')}>
+                      {d.date} <small className="muted">{dateWeekdayName(d.date, language)}</small>
+                      {d.dayOff ? <Pill tone="info">{t('sheetDetails.dayOffMark')}</Pill> : null}
+                    </td>
                     {d.reported ? (
                       <>
                         <td className="num" data-label={t('perfReports.col.orders')}>

@@ -58,3 +58,19 @@ describe('dueSummaryDate', () => {
     });
   });
 });
+
+describe('summariseDay: day off (row 4.8d)', () => {
+  it('does not count a person with no orders on their day off, nor list them as weakest', () => {
+    const out = summariseDay([
+      { ...p('Anan', 6, 300) },
+      { ...p('Bela', 0), dayOff: true },
+      { ...p('Cem', 0) },
+      { ...p('Dara', 2, 60), dayOff: true },
+    ]);
+    // Only Cem had no orders on a working day.
+    expect(out.zeroOrders).toBe(1);
+    // A day off with orders still counts as a person with orders.
+    expect(out.peopleWithOrders).toBe(2);
+    expect(out.worst.map((l) => l.name)).toEqual(['Cem']);
+  });
+});

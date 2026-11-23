@@ -600,7 +600,7 @@ describe('GET /performance/person/{partyId}/platform-details (row 4.8c)', () => 
     sheet: {
       found: boolean;
       asOfDate: string | null;
-      dayOff: { isToday: boolean };
+      dayOff: { onCallDate: boolean; onFiguresDate: boolean };
       dutyTime: { from: string | null; to: string | null };
       cod: { amount: string } | null;
       balance: { amount: string } | null;
@@ -615,7 +615,7 @@ describe('GET /performance/person/{partyId}/platform-details (row 4.8c)', () => 
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     const body = res.body as Details;
     expect(body.sheet).toMatchObject({ found: true, asOfDate: '2026-11-25' });
-    expect(body.sheet.dayOff.isToday).toBe(true);
+    expect(body.sheet.dayOff.onCallDate).toBe(true);
     expect(body.sheet.dutyTime).toMatchObject({ from: '10:00', to: '20:00' });
     expect(body.sheet.cod?.amount).toBe('75.2500');
     expect(body.sheet.balance?.amount).toBe('12.0000');

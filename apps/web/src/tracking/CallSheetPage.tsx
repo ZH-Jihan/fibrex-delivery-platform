@@ -27,6 +27,12 @@
  * The server parses the sheet values; the COD amount arrives only for people who hold
  * performance.amounts.view (`amountsVisible`), and the balance amount only in the panel.
  *
+ * Row 4.8d: the figures are from the day before the call date, so day off is shown for both dates
+ * ("Day off yesterday" and "Day off today" tags, two filters, the panel names both dates with
+ * their weekdays). No orders or low hours on a person's day off is not a problem: no red tint,
+ * no "No orders" mark (a neutral "Day off" mark instead), and the server leaves them out of the
+ * strip's zero count and the zero-orders filter.
+ *
  * Depends on: api client, auth, i18n, ui components, ./status-dialog.tsx, toast,
  * ../performance/PlatformDetails.tsx.
  * Used by: App.tsx (route /tracking), performance/manifest.ts (menu).
@@ -63,6 +69,7 @@ import { useToast } from '../ui/toast';
 import {
   PlatformDetailsLoader,
   SheetValue,
+  dateWeekdayName,
   dayOffLabel,
   moneyLabel,
   timeLabel,
@@ -120,7 +127,7 @@ function sortRows(rows: SheetRow[], key: SortKey): SheetRow[] {
   const figure = (r: SheetRow) => (key === 'orders' ? r.yesterday.orders : r.yesterday.hours);
   copy.sort((a, b) => {
     if (key === 'dayOff') {
-      return Number(b.sheet.dayOff.isToday) - Number(a.sheet.dayOff.isToday);
+      return Number(b.sheet.dayOff.onCallDate) - Number(a.sheet.dayOff.onCallDate);
     }
     const x = figure(a);
     const y = figure(b);
@@ -163,6 +170,7 @@ export function CallSheetPage() {
   const [notCalledOnly, setNotCalledOnly] = useState(false);
   const [zeroOnly, setZeroOnly] = useState(false);
   const [dayOffOnly, setDayOffOnly] = useState(false);
+  const [dayOffYesterdayOnly, setDayOffYesterdayOnly] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [status, setStatus] = useState('');
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -200,8 +208,9 @@ export function CallSheetPage() {
       ...(notCalledOnly ? { notCalled: 'true' } : {}),
       ...(zeroOnly ? { zeroOrders: 'true' } : {}),
       ...(dayOffOnly ? { dayOffToday: 'true' } : {}),
+      ...(dayOffYesterdayOnly ? { dayOffYesterday: 'true' } : {}),
     }),
-    [status, query, notCalledOnly, zeroOnly, dayOffOnly],
+    [status, query, notCalledOnly, zeroOnly, dayOffOnly, dayOffYesterdayOnly],
   );
 
   // Only the newest answer is shown: an older, slower one must not overwrite it.
@@ -277,6 +286,7 @@ export function CallSheetPage() {
     notCalledOnly ? t('callSheet.filterNotCalled') : null,
     zeroOnly ? t('callSheet.filterZero') : null,
     dayOffOnly ? t('callSheet.filterDayOff') : null,
+    dayOffYesterdayOnly ? t('callSheet.filterDayOffYesterday') : null,
   ].filter((x): x is string => x !== null);
 
   const s = sheet?.summary;
@@ -365,6 +375,15 @@ export function CallSheetPage() {
           }}
         >
           {t('callSheet.filterDayOff')}
+        </Button>
+        <Button
+          aria-pressed={dayOffYesterdayOnly}
+          variant={dayOffYesterdayOnly ? 'primary' : 'default'}
+          onClick={() => {
+            setDayOffYesterdayOnly(!dayOffYesterdayOnly);
+          }}
+        >
+          {t('callSheet.filterDayOffYesterday')}
         </Button>
         <Select
           label={t('callSheet.sort')}
@@ -460,7 +479,12 @@ export function CallSheetPage() {
       {sheet !== null && !sheet.reported ? (
         <p className="muted">{t('callSheet.notReported', { date: sheet.figuresDate })}</p>
       ) : sheet !== null ? (
-        <p className="muted">{t('callSheet.figuresOf', { date: sheet.figuresDate })}</p>
+        <p className="muted">
+          {t('callSheet.figuresOf', {
+            date: sheet.figuresDate,
+            weekday: dateWeekdayName(sheet.figuresDate, language),
+          })}
+        </p>
       ) : null}
 
       {sheet === null && error === null ? (
@@ -484,14 +508,24 @@ export function CallSheetPage() {
               </thead>
               <tbody>
                 {rows.map((r) => {
-                  const zero = isZeroOrders(r.yesterday.orders, sheet.reported);
+                  // Row 4.8d: no orders or low hours on the person's day off is not a problem.
+                  const offYesterday = r.sheet.dayOff.onFiguresDate;
+                  const zero = isZeroOrders(r.yesterday.orders, sheet.reported, offYesterday);
                   const low =
-                    !zero && isLowHours(r.yesterday.hours, sheet.reported, sheet.lowHoursLimit);
+                    !zero &&
+                    isLowHours(
+                      r.yesterday.hours,
+                      sheet.reported,
+                      sheet.lowHoursLimit,
+                      offYesterday,
+                    );
+                  // A neutral "Day off" mark where "No orders" would otherwise show.
+                  const restDay = sheet.reported && offYesterday && (r.yesterday.orders ?? 0) === 0;
                   return (
                     <tr
                       key={r.partyId}
                       className={
-                        r.sheet.dayOff.isToday
+                        r.sheet.dayOff.onCallDate
                           ? 'sheet-row-off'
                           : zero
                             ? 'sheet-row-zero'
@@ -513,7 +547,10 @@ export function CallSheetPage() {
                         <Pill tone={r.statusCode === 'active' ? 'success' : 'neutral'}>
                           {statusLabel(r.statusCode)}
                         </Pill>
-                        {r.sheet.dayOff.isToday ? (
+                        {r.sheet.dayOff.onFiguresDate ? (
+                          <Pill tone="info">{t('sheetDetails.dayOffYesterday')}</Pill>
+                        ) : null}
+                        {r.sheet.dayOff.onCallDate ? (
                           <Pill tone="warning">{t('sheetDetails.dayOffToday')}</Pill>
                         ) : null}
                         <SheetFacts row={r} amountsVisible={sheet.amountsVisible} />
@@ -534,6 +571,9 @@ export function CallSheetPage() {
                       <td data-label={t('callSheet.orders')}>
                         {r.yesterday.orders ?? '—'}
                         {zero ? <Pill tone="danger">{t('callSheet.markZero')}</Pill> : null}
+                        {restDay ? (
+                          <Pill tone="neutral">{t('sheetDetails.dayOffMark')}</Pill>
+                        ) : null}
                       </td>
                       <td data-label={t('callSheet.hours')}>
                         {r.yesterday.hours === null ? '—' : r.yesterday.hours.toFixed(1)}

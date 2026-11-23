@@ -1,7 +1,7 @@
 /**
  * Tracking API: the morning call sheet (phase 4 row 4.7; SPEC 3.3, PLAN 5.13).
  *
- *   GET   /tracking?date=&status=&q=&notCalled=&zeroOrders=&dayOffToday=
+ *   GET   /tracking?date=&status=&q=&notCalled=&zeroOrders=&dayOffToday=&dayOffYesterday=
  *                                               the call sheet: rows and the strip of those rows
  *   GET   /tracking/settings                    the company's call sheet settings (low hours)
  *   PUT   /tracking/settings                    save them (tracking.entry.update)
@@ -280,6 +280,7 @@ export function createTrackingRouter(deps: TrackingRouterDeps): Router {
           notCalled: query.notCalled === 'true',
           zeroOrders: query.zeroOrders === 'true',
           dayOffToday: query.dayOffToday === 'true',
+          dayOffYesterday: query.dayOffYesterday === 'true',
         },
         await readLowHours(db, onlyCompany()),
         // COD amounts only for people who hold performance.amounts.view.

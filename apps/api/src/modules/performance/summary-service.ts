@@ -53,6 +53,7 @@ import type { Logger } from '../../kernel/observability/logger.js';
 import { renderText } from '../../kernel/templates/template-render.js';
 import type { TemplateService } from '../../kernel/templates/template-service.js';
 import { addDays } from './cycle.js';
+import { isDayOffOn } from './day-off.js';
 import { loadFigures, type ReportScope } from './performance-reports.js';
 import { dueSummaryDate, localClock, summariseDay, type SummaryPerson } from './summary-calc.js';
 
@@ -289,6 +290,8 @@ export class SummaryService {
       name: person.name,
       orders: byParty.get(partyId)?.orders ?? 0,
       workingMinutes: byParty.get(partyId)?.workingMinutes ?? 0,
+      // Row 4.8d: the summarised date is `date`, so day off is checked against that date.
+      dayOff: isDayOffOn(loaded.dayOffTexts.get(partyId) ?? null, date),
     }));
     const day = summariseDay(people);
     return { variant: 'full', reason: null, data: { ...base, ...day } };

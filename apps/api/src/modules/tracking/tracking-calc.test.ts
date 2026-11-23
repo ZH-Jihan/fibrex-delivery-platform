@@ -113,3 +113,30 @@ describe('summarise', () => {
     expect(summarise([row({})], false).zeroOrders).toBe(0);
   });
 });
+
+describe('day off on the figures date (row 4.8d)', () => {
+  it('does not cross-check "active but no orders" on the person\'s day off', () => {
+    const base = { ourStatus: 'active', reported: true, orders: 0, sheet: null };
+    expect(crossCheck(base)).toEqual(['active_no_orders']);
+    expect(crossCheck({ ...base, dayOffOnFiguresDate: true })).toEqual([]);
+    // The call date being a day off says nothing about the figures date; only the flag above counts.
+    expect(crossCheck({ ...base, dayOffOnFiguresDate: false })).toEqual(['active_no_orders']);
+  });
+
+  it("leaves the day off out of the strip's zero-order count", () => {
+    const row = (orders: number | null, dayOffOnFiguresDate?: boolean) => ({
+      statusCode: 'active',
+      called: false,
+      orders,
+      workingMinutes: 0,
+      statusChanged: false,
+      operatedByOther: false,
+      flagged: false,
+      ...(dayOffOnFiguresDate === undefined ? {} : { dayOffOnFiguresDate }),
+    });
+    const rows = [row(0, true), row(0), row(null), row(0, false), row(5, true)];
+    expect(summarise(rows, true).zeroOrders).toBe(3);
+    // Nothing is a zero on a day the sheet did not report.
+    expect(summarise(rows, false).zeroOrders).toBe(0);
+  });
+});

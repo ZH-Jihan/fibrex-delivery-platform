@@ -12,9 +12,11 @@
  * it is matched by words; text that matches none of them is shown but never compared, so an
  * unexpected word can never raise a false flag.
  *
- * Depends on: @fibrex/shared (cross-check kinds). Used by: ./tracking-service.ts.
+ * Depends on: @fibrex/shared (cross-check kinds), ../performance (the shared zero-orders and
+ * day-off rule, row 4.8d). Used by: ./tracking-service.ts.
  */
 import type { CrossCheckKind } from '@fibrex/shared';
+import { isZeroOrderProblem } from '../performance/index.js';
 
 /** What the sheet's text can mean, as our status codes plus "not updated". */
 export type SheetStatusCode = 'active' | 'inactive' | 'blocked' | 'terminated' | 'not_updated';
@@ -93,13 +95,18 @@ export interface CrossCheckInput {
   /** Orders on the figures date; null when the sheet had no row for the person. */
   orders: number | null;
   sheet: SheetStatus | null;
+  /** The figures date was the person's weekly day off: no orders is then expected (row 4.8d). */
+  dayOffOnFiguresDate?: boolean;
 }
 
 /** The cross-check findings for one person, in the order of CROSS_CHECK_KINDS. */
 export function crossCheck(input: CrossCheckInput): CrossCheckKind[] {
   const flags: CrossCheckKind[] = [];
   const orders = input.orders ?? 0;
-  if (input.reported && input.ourStatus === 'active' && orders === 0) {
+  if (
+    input.ourStatus === 'active' &&
+    isZeroOrderProblem(orders, input.reported, input.dayOffOnFiguresDate === true)
+  ) {
     flags.push('active_no_orders');
   }
   if (input.reported && input.ourStatus !== null && input.ourStatus !== 'active' && orders > 0) {
@@ -128,6 +135,8 @@ export interface SummaryRow {
   statusChanged: boolean;
   operatedByOther: boolean;
   flagged: boolean;
+  /** The figures date was the person's weekly day off (row 4.8d). */
+  dayOffOnFiguresDate?: boolean;
 }
 
 export interface Summary {
@@ -165,7 +174,10 @@ export function summarise(rows: readonly SummaryRow[], reported: boolean): Summa
     else summary.notCalled += 1;
     summary.ordersYesterday += row.orders ?? 0;
     minutes += row.workingMinutes ?? 0;
-    if (reported && (row.orders ?? 0) === 0) summary.zeroOrders += 1;
+    // Same rule as the rows, the filter and the summary email: a day off is not a zero.
+    if (isZeroOrderProblem(row.orders, reported, row.dayOffOnFiguresDate === true)) {
+      summary.zeroOrders += 1;
+    }
     if (row.statusChanged) summary.statusChangesToday += 1;
     const status = row.statusCode ?? 'none';
     summary.byStatus[status] = (summary.byStatus[status] ?? 0) + 1;

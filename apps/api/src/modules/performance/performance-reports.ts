@@ -32,6 +32,7 @@ import type { Db } from '../../kernel/db/prisma.js';
 import { BadRequestError, NotFoundError } from '../../kernel/http/errors.js';
 import type { ReportDef, ReportRunInput } from '../../kernel/module-registry/manifest.js';
 import { addDays, cycleContaining, type Cycle } from './cycle.js';
+import { loadDayOffTexts } from './sheet-details.js';
 import {
   acceptancePercent,
   hoursOf,
@@ -152,6 +153,8 @@ interface Loaded {
   figures: DayFigure[];
   /** Everyone to list (rule 5), by party id. */
   people: Map<string, { name: string; falconIds: string }>;
+  /** Each listed person's weekly day-off text (sheet reading at the end of the range), row 4.8d. */
+  dayOffTexts: Map<string, string>;
 }
 
 function numberOf(value: unknown): number | null {
@@ -213,7 +216,10 @@ export async function loadFigures(db: Db, scope: ReportScope): Promise<Loaded> {
     where: { deletedAt: null, statusCode: 'active', partyId: { in: [...idsOf.keys()] } },
     select: { partyId: true },
   });
-  const listed = new Set<string>([...figures.map((f) => f.partyId), ...active.map((e) => e.partyId)]);
+  const listed = new Set<string>([
+    ...figures.map((f) => f.partyId),
+    ...active.map((e) => e.partyId),
+  ]);
   const parties = await db.party.findMany({
     where: { id: { in: [...listed] } },
     select: { id: true, displayName: true },
@@ -225,7 +231,13 @@ export async function loadFigures(db: Db, scope: ReportScope): Promise<Loaded> {
       falconIds: [...new Set(idsOf.get(party.id) ?? [])].sort().join(', '),
     });
   }
-  return { reportedDates: dates.map((d) => isoDay(d.businessDate)), figures, people };
+  const dayOffTexts = await loadDayOffTexts(db, [...people.keys()], scope.to);
+  return {
+    reportedDates: dates.map((d) => isoDay(d.businessDate)),
+    figures,
+    people,
+    dayOffTexts,
+  };
 }
 
 /** Sorts rows by a column and cuts one page (the rows are computed, not table rows). */
@@ -325,7 +337,12 @@ export const cycleSummaryReport: ReportDef = {
     { key: 'cycleEnd', label: 'Cycle end', type: 'date', sortable: true },
     { key: 'totalOrders', label: 'Total orders', type: 'number', sortable: true },
     { key: 'totalHours', label: 'Total hours', type: 'number', sortable: true },
-    { key: 'avgOrdersPerActiveDay', label: 'Avg orders per active day', type: 'number', sortable: true },
+    {
+      key: 'avgOrdersPerActiveDay',
+      label: 'Avg orders per active day',
+      type: 'number',
+      sortable: true,
+    },
     { key: 'daysWorked', label: 'Days worked', type: 'number', sortable: true },
     { key: 'zeroDays', label: 'Days with zero orders', type: 'number', sortable: true },
     { key: 'ordersPerHour', label: 'Orders per hour', type: 'number', sortable: true },
@@ -336,7 +353,12 @@ export const cycleSummaryReport: ReportDef = {
     const data = await loadFigures(db, scope);
     const byPerson = indexFigures(data.figures);
     const rows: Row[] = [...data.people].map(([partyId, person]) => {
-      const totals = totalsFor(partyId, byPerson.get(partyId), data.reportedDates);
+      const totals = totalsFor(
+        partyId,
+        byPerson.get(partyId),
+        data.reportedDates,
+        data.dayOffTexts.get(partyId) ?? null,
+      );
       return {
         personName: person.name,
         falconId: person.falconIds,
@@ -382,7 +404,12 @@ export const topBottomReport: ReportDef = {
     const ranked = [...data.people].map(([partyId, person]) => ({
       partyId,
       person,
-      totals: totalsFor(partyId, byPerson.get(partyId), data.reportedDates),
+      totals: totalsFor(
+        partyId,
+        byPerson.get(partyId),
+        data.reportedDates,
+        data.dayOffTexts.get(partyId) ?? null,
+      ),
     }));
     // Same count, then name, so the lists never change between runs.
     const order = (a: (typeof ranked)[number], b: (typeof ranked)[number]) =>
@@ -413,7 +440,12 @@ export const topBottomReport: ReportDef = {
     ];
     const streaks = ranked
       .flatMap((r) => {
-        const run = longestZeroRun(byPerson.get(r.partyId), data.reportedDates);
+        // Days that were the person's day off are not zero days and end a run (row 4.8d).
+        const run = longestZeroRun(
+          byPerson.get(r.partyId),
+          data.reportedDates,
+          data.dayOffTexts.get(r.partyId) ?? null,
+        );
         return run !== null && run.days >= STREAK_DAYS ? [{ r, run }] : [];
       })
       .sort((a, b) => b.run.days - a.run.days || a.r.person.name.localeCompare(b.r.person.name));

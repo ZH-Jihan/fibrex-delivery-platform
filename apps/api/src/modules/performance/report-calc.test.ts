@@ -62,9 +62,9 @@ describe('totalsFor', () => {
 describe('longestZeroRun', () => {
   const run = (zeroDates: string[], reported: string[]) =>
     longestZeroRun(
-      indexFigures(
-        reported.filter((d) => !zeroDates.includes(d)).map((d) => figure(d, 4)),
-      ).get('p1'),
+      indexFigures(reported.filter((d) => !zeroDates.includes(d)).map((d) => figure(d, 4))).get(
+        'p1',
+      ),
       reported,
     );
 
@@ -124,5 +124,36 @@ describe('thisAndLastCycle', () => {
       start: '2026-11-26',
       end: '2026-12-25',
     });
+  });
+});
+
+describe('day off in the totals and the "no orders in a row" run (row 4.8d)', () => {
+  // 2026-11-01 is a Sunday, so 2026-11-02 is a Monday. Nobody has any orders on these days.
+  const dates = ['2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05'];
+
+  it('does not count the day off as a zero-order day', () => {
+    expect(totalsFor('p1', undefined, dates).zeroDays).toBe(5);
+    expect(totalsFor('p1', undefined, dates, 'Mon').zeroDays).toBe(4);
+    // "Not updated" names no weekday, so nothing is skipped.
+    expect(totalsFor('p1', undefined, dates, 'Not updated').zeroDays).toBe(5);
+  });
+
+  it('ends a run on the day off, so the day off is not in the run', () => {
+    expect(longestZeroRun(undefined, dates)).toEqual({
+      days: 5,
+      from: '2026-11-01',
+      to: '2026-11-05',
+    });
+    expect(longestZeroRun(undefined, dates, 'Monday')).toEqual({
+      days: 3,
+      from: '2026-11-03',
+      to: '2026-11-05',
+    });
+  });
+
+  it('works across a month boundary', () => {
+    // 2026-11-29 Sunday, 11-30 Monday, 12-01 Tuesday: day off Monday splits the run.
+    const run = longestZeroRun(undefined, ['2026-11-29', '2026-11-30', '2026-12-01'], 'Monday');
+    expect(run).toEqual({ days: 1, from: '2026-12-01', to: '2026-12-01' });
   });
 });

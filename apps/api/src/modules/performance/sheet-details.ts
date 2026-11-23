@@ -13,37 +13,32 @@
  *      empty value with a flag (`notUpdated`) the screen turns into a small hint, never as a
  *      time, weekday or amount. A break cell that is not a time is stored by the sync as
  *      empty, so it simply reads as "no value".
- *   2. "Day off" is a weekday name ("Friday", "Fri", "Fri, Sat"); `isToday` compares it with the
- *      weekday of the chosen date. Words that are not weekdays leave `weekdays` empty and the
- *      sheet's own text is shown; nothing is then marked, because a wrong "day off today" mark
- *      would tell the caller not to expect orders from a person who is working.
+ *   2. "Day off" is a weekday name ("Friday", "Fri", "Fri, Sat"), read by ./day-off.ts. It is
+ *      compared with the weekday of the figures date (the day before the chosen date) and of
+ *      the chosen (call) date separately: `onFiguresDate` and `onCallDate` (row 4.8d). Words
+ *      that are not weekdays leave `weekdays` empty and the sheet's own text is shown; nothing
+ *      is then marked, because a wrong "day off" mark would hide a person who is not working.
  *   3. Duty time ("14:00-02:00") and break (two time cells) are returned as `from` and `to`;
  *      text that is not a range is returned as `text` unchanged.
  *   4. The COD (pending amount) and the balance amount are money. They are returned only when
  *      the caller holds `performance.amounts.view`; otherwise the keys are null, so the figure
  *      never reaches the browser. Amounts are strings with four decimals and a currency code.
  *
- * Depends on: kernel/db, ./cycle.ts. Used by: ./index.ts (re-exported), ./performance-report-router.ts,
+ * Depends on: kernel/db, ./cycle.ts, ./day-off.ts. Used by: ./index.ts (re-exported), ./performance-report-router.ts,
  * ../tracking/call-sheet.ts, ../tracking/tracking-router.ts.
  */
 import type { Db } from '../../kernel/db/prisma.js';
 import { addDays, cycleContaining } from './cycle.js';
+import { dayOffFlags, isDayOffOn, parseWeekdays } from './day-off.js';
+
+// The one parser of the day-off text lives in ./day-off.ts; these names stay available from here.
+export { isDayOffOn, parseWeekdays, weekdayOf } from './day-off.js';
 
 /** Permission to see the COD (pending amount) and balance amount of a person. */
 export const AMOUNTS_VIEW = 'performance.amounts.view';
 
 /** Currency of the sheet's amounts when the stored row names none (Qatar riyal). */
 export const SHEET_CURRENCY = 'QAR';
-
-const WEEKDAY_WORDS: readonly (readonly string[])[] = [
-  ['sun', 'sunday'],
-  ['mon', 'monday'],
-  ['tue', 'tues', 'tuesday'],
-  ['wed', 'wednesday'],
-  ['thu', 'thur', 'thurs', 'thursday'],
-  ['fri', 'friday'],
-  ['sat', 'saturday'],
-];
 
 export interface AmountView {
   /** Decimal string with four places, as stored. */
@@ -62,8 +57,10 @@ export interface SheetDetails {
     text: string | null;
     /** Weekday numbers (0 = Sunday ... 6 = Saturday) read from the text. */
     weekdays: number[];
-    /** True when one of those weekdays is the weekday of the chosen date. */
-    isToday: boolean;
+    /** True when one of those weekdays is the weekday of the figures date (the day before). */
+    onFiguresDate: boolean;
+    /** True when one of those weekdays is the weekday of the chosen (call) date. */
+    onCallDate: boolean;
     notUpdated: boolean;
   };
   dutyTime: { from: string | null; to: string | null; text: string | null; notUpdated: boolean };
@@ -96,26 +93,6 @@ function textValue(value: unknown): string | null {
 
 const isNotUpdated = (value: unknown): boolean =>
   typeof value === 'string' && NOT_UPDATED.test(value);
-
-/** Weekday numbers named in `text` ("Fri", "Friday, Saturday", "Fri & Sat"); none for other words. */
-export function parseWeekdays(text: string | null): number[] {
-  if (text === null) return [];
-  const found = new Set<number>();
-  for (const word of text.toLowerCase().split(/[^a-z]+/)) {
-    if (word === '') continue;
-    const index = WEEKDAY_WORDS.findIndex((names) => names.includes(word));
-    if (index >= 0) found.add(index);
-  }
-  return [...found].sort((a, b) => a - b);
-}
-
-/** Weekday number (0 = Sunday) of a calendar date `YYYY-MM-DD`. */
-export const weekdayOf = (date: string): number => new Date(`${date}T00:00:00.000Z`).getUTCDay();
-
-/** Whether the sheet's day-off text names the weekday of `date` ("day off today"). */
-export function isDayOffOn(dayOffText: string | null, date: string): boolean {
-  return parseWeekdays(dayOffText).includes(weekdayOf(date));
-}
 
 /** Time of day "H:MM" or "HH:MM(:SS)" as "HH:MM"; null when it is not a time. */
 function clock(text: string): string | null {
@@ -173,7 +150,7 @@ export const NO_SHEET_DETAILS: SheetDetails = {
   found: false,
   asOfDate: null,
   updatedAt: null,
-  dayOff: { text: null, weekdays: [], isToday: false, notUpdated: false },
+  dayOff: { text: null, weekdays: [], onFiguresDate: false, onCallDate: false, notUpdated: false },
   dutyTime: { from: null, to: null, text: null, notUpdated: false },
   break: { from: null, to: null, text: null, notUpdated: false },
   zone: null,
@@ -223,7 +200,8 @@ export function parseSheetFields(
     dayOff: {
       text: dayOffText,
       weekdays: parseWeekdays(dayOffText),
-      isToday: isDayOffOn(dayOffText, date),
+      // Each date on its own (row 4.8d): the figures are from the day before the call date.
+      ...dayOffFlags(dayOffText, addDays(date, -1), date),
       notUpdated: dayOffNotUpdated,
     },
     dutyTime,
@@ -293,8 +271,28 @@ export async function loadSheetDetails(
   return result;
 }
 
+/**
+ * The sheet's day-off text of each person as read on `asOf` (their latest stored row of the
+ * date's cycle). Day off is a weekly habit, so the reports apply this one reading to every day
+ * of their range. People with no text (none stored, "Not updated") are absent from the map.
+ */
+export async function loadDayOffTexts(
+  db: Db,
+  partyIds: readonly string[],
+  asOf: string,
+): Promise<Map<string, string>> {
+  const sheets = await loadSheetDetails(db, partyIds, asOf, false);
+  const result = new Map<string, string>();
+  for (const [partyId, sheet] of sheets) {
+    if (sheet.dayOff.text !== null) result.set(partyId, sheet.dayOff.text);
+  }
+  return result;
+}
+
 export interface RecentDay {
   date: string;
+  /** True when the date was the person's weekly day off (so no orders is expected). */
+  dayOff: boolean;
   /** False when the platform stored no figures at all for the date (a reset, never a zero). */
   reported: boolean;
   orders: number | null;
@@ -302,7 +300,12 @@ export interface RecentDay {
 }
 
 /** The seven dates before `date` (oldest first) with the person's orders and active hours. */
-export async function loadRecentDays(db: Db, partyId: string, date: string): Promise<RecentDay[]> {
+export async function loadRecentDays(
+  db: Db,
+  partyId: string,
+  date: string,
+  dayOffText: string | null = null,
+): Promise<RecentDay[]> {
   const first = addDays(date, -7);
   const last = addDays(date, -1);
   const range = { gte: toDay(first), lte: toDay(last) };
@@ -331,6 +334,7 @@ export async function loadRecentDays(db: Db, partyId: string, date: string): Pro
     const figure = byDate.get(d);
     days.push({
       date: d,
+      dayOff: isDayOffOn(dayOffText, d),
       reported: isReported,
       orders: isReported ? (figure?.orders ?? 0) : null,
       hours: isReported ? Math.round(((figure?.minutes ?? 0) / 60) * 100) / 100 : null,
@@ -350,6 +354,8 @@ export interface PlatformIdView {
 export interface PlatformDetails {
   partyId: string;
   date: string;
+  /** The day the figures are from (the day before `date`). */
+  figuresDate: string;
   sheet: SheetDetails;
   platformIds: PlatformIdView[];
   recentDays: RecentDay[];
@@ -370,7 +376,7 @@ export async function loadPlatformDetails(
   plainTypes: ReadonlySet<string>,
 ): Promise<PlatformDetails> {
   const day = toDay(date);
-  const [sheets, identifiers, recentDays] = await Promise.all([
+  const [sheets, identifiers] = await Promise.all([
     loadSheetDetails(db, [partyId], date, withAmounts),
     db.partyIdentifier.findMany({
       where: {
@@ -390,12 +396,15 @@ export async function loadPlatformDetails(
         validTo: true,
       },
     }),
-    loadRecentDays(db, partyId, date),
   ]);
+  const sheet = sheets.get(partyId) ?? NO_SHEET_DETAILS;
+  // The last seven days carry the person's weekly day off, so a day off reads as one.
+  const recentDays = await loadRecentDays(db, partyId, date, sheet.dayOff.text);
   return {
     partyId,
     date,
-    sheet: sheets.get(partyId) ?? NO_SHEET_DETAILS,
+    figuresDate: addDays(date, -1),
+    sheet,
     platformIds: identifiers.map((i) => ({
       identifierId: i.id,
       type: i.type,

@@ -94,7 +94,12 @@ describe('parseSheetFields', () => {
 
   it('gives friendly values and four-place amounts in QAR with the permission', () => {
     const d = parseSheetFields(metrics, FRIDAY, { withAmounts: true });
-    expect(d.dayOff).toMatchObject({ text: 'Friday', weekdays: [5], isToday: true });
+    expect(d.dayOff).toMatchObject({
+      text: 'Friday',
+      weekdays: [5],
+      onCallDate: true,
+      onFiguresDate: false,
+    });
     expect(d.dutyTime.from).toBe('14:00');
     expect(d.break.to).toBe('17:00');
     expect(d.cod).toEqual({ amount: '125.5000', currency: 'QAR' });
@@ -114,7 +119,12 @@ describe('parseSheetFields', () => {
       FRIDAY,
       { withAmounts: true },
     );
-    expect(d.dayOff).toMatchObject({ text: null, isToday: false, notUpdated: true });
+    expect(d.dayOff).toMatchObject({
+      text: null,
+      onCallDate: false,
+      onFiguresDate: false,
+      notUpdated: true,
+    });
     expect(d.zone).toBeNull();
     expect(d.notUpdatedFields).toEqual(['day_off', 'schedule', 'zone']);
     expect(d.cod).toBeNull();

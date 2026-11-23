@@ -17,6 +17,11 @@
  * The status shown is the employee's status on the sheet's date: the current status for today
  * or later, the dated history (`cfg.state_history`) for a past date.
  *
+ * Day off (row 4.8d): the figures are of the day before the sheet's date, so a person's day off
+ * is checked against both dates on their own (`sheet.dayOff.onFiguresDate` and `.onCallDate`).
+ * No orders on the figures date is not a problem when it was their day off: not a zero in the
+ * strip, the filter or the cross-check.
+ *
  * The platform sheet details of each person (row 4.8c: day off, duty time, break, zone, plate,
  * COD ...) come from the person's latest stored sheet row of the date's cycle (loadSheetDetails).
  * The COD amount is included only when the caller may see amounts, and the balance amount is
@@ -39,6 +44,7 @@ import { PLAIN_IDENTIFIER_TYPES } from '../party/index.js';
 import { EMPLOYEE_ENTITY } from '../people/index.js';
 import {
   addDays,
+  isZeroOrderProblem,
   loadSheetDetails,
   NO_SHEET_DETAILS,
   type SheetDetails,
@@ -123,8 +129,10 @@ export interface SheetFilters {
   q?: string | undefined;
   notCalled?: boolean | undefined;
   zeroOrders?: boolean | undefined;
-  /** Only people whose sheet day off is the weekday of the chosen date. */
+  /** Only people whose sheet day off is the weekday of the chosen (call) date. */
   dayOffToday?: boolean | undefined;
+  /** Only people whose sheet day off is the weekday of the figures date (the day before). */
+  dayOffYesterday?: boolean | undefined;
 }
 
 export interface CallSheet {
@@ -241,18 +249,27 @@ export async function readLowHours(db: Db, companyId: string | null): Promise<nu
 }
 
 /**
- * Whether a row has no orders on a reported day. A person the sheet has no row for on a day it
- * reported delivered nothing, so they count as zero (the same rule as the strip).
+ * Whether a row has no orders on a reported day that was not their day off. A person the sheet
+ * has no row for on a day it reported delivered nothing, so they count as zero (the same rule
+ * as the strip). On their day off (figures date) no orders is expected, so it is not a zero
+ * (row 4.8d; the shared rule is `isZeroOrderProblem` in ../performance/day-off.ts).
  */
-export const hasZeroOrders = (orders: number | null, reported: boolean): boolean =>
-  reported && (orders ?? 0) === 0;
+export const hasZeroOrders = (
+  orders: number | null,
+  reported: boolean,
+  dayOffOnFiguresDate = false,
+): boolean => isZeroOrderProblem(orders, reported, dayOffOnFiguresDate);
 
 /** Does the row pass every filter given? Text matches name, code, phone or a platform ID. */
 export function matchesFilters(row: SheetRow, f: SheetFilters, reported: boolean): boolean {
   if (f.status !== undefined && row.statusCode !== f.status) return false;
   if (f.notCalled === true && row.calledToday) return false;
-  if (f.zeroOrders === true && !hasZeroOrders(row.yesterday.orders, reported)) return false;
-  if (f.dayOffToday === true && !row.sheet.dayOff.isToday) return false;
+  const { onFiguresDate, onCallDate } = row.sheet.dayOff;
+  if (f.zeroOrders === true && !hasZeroOrders(row.yesterday.orders, reported, onFiguresDate)) {
+    return false;
+  }
+  if (f.dayOffToday === true && !onCallDate) return false;
+  if (f.dayOffYesterday === true && !onFiguresDate) return false;
   const q = f.q?.trim().toLowerCase() ?? '';
   if (q === '') return true;
   return [row.name, row.employeeCode, row.phone ?? '', ...row.platformIds.map((p) => p.value)]
@@ -432,6 +449,7 @@ export async function loadCallSheet(
     const lastCall = lastCallOf.get(partyId);
     const operator = operatorOf.get(partyId);
     const sheetStatus = figure?.sheet ?? null;
+    const dayOff = (sheets.get(partyId) ?? NO_SHEET_DETAILS).dayOff;
     return {
       partyId,
       employeeId: placement.employee.id,
@@ -459,6 +477,7 @@ export async function loadCallSheet(
         reported,
         orders: figure?.orders ?? null,
         sheet: sheetStatus,
+        dayOffOnFiguresDate: dayOff.onFiguresDate,
       }),
     };
   });
@@ -478,6 +497,7 @@ export async function loadCallSheet(
       statusChanged: ['applied', 'pending', 'failed'].includes(row.entry?.statusState ?? 'none'),
       operatedByOther: row.operator !== null,
       flagged: row.crossCheck.length > 0,
+      dayOffOnFiguresDate: row.sheet.dayOff.onFiguresDate,
     })),
     reported,
   );

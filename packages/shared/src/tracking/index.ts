@@ -66,8 +66,11 @@ export const TRACKING_DEFAULT_LOW_HOURS = 4;
  *   status       our status code on the date (exact);
  *   q            text found in the name, employee code, phone or a platform ID;
  *   notCalled    "true": only people not yet called on the date;
- *   zeroOrders   "true": only people with no orders on a day the sheet reported.
+ *   zeroOrders   "true": only people with no orders on a day the sheet reported that was not
+ *                their day off.
  *   dayOffToday  "true": only people whose sheet day off is the weekday of the date.
+ *   dayOffYesterday  "true": only people whose sheet day off is the weekday of the day before
+ *                the date (the day the figures are from).
  */
 export const trackingSheetQuerySchema = z.object({
   date: isoDate.optional(),
@@ -76,6 +79,7 @@ export const trackingSheetQuerySchema = z.object({
   notCalled: z.enum(['true', 'false']).optional(),
   zeroOrders: z.enum(['true', 'false']).optional(),
   dayOffToday: z.enum(['true', 'false']).optional(),
+  dayOffYesterday: z.enum(['true', 'false']).optional(),
 });
 export type TrackingSheetQuery = z.infer<typeof trackingSheetQuerySchema>;
 

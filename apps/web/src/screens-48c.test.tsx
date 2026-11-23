@@ -135,14 +135,26 @@ const sheetBody = (amountsVisible: boolean) => {
     row(2, {
       yesterday: { orders: 4, hours: 3, lateMinutes: 0 },
       sheet: fullSheet({
-        dayOff: { text: 'Sunday', weekdays: [0], isToday: true, notUpdated: false },
+        dayOff: {
+          text: 'Sunday',
+          weekdays: [0],
+          onFiguresDate: false,
+          onCallDate: true,
+          notUpdated: false,
+        },
         cod: null,
       }),
     }),
     row(3, {
       yesterday: { orders: 2, hours: 5, lateMinutes: 0 },
       sheet: fullSheet({
-        dayOff: { text: null, weekdays: [], isToday: false, notUpdated: true },
+        dayOff: {
+          text: null,
+          weekdays: [],
+          onFiguresDate: false,
+          onCallDate: false,
+          notUpdated: true,
+        },
         dutyTime: { from: null, to: null, text: null, notUpdated: true },
         break: { from: null, to: null, text: null, notUpdated: false },
         zone: null,
@@ -167,6 +179,7 @@ const ALL = ['tracking.entry.view', 'tracking.call.create', 'people.employee.rea
 const DETAILS = (amountsVisible: boolean) => ({
   partyId: 'party-1',
   date: '2026-11-22',
+  figuresDate: '2026-11-21',
   amountsVisible,
   sheet: fullSheet({
     cod: amountsVisible ? { amount: '125.5000', currency: 'QAR' } : null,
@@ -177,9 +190,9 @@ const DETAILS = (amountsVisible: boolean) => ({
     { identifierId: 'i2', type: 'falcon_id', value: '91002', validFrom: '2026-09-15' },
   ],
   recentDays: [
-    { date: '2026-11-15', reported: false, orders: null, hours: null },
-    { date: '2026-11-16', reported: true, orders: 9, hours: 6.5 },
-    { date: '2026-11-21', reported: true, orders: 12, hours: 8.5 },
+    { date: '2026-11-15', dayOff: false, reported: false, orders: null, hours: null },
+    { date: '2026-11-16', dayOff: false, reported: true, orders: 9, hours: 6.5 },
+    { date: '2026-11-21', dayOff: true, reported: true, orders: 12, hours: 8.5 },
   ],
 });
 const HISTORY = {
@@ -360,5 +373,86 @@ describe('Employee profile: Platform details section (row 4.8c)', () => {
     expect(screen.getByText('COD (pending amount)')).toBeInTheDocument();
     expect(screen.getByText('QAR 125.50')).toBeInTheDocument();
     expect(screen.getByText('from 2026-01-01')).toBeInTheDocument();
+  });
+});
+
+describe('Call sheet: day off for the figures date and the call date (row 4.8d)', () => {
+  // Synthetic people. The sheet is for Sunday 2026-11-22; its figures are from Saturday 2026-11-21.
+  const sheetFor = () => {
+    const off = (onFiguresDate: boolean, onCallDate: boolean, text: string | null) =>
+      fullSheet({
+        dayOff: {
+          text,
+          weekdays: text === 'Saturday' ? [6] : text === 'Sunday' ? [0] : [],
+          onFiguresDate,
+          onCallDate,
+          notUpdated: false,
+        },
+      });
+    const rows = [
+      // Day off on the figures date, no orders: not a problem.
+      row(1, {
+        yesterday: { orders: 0, hours: 0, lateMinutes: 0 },
+        sheet: off(true, false, 'Saturday'),
+      }),
+      // Day off on the call date only, and no orders yesterday: still a problem.
+      row(2, {
+        yesterday: { orders: 0, hours: 0, lateMinutes: 0 },
+        sheet: off(false, true, 'Sunday'),
+      }),
+      // No day off set, no orders: a problem.
+      row(3, {
+        yesterday: { orders: 0, hours: 0, lateMinutes: 0 },
+        sheet: off(false, false, null),
+      }),
+    ];
+    return {
+      date: '2026-11-22',
+      figuresDate: '2026-11-21',
+      reported: true,
+      summary: { ...summary, zeroOrders: 2 },
+      rows,
+      filtered: false,
+      unfiltered: { totalPeople: 3, byStatus: { active: 3 } },
+      lowHoursLimit: 2,
+      amountsVisible: false,
+    };
+  };
+
+  it('labels the figures date with its weekday and tags each date on its own', async () => {
+    stub(base(ALL, { 'GET /tracking': () => json(200, sheetFor()) }));
+    render(wrap(<CallSheetPage />));
+    await screen.findByText('Test Rider 1');
+    expect(screen.getByText('Figures are from 2026-11-21 (Saturday).')).toBeInTheDocument();
+    // Filter buttons plus one tag each: yesterday on rider 1, today on rider 2.
+    expect(screen.getAllByText('Day off yesterday')).toHaveLength(2);
+    expect(screen.getAllByText('Day off today')).toHaveLength(2);
+  });
+
+  it('shows a neutral "Day off" mark, not "No orders", and no red tint on the figures day off', async () => {
+    stub(base(ALL, { 'GET /tracking': () => json(200, sheetFor()) }));
+    render(wrap(<CallSheetPage />));
+    await screen.findByText('Test Rider 1');
+    const rowOf = (name: string) => screen.getByText(name).closest('tr') as HTMLElement;
+    expect(within(rowOf('Test Rider 1')).queryByText('No orders')).not.toBeInTheDocument();
+    expect(within(rowOf('Test Rider 1')).getByText('Day off')).toBeInTheDocument();
+    expect(rowOf('Test Rider 1')).not.toHaveClass('sheet-row-zero');
+    // Day off only on the call date, and nobody with a day off set: still no orders.
+    expect(within(rowOf('Test Rider 2')).getByText('No orders')).toBeInTheDocument();
+    expect(within(rowOf('Test Rider 3')).getByText('No orders')).toBeInTheDocument();
+    expect(rowOf('Test Rider 3')).toHaveClass('sheet-row-zero');
+  });
+
+  it('sends the "Day off yesterday" filter to the server', async () => {
+    const calls = stub(base(ALL, { 'GET /tracking': () => json(200, sheetFor()) }));
+    const user = userEvent.setup();
+    render(wrap(<CallSheetPage />));
+    await screen.findByText('Test Rider 1');
+    await user.click(screen.getByRole('button', { name: 'Day off yesterday' }));
+    await waitFor(() => {
+      expect(
+        calls.some((c) => c.path === '/tracking' && c.query.includes('dayOffYesterday=true')),
+      ).toBe(true);
+    });
   });
 });
