@@ -3,6 +3,7 @@
  * Missing keys fall back to English. Used by: i18n/index.tsx.
  */
 import type { Messages } from './en';
+import { hiPhase4 } from './hi.phase4';
 
 export const hi: Messages = {
   'common.loading': 'लोड हो रहा है…',
@@ -33,4 +34,5 @@ export const hi: Messages = {
   'shell.theme': 'थीम',
   'shell.company': 'कंपनी',
   'shell.home': 'होम',
+  ...hiPhase4,
 };

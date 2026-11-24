@@ -35,3 +35,65 @@ describe('i18n', () => {
     }
   });
 });
+
+// Phase 4 screens (rows 4.5 to 4.10): every language must carry every key, with the same
+// {placeholders} as English, so staff never see English fragments or a broken merge field.
+const PHASE4_PREFIXES = [
+  'mapping.',
+  'runs.',
+  'unmatched.',
+  'perfReports.',
+  'perfPerson.',
+  'summary.',
+  'callSheet.',
+  'sheetDetails.',
+  'personTracking.',
+  'statusDiff.',
+  'fdb.',
+  'employees.platformIds',
+];
+const PHASE4_EXACT = [
+  'nav.syncRuns',
+  'nav.unmatched',
+  'nav.perfDaily',
+  'nav.perfCycle',
+  'nav.perfTopBottom',
+  'nav.perfSummary',
+  'nav.callSheet',
+  'nav.statusDiff',
+  'nav.fdbCheck',
+  'common.previous',
+  'common.next',
+  'common.remove',
+  'syncSource.mapping',
+  'employees.tab.performance',
+  'employees.tab.tracking',
+];
+const phase4Keys = Object.keys(en).filter(
+  (key) => PHASE4_EXACT.includes(key) || PHASE4_PREFIXES.some((prefix) => key.startsWith(prefix)),
+);
+const placeholders = (text: string) => (text.match(/\{\w+\}/g) ?? []).sort().join(',');
+
+describe('i18n Phase 4 completeness', () => {
+  const languages: Record<string, Record<string, string | undefined>> = { bn, ur, hi, ne };
+
+  it('finds the Phase 4 keys', () => {
+    expect(phase4Keys.length).toBeGreaterThan(400);
+  });
+
+  for (const [code, table] of Object.entries(languages)) {
+    it(`${code} has every Phase 4 key`, () => {
+      expect(phase4Keys.filter((key) => !table[key])).toEqual([]);
+    });
+
+    it(`${code} keeps the same placeholders as English`, () => {
+      const wrong = Object.keys(table).filter(
+        (key) =>
+          key in en &&
+          placeholders(table[key] ?? '') !==
+            placeholders(String((en as Record<string, string>)[key])),
+      );
+      expect(wrong).toEqual([]);
+    });
+  }
+});

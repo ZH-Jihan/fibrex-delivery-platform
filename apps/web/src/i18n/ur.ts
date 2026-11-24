@@ -3,6 +3,7 @@
  * (PROGRESS.md). Missing keys fall back to English. Used by: i18n/index.tsx.
  */
 import type { Messages } from './en';
+import { urPhase4 } from './ur.phase4';
 
 export const ur: Messages = {
   'common.loading': 'لوڈ ہو رہا ہے…',
@@ -33,4 +34,5 @@ export const ur: Messages = {
   'shell.theme': 'تھیم',
   'shell.company': 'کمپنی',
   'shell.home': 'ہوم',
+  ...urPhase4,
 };

@@ -3,6 +3,7 @@
  * Missing keys fall back to English. Used by: i18n/index.tsx.
  */
 import type { Messages } from './en';
+import { nePhase4 } from './ne.phase4';
 
 export const ne: Messages = {
   'common.loading': 'लोड हुँदैछ…',
@@ -33,4 +34,5 @@ export const ne: Messages = {
   'shell.theme': 'थिम',
   'shell.company': 'कम्पनी',
   'shell.home': 'गृहपृष्ठ',
+  ...nePhase4,
 };

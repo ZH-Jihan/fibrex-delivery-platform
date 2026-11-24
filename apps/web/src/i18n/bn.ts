@@ -3,6 +3,7 @@
  * Missing keys fall back to English. Used by: i18n/index.tsx.
  */
 import type { Messages } from './en';
+import { bnPhase4 } from './bn.phase4';
 
 export const bn: Messages = {
   'common.loading': 'লোড হচ্ছে…',
@@ -1234,4 +1235,5 @@ export const bn: Messages = {
   'fdb.doc.insurance': 'বিমা',
   'fdb.doc.food_handling': 'খাদ্য হ্যান্ডলিং কার্ড',
   'fdb.doc.health_card': 'স্বাস্থ্য কার্ড',
+  ...bnPhase4,
 };
